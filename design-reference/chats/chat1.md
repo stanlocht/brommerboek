@@ -192,4 +192,3 @@ What's there, seeded with a 10-stop NL→BE→FR→CH→IT trip (2 repairs, 5 co
 - **New post flow** — location → media → story → type, with the repair fields revealing inline.
 
 Two notes: the Cub illustration is a simple stylized side-profile (reads well at marker size — happy to make it more detailed); and I dropped a few entrance fade animations because this runtime left them stuck invisible — the screens now appear instantly, which is clean but less flourish. The galleries use colored vintage-photo placeholders — drop in real photos/logos whenever you want and I can wire image slots.
-

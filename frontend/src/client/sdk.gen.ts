@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class ItemsService {
     /**
@@ -228,6 +228,76 @@ export class PrivateService {
             url: '/api/v1/private/users/',
             body: data.requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class StopsService {
+    /**
+     * Read Stops
+     * Retrieve all stops of the trip, in route order. Public — this is a
+     * personal, single-trip showcase.
+     * @returns StopsPublic Successful Response
+     * @throws ApiError
+     */
+    public static readStops(): CancelablePromise<StopsReadStopsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/stops/'
+        });
+    }
+    
+    /**
+     * Create Stop
+     * Add a new stop to the end of the route (from the new-post flow).
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns StopPublic Successful Response
+     * @throws ApiError
+     */
+    public static createStop(data: StopsCreateStopData): CancelablePromise<StopsCreateStopResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/stops/',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Stats
+     * Aggregate trip statistics for the "Wrapped" recap screen.
+     * @returns TripStats Successful Response
+     * @throws ApiError
+     */
+    public static readStats(): CancelablePromise<StopsReadStatsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/stops/stats'
+        });
+    }
+    
+    /**
+     * Read Stop
+     * Get a single stop by ID.
+     * @param data The data for the request.
+     * @param data.id
+     * @returns StopPublic Successful Response
+     * @throws ApiError
+     */
+    public static readStop(data: StopsReadStopData): CancelablePromise<StopsReadStopResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/stops/{id}',
+            path: {
+                id: data.id
+            },
             errors: {
                 422: 'Validation Error'
             }

@@ -196,6 +196,30 @@ export const ItemsPublicSchema = {
     title: 'ItemsPublic'
 } as const;
 
+export const MediaItemSchema = {
+    properties: {
+        tone: {
+            type: 'string',
+            maxLength: 32,
+            title: 'Tone'
+        },
+        cap: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Cap',
+            default: ''
+        },
+        video: {
+            type: 'boolean',
+            title: 'Video',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['tone'],
+    title: 'MediaItem'
+} as const;
+
 export const MessageSchema = {
     properties: {
         message: {
@@ -251,6 +275,240 @@ export const PrivateUserCreateSchema = {
     title: 'PrivateUserCreate'
 } as const;
 
+export const StopCreateSchema = {
+    properties: {
+        place: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Place'
+        },
+        country: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Country'
+        },
+        flag: {
+            type: 'string',
+            maxLength: 16,
+            title: 'Flag',
+            default: ''
+        },
+        code: {
+            type: 'string',
+            maxLength: 8,
+            title: 'Code',
+            default: ''
+        },
+        lat: {
+            type: 'number',
+            title: 'Lat'
+        },
+        lng: {
+            type: 'number',
+            title: 'Lng'
+        },
+        date: {
+            type: 'string',
+            format: 'date',
+            title: 'Date'
+        },
+        title: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Title'
+        },
+        km: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Km',
+            default: 0
+        },
+        weather: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Weather',
+            default: ''
+        },
+        type: {
+            type: 'string',
+            maxLength: 16,
+            title: 'Type',
+            default: 'stop'
+        },
+        story: {
+            type: 'string',
+            title: 'Story',
+            default: ''
+        },
+        broke: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Broke'
+        },
+        fixed: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Fixed'
+        },
+        media: {
+            items: {
+                '$ref': '#/components/schemas/MediaItem'
+            },
+            type: 'array',
+            title: 'Media'
+        }
+    },
+    type: 'object',
+    required: ['place', 'country', 'lat', 'lng', 'date', 'title'],
+    title: 'StopCreate'
+} as const;
+
+export const StopPublicSchema = {
+    properties: {
+        place: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Place'
+        },
+        country: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Country'
+        },
+        flag: {
+            type: 'string',
+            maxLength: 16,
+            title: 'Flag',
+            default: ''
+        },
+        code: {
+            type: 'string',
+            maxLength: 8,
+            title: 'Code',
+            default: ''
+        },
+        lat: {
+            type: 'number',
+            title: 'Lat'
+        },
+        lng: {
+            type: 'number',
+            title: 'Lng'
+        },
+        date: {
+            type: 'string',
+            format: 'date',
+            title: 'Date'
+        },
+        title: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Title'
+        },
+        km: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Km',
+            default: 0
+        },
+        weather: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Weather',
+            default: ''
+        },
+        type: {
+            type: 'string',
+            maxLength: 16,
+            title: 'Type',
+            default: 'stop'
+        },
+        story: {
+            type: 'string',
+            title: 'Story',
+            default: ''
+        },
+        broke: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Broke'
+        },
+        fixed: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Fixed'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        order_index: {
+            type: 'integer',
+            title: 'Order Index'
+        },
+        media: {
+            items: {
+                '$ref': '#/components/schemas/MediaItem'
+            },
+            type: 'array',
+            title: 'Media'
+        }
+    },
+    type: 'object',
+    required: ['place', 'country', 'lat', 'lng', 'date', 'title', 'id', 'order_index'],
+    title: 'StopPublic'
+} as const;
+
+export const StopsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/StopPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'StopsPublic'
+} as const;
+
 export const TokenSchema = {
     properties: {
         access_token: {
@@ -266,6 +524,38 @@ export const TokenSchema = {
     type: 'object',
     required: ['access_token'],
     title: 'Token'
+} as const;
+
+export const TripStatsSchema = {
+    properties: {
+        km: {
+            type: 'integer',
+            title: 'Km'
+        },
+        days: {
+            type: 'integer',
+            title: 'Days'
+        },
+        countries: {
+            type: 'integer',
+            title: 'Countries'
+        },
+        stops: {
+            type: 'integer',
+            title: 'Stops'
+        },
+        repairs: {
+            type: 'integer',
+            title: 'Repairs'
+        },
+        stamps: {
+            type: 'integer',
+            title: 'Stamps'
+        }
+    },
+    type: 'object',
+    required: ['km', 'days', 'countries', 'stops', 'repairs', 'stamps'],
+    title: 'TripStats'
 } as const;
 
 export const UpdatePasswordSchema = {

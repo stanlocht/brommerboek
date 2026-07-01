@@ -36,6 +36,12 @@ export type ItemUpdate = {
     description?: (string | null);
 };
 
+export type MediaItem = {
+    tone: string;
+    cap?: string;
+    video?: boolean;
+};
+
 export type Message = {
     message: string;
 };
@@ -52,9 +58,61 @@ export type PrivateUserCreate = {
     is_verified?: boolean;
 };
 
+export type StopCreate = {
+    place: string;
+    country: string;
+    flag?: string;
+    code?: string;
+    lat: number;
+    lng: number;
+    date: string;
+    title: string;
+    km?: number;
+    weather?: string;
+    type?: string;
+    story?: string;
+    broke?: (string | null);
+    fixed?: (string | null);
+    media?: Array<MediaItem>;
+};
+
+export type StopPublic = {
+    place: string;
+    country: string;
+    flag?: string;
+    code?: string;
+    lat: number;
+    lng: number;
+    date: string;
+    title: string;
+    km?: number;
+    weather?: string;
+    type?: string;
+    story?: string;
+    broke?: (string | null);
+    fixed?: (string | null);
+    id: string;
+    order_index: number;
+    media?: Array<MediaItem>;
+};
+
+export type StopsPublic = {
+    data: Array<StopPublic>;
+    count: number;
+};
+
 export type Token = {
     access_token: string;
     token_type?: string;
+};
+
+export type TripStats = {
+    km: number;
+    days: number;
+    countries: number;
+    stops: number;
+    repairs: number;
+    stamps: number;
 };
 
 export type UpdatePassword = {
@@ -176,6 +234,22 @@ export type PrivateCreateUserData = {
 };
 
 export type PrivateCreateUserResponse = (UserPublic);
+
+export type StopsReadStopsResponse = (StopsPublic);
+
+export type StopsCreateStopData = {
+    requestBody: StopCreate;
+};
+
+export type StopsCreateStopResponse = (StopPublic);
+
+export type StopsReadStatsResponse = (TripStats);
+
+export type StopsReadStopData = {
+    id: string;
+};
+
+export type StopsReadStopResponse = (StopPublic);
 
 export type UsersReadUsersData = {
     limit?: number;

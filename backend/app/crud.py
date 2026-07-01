@@ -80,9 +80,7 @@ def create_stop(
     *, session: Session, stop_in: StopCreate, order_index: int | None = None
 ) -> Stop:
     if order_index is None:
-        last = session.exec(
-            select(Stop).order_by(col(Stop.order_index).desc())
-        ).first()
+        last = session.exec(select(Stop).order_by(col(Stop.order_index).desc())).first()
         order_index = (last.order_index + 1) if last else 0
     media = [m.model_dump() for m in stop_in.media]
     db_stop = Stop.model_validate(
