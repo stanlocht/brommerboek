@@ -1,17 +1,14 @@
-import { type CSSProperties, type ReactNode, useState } from "react"
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
+import { type PlaceHit, searchPlaces } from "./geocode"
 import { WrenchIcon } from "./icons"
 import { C, FONT_MONO } from "./theme"
 import type { NewStop } from "./types"
-
-const COUNTRIES: Record<string, { country: string; flag: string }> = {
-  NL: { country: "Nederland", flag: "🇳🇱" },
-  BE: { country: "België", flag: "🇧🇪" },
-  FR: { country: "Frankrijk", flag: "🇫🇷" },
-  CH: { country: "Zwitserland", flag: "🇨🇭" },
-  IT: { country: "Italië", flag: "🇮🇹" },
-  DE: { country: "Duitsland", flag: "🇩🇪" },
-  AT: { country: "Oostenrijk", flag: "🇦🇹" },
-}
 
 const TILE_TONES = ["#7ea6b4", "#c9a24e", "#94a06a", "#b26a4c"]
 const STEP_LABELS = ["LOCATIE", "MEDIA", "VERHAAL", "TYPE"]
@@ -65,35 +62,74 @@ export default function AddFlow({
 }) {
   const [step, setStep] = useState(0)
   const [type, setType] = useState<"stop" | "repair">("stop")
-  const [place, setPlace] = useState("Firenze")
-  const [code, setCode] = useState("IT")
-  const [lat, setLat] = useState("43.7696")
-  const [lng, setLng] = useState("11.2558")
-  const [date, setDate] = useState("2024-05-21")
-  const [title, setTitle] = useState("Aankomst in Toscane")
-  const [weather, setWeather] = useState("Zon, 27°")
-  const [km, setKm] = useState(String(suggestedKm + 96))
-  const [story, setStory] = useState(
-    "De heuvels werden goudkleurig toen we Firenze binnenreden. Cub liep als een zonnetje na de opknapbeurt bij de pas…",
-  )
-  const [broke, setBroke] = useState("Bougie verzopen na regen")
-  const [fixed, setFixed] = useState("Nieuwe bougie, tank gedroogd")
+  const [picked, setPicked] = useState<PlaceHit | null>(null)
+  const [query, setQuery] = useState("")
+  const [results, setResults] = useState<PlaceHit[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [title, setTitle] = useState("")
+  const [weather, setWeather] = useState("")
+  const [km, setKm] = useState(String(suggestedKm))
+  const [story, setStory] = useState("")
+  const [broke, setBroke] = useState("")
+  const [fixed, setFixed] = useState("")
   const [tones, setTones] = useState<string[]>([TILE_TONES[0], TILE_TONES[1]])
 
   const addPhoto = () =>
     setTones((t) => [...t, TILE_TONES[t.length % TILE_TONES.length]])
 
+  // Debounced search: fires 400ms after the last keystroke, cancels the
+  // in-flight request when the user keeps typing.
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (trimmed.length < 2) {
+      setResults([])
+      setSearching(false)
+      setSearchError(null)
+      return
+    }
+    const ac = new AbortController()
+    const t = setTimeout(() => {
+      setSearching(true)
+      setSearchError(null)
+      searchPlaces(trimmed, ac.signal)
+        .then((hits) => {
+          setResults(hits)
+          setSearching(false)
+        })
+        .catch((err) => {
+          if ((err as Error).name === "AbortError") return
+          setSearching(false)
+          setSearchError("Kon geen plaatsen ophalen")
+        })
+    }, 400)
+    return () => {
+      clearTimeout(t)
+      ac.abort()
+    }
+  }, [query])
+
+  const canProceedStep0 = picked !== null
+
+  const pick = (hit: PlaceHit) => {
+    setPicked(hit)
+    setResults([])
+    setQuery("")
+    if (!title.trim()) setTitle(hit.place)
+  }
+
   const submit = () => {
-    const meta = COUNTRIES[code] ?? COUNTRIES.IT
+    if (!picked) return
     onSubmit({
-      place: place.trim() || "Naamloze stop",
-      country: meta.country,
-      flag: meta.flag,
-      code,
-      lat: Number.parseFloat(lat) || 0,
-      lng: Number.parseFloat(lng) || 0,
+      place: picked.place,
+      country: picked.country,
+      flag: picked.flag,
+      code: picked.code,
+      lat: picked.lat,
+      lng: picked.lng,
       date,
-      title: title.trim() || place.trim() || "Nieuwe stop",
+      title: title.trim() || picked.place,
       km: Number.parseInt(km, 10) || 0,
       weather: weather.trim(),
       type,
@@ -105,10 +141,17 @@ export default function AddFlow({
   }
 
   const next = () => {
+    if (step === 0 && !canProceedStep0) return
     if (step < 3) setStep((s) => s + 1)
     else submit()
   }
   const back = () => setStep((s) => Math.max(0, s - 1))
+
+  // Autofocus the search input when landing on step 0.
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (step === 0 && !picked) searchInputRef.current?.focus()
+  }, [step, picked])
 
   return (
     <div
@@ -182,136 +225,225 @@ export default function AddFlow({
             <div style={{ fontWeight: 700, fontSize: 22, marginBottom: 10 }}>
               Waar ben je?
             </div>
-            <div
-              style={{
-                position: "relative",
-                height: 230,
-                borderRadius: 12,
-                overflow: "hidden",
-                border: `2px solid ${C.ochre}`,
-              }}
-            >
-              <svg
-                viewBox="0 0 300 230"
-                aria-hidden="true"
-                style={{ width: "100%", height: "100%", background: C.sea }}
-              >
-                <path
-                  d="M-10 40 C80 60 120 20 180 60 C240 100 260 60 320 90 L320 240 L-10 240 Z"
-                  fill="#e7d9b6"
-                  stroke={C.ochre}
-                  strokeWidth="2"
-                />
-                <path
-                  d="M20 120 C90 140 150 130 250 170"
-                  fill="none"
-                  stroke={C.redBright}
-                  strokeWidth="2.5"
-                  strokeDasharray="1 7"
-                />
-              </svg>
-              <div
-                style={{
-                  position: "absolute",
-                  left: 172,
-                  top: 120,
-                  transform: "translate(-50%,-100%)",
-                }}
-              >
-                <svg
-                  width="30"
-                  height="40"
-                  viewBox="0 0 30 40"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M15 0C7 0 1 6 1 14c0 10 14 26 14 26s14-16 14-26C29 6 23 0 15 0Z"
-                    fill={C.red}
-                    stroke={C.cream}
-                    strokeWidth="2"
-                  />
-                  <circle cx="15" cy="14" r="5" fill={C.cream} />
-                </svg>
-              </div>
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: 8,
-                  left: 8,
-                  fontFamily: FONT_MONO,
-                  fontSize: 10,
-                  background: C.paperLight,
-                  padding: "3px 7px",
-                  borderRadius: 5,
-                }}
-              >
-                kies je plek ›
-              </div>
-            </div>
-            <div
-              style={{
-                marginTop: 14,
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-              }}
-            >
-              <Field label="PLAATSNAAM">
+
+            <Field label="ZOEK PLAATS">
+              <div style={{ position: "relative", marginTop: 4 }}>
                 <input
-                  value={place}
-                  onChange={(e) => setPlace(e.target.value)}
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="bv. Firenze, Grimselpass, Vernazza…"
+                  style={{ ...fieldStyle, paddingLeft: 34 }}
+                />
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: C.ochreDeep,
+                    fontSize: 14,
+                  }}
+                >
+                  🔍
+                </span>
+              </div>
+            </Field>
+
+            {searching && (
+              <div
+                style={{
+                  fontFamily: FONT_MONO,
+                  fontSize: 11,
+                  color: C.sepia,
+                  marginTop: 10,
+                }}
+              >
+                zoeken…
+              </div>
+            )}
+            {searchError && !searching && (
+              <div
+                style={{
+                  fontFamily: FONT_MONO,
+                  fontSize: 11,
+                  color: C.red,
+                  marginTop: 10,
+                }}
+              >
+                {searchError}
+              </div>
+            )}
+
+            {results.length > 0 && (
+              <div
+                style={{
+                  marginTop: 10,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                {results.map((hit) => (
+                  <button
+                    key={hit.key}
+                    type="button"
+                    onClick={() => pick(hit)}
+                    style={{
+                      textAlign: "left",
+                      border: `1.5px solid ${C.border}`,
+                      borderRadius: 10,
+                      padding: "10px 12px",
+                      background: C.paperCard,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      fontFamily: "inherit",
+                      color: C.ink,
+                    }}
+                  >
+                    <span style={{ fontSize: 22 }} aria-hidden="true">
+                      {hit.flag || "📍"}
+                    </span>
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          fontSize: 15,
+                          display: "block",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {hit.place}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: FONT_MONO,
+                          fontSize: 10,
+                          color: C.sepia,
+                          display: "block",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {[hit.region, hit.country].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {picked && (
+              <div
+                style={{
+                  marginTop: 14,
+                  border: `1.5px solid ${C.ochre}`,
+                  borderRadius: 12,
+                  padding: 14,
+                  background: C.paperCard,
+                  boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontFamily: FONT_MONO,
+                        fontSize: 10,
+                        letterSpacing: 2,
+                        color: C.ochreDeep,
+                      }}
+                    >
+                      GEKOZEN PLEK
+                    </div>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 18,
+                        marginTop: 2,
+                      }}
+                    >
+                      {picked.flag} {picked.place}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: FONT_MONO,
+                        fontSize: 11,
+                        color: C.sepia,
+                        marginTop: 2,
+                      }}
+                    >
+                      {picked.country}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: FONT_MONO,
+                        fontSize: 10,
+                        color: C.sepia,
+                        marginTop: 6,
+                      }}
+                    >
+                      ◉ {picked.lat.toFixed(4)}° N, {picked.lng.toFixed(4)}° E
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPicked(null)
+                      setQuery("")
+                    }}
+                    style={{
+                      border: `1.5px solid ${C.ochre}`,
+                      borderRadius: 8,
+                      background: "none",
+                      padding: "6px 10px",
+                      fontFamily: FONT_MONO,
+                      fontSize: 11,
+                      color: C.sepia,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ✕ wissen
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: 14 }}>
+              <Field label="DATUM">
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
                   style={{ ...fieldStyle, marginTop: 4 }}
                 />
               </Field>
-              <div style={{ display: "flex", gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <Field label="LAND">
-                    <select
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      style={{ ...fieldStyle, marginTop: 4 }}
-                    >
-                      {Object.entries(COUNTRIES).map(([c, m]) => (
-                        <option key={c} value={c}>
-                          {m.flag} {m.country}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Field label="DATUM">
-                    <input
-                      type="date"
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      style={{ ...fieldStyle, marginTop: 4 }}
-                    />
-                  </Field>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <Field label="◉ LAT">
-                    <input
-                      value={lat}
-                      onChange={(e) => setLat(e.target.value)}
-                      inputMode="decimal"
-                      style={{ ...fieldStyle, marginTop: 4, fontSize: 14 }}
-                    />
-                  </Field>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Field label="◉ LNG">
-                    <input
-                      value={lng}
-                      onChange={(e) => setLng(e.target.value)}
-                      inputMode="decimal"
-                      style={{ ...fieldStyle, marginTop: 4, fontSize: 14 }}
-                    />
-                  </Field>
-                </div>
-              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: 12,
+                fontFamily: FONT_MONO,
+                fontSize: 9,
+                letterSpacing: 1,
+                color: C.sepia,
+                opacity: 0.75,
+              }}
+            >
+              locaties · Photon / OpenStreetMap © bijdragers
             </div>
           </div>
         )}
