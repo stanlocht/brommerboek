@@ -135,12 +135,6 @@ export default function BrommerboekApp() {
 
   const cur = stops[activeIndex] ?? stops[0]
 
-  const onLogout = () => {
-    localStorage.removeItem("access_token")
-    qc.removeQueries({ queryKey: ["currentUser"] })
-    flash("uitgelogd")
-  }
-
   const cancelAnim = () => {
     if (animRef.current !== null) {
       cancelAnimationFrame(animRef.current)
@@ -215,7 +209,6 @@ export default function BrommerboekApp() {
         }}
         onAdd={canEdit ? () => setAddOpen(true) : undefined}
         onLogin={() => setLoginOpen(true)}
-        onLogout={onLogout}
       />
 
       {/* paper textures over everything but chrome */}

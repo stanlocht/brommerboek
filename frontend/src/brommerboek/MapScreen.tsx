@@ -16,11 +16,9 @@ function frac(e: ReactPointerEvent<HTMLDivElement>): number {
 function AuthLink({
   me,
   onLogin,
-  onLogout,
 }: {
   me: UserPublic | null | undefined
   onLogin: () => void
-  onLogout: () => void
 }) {
   const base = {
     fontFamily: FONT_MONO,
@@ -42,21 +40,16 @@ function AuthLink({
   }
   const name = me.full_name || me.email.split("@", 1)[0]
   return (
-    <div
+    <Link
+      to="/settings"
+      aria-label="Open je account"
       style={{
-        display: "inline-flex",
-        alignItems: "baseline",
-        gap: 6,
-        fontFamily: FONT_MONO,
-        fontSize: 11,
-        color: C.sepia,
+        ...base,
+        color: C.ochreDeep,
       }}
     >
-      <span style={{ color: C.ochreDeep }}>{name}</span>
-      <button type="button" onClick={onLogout} style={base}>
-        uit
-      </button>
-    </div>
+      {name}
+    </Link>
   )
 }
 
@@ -76,7 +69,6 @@ export default function MapScreen({
   onPinClick,
   onAdd,
   onLogin,
-  onLogout,
 }: {
   stops: Stop[]
   route: RouteGeometry
@@ -84,7 +76,7 @@ export default function MapScreen({
   cur: Stop
   progress: number
   dragging: boolean
-  // Signed-in viewer, if any. Drives the login/uit affordance and (via the
+  // Signed-in viewer, if any. Drives the login/name affordance and (via the
   // caller passing/omitting onAdd) the add button.
   me: UserPublic | null | undefined
   onScrubStart: (p: number) => void
@@ -95,7 +87,6 @@ export default function MapScreen({
   onPinClick: (i: number) => void
   onAdd?: () => void
   onLogin: () => void
-  onLogout: () => void
 }) {
   const pct = `${(progress * 100).toFixed(2)}%`
   const showPreview = !dragging
@@ -211,7 +202,7 @@ export default function MapScreen({
               pointerEvents: "auto",
             }}
           >
-            <AuthLink me={me} onLogin={onLogin} onLogout={onLogout} />
+            <AuthLink me={me} onLogin={onLogin} />
           </div>
         </div>
       </div>

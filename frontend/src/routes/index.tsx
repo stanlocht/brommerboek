@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import BrommerboekApp from "@/brommerboek/BrommerboekApp"
 
 // Public landing: the Brommerboek trip logger. No auth — this is a personal
-// trip meant to be shown off. The template's dashboard now lives at /dashboard.
+// trip meant to be shown off.
 export const Route = createFileRoute("/")({
   component: BrommerboekApp,
   head: () => ({
