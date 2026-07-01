@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zilla+Slab:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  @keyframes bobbing { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-2.2px) } }
+  @keyframes spin { to { transform: rotate(360deg) } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: translateY(0) } }
+  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes stampIn { 0% { opacity:0; transform: scale(1.6) rotate(var(--r)) } 60% { opacity:1 } 100% { opacity:1; transform: scale(1) rotate(var(--r)) } }
+  @keyframes ride { 0%{transform:translateX(0) translateY(0)} 50%{transform:translateX(0) translateY(-2px)} 100%{transform:translateX(0) translateY(0)} }
+  ::-webkit-scrollbar { display: none; }
+</style>
+</helmet>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="cub" viewBox="0 0 130 82">
+    <ellipse cx="68" cy="74" rx="44" ry="5" fill="rgba(58,50,36,.16)"></ellipse>
+    <circle cx="32" cy="58" r="16" fill="none" stroke="#2a2620" stroke-width="6"></circle>
+    <circle cx="104" cy="58" r="16" fill="none" stroke="#2a2620" stroke-width="6"></circle>
+    <circle cx="32" cy="58" r="5" fill="#e9dcc0"></circle>
+    <circle cx="104" cy="58" r="5" fill="#e9dcc0"></circle>
+    <path d="M18 50 Q30 40 46 48" fill="none" stroke="#b23a30" stroke-width="5" stroke-linecap="round"></path>
+    <path d="M90 50 Q104 39 118 49" fill="none" stroke="#b23a30" stroke-width="5" stroke-linecap="round"></path>
+    <path d="M40 52 C36 38 52 33 72 35 L90 37 C96 42 95 50 88 52 Z" fill="#b23a30"></path>
+    <path d="M92 54 C82 34 82 22 95 15 L104 15 C112 26 110 46 106 52 Z" fill="#f1e6cd" stroke="#b23a30" stroke-width="2.5"></path>
+    <rect x="40" y="30" width="30" height="9" rx="4" fill="#332c22"></rect>
+    <path d="M70 34 C82 30 90 30 95 34" fill="none" stroke="#332c22" stroke-width="4" stroke-linecap="round"></path>
+    <rect x="44" y="50" width="46" height="4" rx="2" fill="#2a2620"></rect>
+    <circle cx="99" cy="20" r="6.5" fill="#ffe6a8" stroke="#7a5a2e" stroke-width="2"></circle>
+    <path d="M97 14 L112 7" stroke="#332c22" stroke-width="4" stroke-linecap="round"></path>
+    <path d="M90 55 L112 55" stroke="#8a8175" stroke-width="3.5" stroke-linecap="round"></path>
+    <rect x="38" y="26" width="26" height="6" rx="3" fill="#7a5a2e"></rect>
+  </symbol>
+  <symbol id="wrench" viewBox="0 0 24 24">
+    <path d="M15.5 5.5a3.6 3.6 0 0 0-4.7 4.4L4 16.7 7.3 20l6.8-6.8a3.6 3.6 0 0 0 4.4-4.7l-2.2 2.2-2.1-.6-.6-2.1 2.2-2.2Z" fill="currentColor"></path>
+  </symbol>
+</defs></svg>
+
+<div style="position:relative;width:390px;height:844px;overflow:hidden;font-family:'Zilla Slab',Georgia,serif;color:#3a332a;background:#e9dcbf;">
+
+  <!-- paper texture -->
+  <div style="position:absolute;inset:0;pointer-events:none;z-index:40;mix-blend-mode:multiply;opacity:.5;background-image:radial-gradient(rgba(120,100,60,.22) .7px, transparent .8px);background-size:4px 4px;"></div>
+  <div style="position:absolute;inset:0;pointer-events:none;z-index:41;background:radial-gradient(120% 80% at 50% 30%, transparent 60%, rgba(90,70,35,.16) 100%);"></div>
+
+  <!-- ============ MAP ============ -->
+  <sc-if value="{{ isMap }}" hint-placeholder-val="{{ true }}">
+  <div style="position:absolute;inset:0;">
+    <svg viewBox="0 0 900 1100" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%;">
+      <rect x="-50" y="-50" width="1000" height="1200" fill="#a9c6cb"></rect>
+      <rect x="-50" y="-50" width="1000" height="1200" fill="url(#seaDot)" opacity="0"></rect>
+      <g transform="{{ viewTransform }}" style="transition:{{ viewTransition }};transform-origin:0 0;">
+        <!-- continent -->
+        <path d="M470 40 C480 90 500 120 468 152 L462 176 C440 186 420 196 400 206 L372 236 L336 250 C300 256 272 250 250 272 L300 300 L232 316 L300 346 C320 380 330 430 346 470 L356 546 C330 586 300 606 300 626 L362 646 C382 662 432 666 470 668 L546 675 C576 682 592 702 602 726 L632 802 L692 916 L716 986 C736 1006 758 996 746 966 L716 902 L702 816 L736 746 L802 690 L852 640 L900 612 L900 30 Z"
+          fill="#e7d9b6" stroke="#b98f4e" stroke-width="2.4"></path>
+        <!-- great britain -->
+        <path d="M150 96 C170 70 210 70 236 100 L256 150 C246 190 210 210 250 250 L214 300 C190 320 168 300 170 262 L150 210 C132 176 128 130 150 96 Z" fill="#e7d9b6" stroke="#b98f4e" stroke-width="2.4"></path>
+        <path d="M78 210 C92 194 118 196 126 220 C132 244 112 262 92 256 C74 250 66 226 78 210 Z" fill="#e7d9b6" stroke="#b98f4e" stroke-width="2.4"></path>
+        <!-- terrain: lowland green -->
+        <path d="M380 250 C440 240 520 250 560 320 C600 400 560 470 500 500 C430 520 400 460 385 400 C372 340 360 280 380 250 Z" fill="#bcc79a" opacity=".55"></path>
+        <path d="M330 470 C380 460 440 480 470 540 C450 600 400 620 360 600 C330 560 320 510 330 470 Z" fill="#bcc79a" opacity=".5"></path>
+        <!-- alps -->
+        <path d="M470 486 C540 470 620 486 690 520 C650 560 600 548 560 566 C520 584 500 560 470 560 C450 540 452 500 470 486 Z" fill="#9aa877" opacity=".7"></path>
+        <path d="M500 520 L520 500 L536 522 L556 502 L574 528 L470 552 Z" fill="#8a9668" opacity=".55"></path>
+        <!-- rivers (ochre-blue) -->
+        <path d="M470 240 C500 320 500 420 516 520 C540 600 585 640 590 700" fill="none" stroke="#9fbcc0" stroke-width="3" opacity=".7"></path>
+        <!-- decorative roads -->
+        <path d="M300 300 C420 340 520 420 690 540" fill="none" stroke="#cc9a4e" stroke-width="3.5" opacity=".55"></path>
+        <path d="M460 220 C470 360 520 500 600 700" fill="none" stroke="#cc9a4e" stroke-width="2.6" opacity=".45"></path>
+        <!-- graticule -->
+        <g stroke="#b98f4e" stroke-width="1" opacity=".2">
+          <line x1="200" y1="0" x2="200" y2="1100"></line>
+          <line x1="400" y1="0" x2="400" y2="1100"></line>
+          <line x1="600" y1="0" x2="600" y2="1100"></line>
+          <line x1="800" y1="0" x2="800" y2="1100"></line>
+          <line x1="0" y1="200" x2="900" y2="200"></line>
+          <line x1="0" y1="400" x2="900" y2="400"></line>
+          <line x1="0" y1="600" x2="900" y2="600"></line>
+          <line x1="0" y1="800" x2="900" y2="800"></line>
+        </g>
+        <!-- sea + country labels -->
+        <text x="140" y="470" fill="#5f8b93" font-family="'Special Elite',monospace" font-size="20" font-style="italic" letter-spacing="3" opacity=".7" transform="rotate(-16 140 470)">OCÉAN</text>
+        <text x="430" y="900" fill="#5f8b93" font-family="'Special Elite',monospace" font-size="22" font-style="italic" letter-spacing="4" opacity=".75" transform="rotate(-8 430 900)">MER MÉDITERRANÉE</text>
+        <text x="300" y="120" fill="#5f8b93" font-family="'Special Elite',monospace" font-size="15" letter-spacing="4" opacity=".7">NOORDZEE</text>
+        <text x="430" y="330" fill="#8a6a3a" font-family="'Special Elite',monospace" font-size="13" letter-spacing="3" opacity=".55">FRANCE</text>
+        <text x="470" y="180" fill="#8a6a3a" font-family="'Special Elite',monospace" font-size="11" letter-spacing="2" opacity=".55">NEDERLAND</text>
+        <text x="560" y="540" fill="#8a6a3a" font-family="'Special Elite',monospace" font-size="12" letter-spacing="2" opacity=".55">SUISSE</text>
+        <text x="640" y="700" fill="#8a6a3a" font-family="'Special Elite',monospace" font-size="14" letter-spacing="3" opacity=".55">ITALIA</text>
+
+        <!-- route casing + line -->
+        <path d="{{ routeD }}" fill="none" stroke="#f1e6cd" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="{{ routeCasingOpacity }}"></path>
+        <path d="{{ routeD }}" fill="none" stroke="#c0362c" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 9" opacity="{{ routeOpacity }}"></path>
+
+        <!-- pins -->
+        <sc-for list="{{ pins }}" as="p" hint-placeholder-count="6">
+          <g transform="translate({{ p.x }},{{ p.y }})" onClick="{{ p.onClick }}" style="cursor:pointer;">
+            <sc-if value="{{ p.isRepair }}" hint-placeholder-val="{{ true }}">
+              <g transform="rotate({{ p.rot }})">
+                <circle cx="0" cy="0" r="12" fill="#2e6d7a" stroke="#f1e6cd" stroke-width="2.5"></circle>
+                <svg x="-8" y="-8" width="16" height="16" viewBox="0 0 24 24" style="color:#f1e6cd"><use href="#wrench"></use></svg>
+              </g>
+            </sc-if>
+            <sc-if value="{{ p.isStop }}" hint-placeholder-val="{{ true }}">
+              <g transform="rotate({{ p.rot }})">
+                <circle cx="0" cy="0" r="9" fill="#a3302a" stroke="#f1e6cd" stroke-width="2.5"></circle>
+                <circle cx="0" cy="0" r="3" fill="#f1e6cd"></circle>
+              </g>
+            </sc-if>
+            <text x="12" y="4" fill="#3a332a" font-family="'Special Elite',monospace" font-size="12" style="paint-order:stroke;stroke:#efe4c9;stroke-width:4px;">{{ p.label }}</text>
+          </g>
+        </sc-for>
+
+        <!-- cub -->
+        <g transform="{{ cubTransform }}" style="transition:{{ cubTransition }}">
+          <g style="animation:bobbing 2.6s ease-in-out infinite;transform-origin:center;">
+            <use href="#cub" x="-30" y="-46" width="60" height="38"></use>
+          </g>
+        </g>
+      </g>
+    </svg>
+
+    <!-- header -->
+    <div style="position:absolute;top:0;left:0;right:0;z-index:20;padding:14px 16px 22px;background:linear-gradient(#efe4c9ee,#efe4c900);">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-family:'Special Elite',monospace;font-size:10px;letter-spacing:3px;color:#9c6b3a;">BROMMERBOEK · N°1</div>
+          <div style="font-family:'Zilla Slab';font-weight:700;font-size:23px;line-height:1;margin-top:2px;">De Grote Tocht</div>
+        </div>
+        <div style="text-align:right;font-family:'Special Elite',monospace;font-size:11px;color:#5a5040;line-height:1.5;">
+          <div style="font-size:19px;color:#a3302a;">{{ stats.km }}</div>
+          <div>km · dag {{ stats.days }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- repair toggle -->
+    <button onClick="{{ toggleRepair }}" style="position:absolute;top:72px;right:14px;z-index:20;display:flex;align-items:center;gap:6px;border:1.5px solid #b98f4e;border-radius:20px;padding:6px 11px;background:{{ repairBtnBg }};color:{{ repairBtnColor }};font-family:'Special Elite',monospace;font-size:11px;cursor:pointer;box-shadow:1px 2px 0 rgba(120,90,40,.25);">
+      <svg width="15" height="15" viewBox="0 0 24 24" style="color:inherit"><use href="#wrench"></use></svg>
+      Reparaties
+    </button>
+
+    <!-- landed preview card -->
+    <sc-if value="{{ showPreview }}" hint-placeholder-val="{{ true }}">
+      <div onClick="{{ openSheetCurrent }}" style="position:absolute;left:14px;right:14px;bottom:150px;z-index:22;cursor:pointer;">
+        <div style="display:flex;gap:12px;background:#f4ecd6;border:1.5px solid #cbb187;border-radius:12px;padding:10px;box-shadow:2px 4px 0 rgba(120,90,40,.28);transform:rotate(-.5deg);">
+          <div style="width:64px;height:64px;border-radius:7px;flex:none;border:3px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.2);background:linear-gradient(150deg,rgba(255,255,255,.28),rgba(0,0,0,.3)),{{ cur.media0 }};"></div>
+          <div style="min-width:0;flex:1;">
+            <div style="display:flex;align-items:center;gap:6px;font-family:'Special Elite',monospace;font-size:10px;color:#9c6b3a;">
+              <span>{{ cur.flag }} {{ cur.place }}</span>
+              <sc-if value="{{ cur.isRepair }}" hint-placeholder-val="{{ true }}"><span style="color:#2e6d7a;">· REPARATIE</span></sc-if>
+            </div>
+            <div style="font-weight:600;font-size:16px;line-height:1.1;margin:2px 0 3px;">{{ cur.title }}</div>
+            <div style="font-family:'Special Elite',monospace;font-size:10px;color:#7a6f5a;">{{ cur.dateLabel }} · tik voor verhaal ›</div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- scrubber -->
+    <div style="position:absolute;left:0;right:0;bottom:64px;z-index:23;padding:12px 16px 14px;background:linear-gradient(#efe4c900,#efe4c9 40%);">
+      <div style="display:flex;justify-content:space-between;font-family:'Special Elite',monospace;font-size:10px;color:#9c6b3a;margin-bottom:9px;">
+        <span>{{ stops0Label }}</span>
+        <span>rijd de route ›</span>
+        <span>{{ stopsLastLabel }}</span>
+      </div>
+      <div onPointerDown="{{ onTrackDown }}" onPointerMove="{{ onTrackMove }}" onPointerUp="{{ onTrackUp }}" style="position:relative;height:34px;cursor:grab;touch-action:none;">
+        <div style="position:absolute;left:0;right:0;top:15px;height:4px;border-radius:3px;background:#d8c79c;"></div>
+        <div style="position:absolute;left:0;top:15px;height:4px;border-radius:3px;background:#c0362c;width:{{ progressPct }};"></div>
+        <sc-for list="{{ ticks }}" as="t" hint-placeholder-count="10">
+          <div style="position:absolute;top:11px;width:11px;height:11px;border-radius:50%;transform:translateX(-50%);left:{{ t.left }};background:{{ t.bg }};border:2px solid #efe4c9;"></div>
+        </sc-for>
+        <div style="position:absolute;top:-9px;left:{{ progressPct }};transform:translateX(-50%);width:52px;height:34px;pointer-events:none;">
+          <svg viewBox="0 0 130 82" width="52" height="34"><use href="#cub"></use></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ STAMPS ============ -->
+  <sc-if value="{{ isStamps }}" hint-placeholder-val="{{ true }}">
+  <div style="position:absolute;inset:0;bottom:64px;overflow-y:auto;padding:20px 18px 30px;">
+    <div style="font-family:'Special Elite',monospace;font-size:10px;letter-spacing:3px;color:#9c6b3a;">PASPOORT</div>
+    <div style="font-weight:700;font-size:28px;margin:2px 0 2px;">Stempelmuur</div>
+    <div style="font-family:'Special Elite',monospace;font-size:12px;color:#7a6f5a;margin-bottom:20px;">{{ stats.countries }} landen · {{ stats.stamps }} stempels verzameld</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+      <sc-for list="{{ stamps }}" as="s" hint-placeholder-count="5">
+        <div style="position:relative;padding:8px;background:#efe4c9;border-radius:3px;box-shadow:0 2px 6px rgba(120,90,40,.2);transform:rotate({{ s.rot }});">
+          <div style="position:absolute;inset:0;border-radius:3px;padding:3px;background:repeating-linear-gradient(90deg,transparent 0 7px,#efe4c9 7px 9px),repeating-linear-gradient(0deg,transparent 0 7px,#efe4c9 7px 9px);pointer-events:none;box-shadow:inset 0 0 0 2px #e9dcbf;"></div>
+          <div style="border:2.5px solid {{ s.ink }};border-radius:50%/44%;padding:14px 8px;text-align:center;color:{{ s.ink }};opacity:.9;position:relative;z-index:1;overflow:hidden;background:#efe4c9;">
+            <div style="position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.5) 1px,transparent 1px);background-size:3px 3px;opacity:.5;"></div>
+            <div style="font-size:26px;">{{ s.flag }}</div>
+            <div style="font-family:'Special Elite',monospace;font-weight:700;font-size:13px;letter-spacing:1px;margin-top:2px;">{{ s.name }}</div>
+            <div style="font-family:'Special Elite',monospace;font-size:9px;transform:rotate(-3deg);margin-top:3px;">✦ {{ s.date }} ✦</div>
+            <div style="font-family:'Special Elite',monospace;font-size:8px;letter-spacing:2px;margin-top:1px;">ENTRÉE · {{ s.code }}</div>
+          </div>
+        </div>
+      </sc-for>
+      <div style="opacity:.4;border:2px dashed #b98f4e;border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:150px;color:#8a6a3a;">
+        <svg viewBox="0 0 130 82" width="70" height="46" style="opacity:.6"><use href="#cub"></use></svg>
+        <div style="font-family:'Special Elite',monospace;font-size:11px;margin-top:8px;text-align:center;">volgende grens<br>wacht…</div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ STATS / WRAPPED ============ -->
+  <sc-if value="{{ isStats }}" hint-placeholder-val="{{ true }}">
+  <div style="position:absolute;inset:0;bottom:64px;overflow-y:auto;padding:20px 18px 30px;background:linear-gradient(160deg,#8f3b2f,#6e2c24);color:#f3e7c9;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <div style="font-family:'Special Elite',monospace;font-size:10px;letter-spacing:3px;color:#e6b98a;">BROMMERBOEK WRAPPED</div>
+        <div style="font-weight:700;font-size:30px;line-height:1;margin-top:3px;">Tot nu toe</div>
+      </div>
+      <svg viewBox="0 0 130 82" width="72" height="46" style="opacity:.9"><use href="#cub"></use></svg>
+    </div>
+    <div onClick="{{ regenStat }}" style="margin:16px 0;padding:14px 16px;border:1.5px dashed #e6b98a;border-radius:10px;cursor:pointer;background:rgba(0,0,0,.12);">
+      <div style="font-family:'Special Elite',monospace;font-size:10px;color:#e6b98a;letter-spacing:2px;margin-bottom:5px;">★ HOOGTEPUNT · tik om te wisselen</div>
+      <div style="font-family:'Zilla Slab';font-style:italic;font-size:18px;line-height:1.3;">{{ recap }}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <sc-for list="{{ statCards }}" as="c" hint-placeholder-count="6">
+        <div style="background:#f3e7c9;color:#3a332a;border-radius:10px;padding:14px;box-shadow:0 3px 0 rgba(0,0,0,.18);transform:rotate({{ c.rot }});">
+          <div style="font-weight:700;font-size:34px;line-height:1;color:#a3302a;">{{ c.value }}</div>
+          <div style="font-family:'Special Elite',monospace;font-size:11px;color:#7a6f5a;margin-top:4px;">{{ c.label }}</div>
+        </div>
+      </sc-for>
+    </div>
+    <button onClick="{{ regenStat }}" style="margin-top:18px;width:100%;padding:13px;border:none;border-radius:10px;background:#f3e7c9;color:#8f3b2f;font-family:'Special Elite',monospace;font-size:13px;letter-spacing:1px;cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,.2);">↻ GENEREER RECAP OPNIEUW</button>
+    <div style="text-align:center;font-family:'Special Elite',monospace;font-size:10px;color:#e6b98a;margin-top:14px;opacity:.8;">deel je reis · #brommerboek</div>
+  </div>
+  </sc-if>
+
+  <!-- ============ REEL (storyboard mock) ============ -->
+  <sc-if value="{{ isReel }}" hint-placeholder-val="{{ true }}">
+  <div style="position:absolute;inset:0;bottom:64px;overflow-y:auto;padding:20px 18px 30px;background:#1f1a14;color:#f3e7c9;">
+    <div style="font-family:'Special Elite',monospace;font-size:10px;letter-spacing:3px;color:#e6b98a;">AUTO-MONTAGE · CONCEPT</div>
+    <div style="font-weight:700;font-size:27px;line-height:1;margin:3px 0 14px;">Reis-highlight</div>
+    <!-- player -->
+    <div style="position:relative;border-radius:12px;overflow:hidden;border:2px solid #4a3f2c;aspect-ratio:9/12;background:radial-gradient(120% 90% at 50% 20%,#3a5c62,#1c2a2c);">
+      <svg viewBox="0 0 300 380" style="position:absolute;inset:0;width:100%;height:100%;opacity:.85">
+        <path d="M40 60 C120 100 90 200 200 240 C260 262 250 320 210 340" fill="none" stroke="#c0362c" stroke-width="3" stroke-dasharray="2 8"></path>
+        <circle cx="40" cy="60" r="5" fill="#a3302a"></circle>
+        <circle cx="210" cy="340" r="5" fill="#a3302a"></circle>
+      </svg>
+      <div style="position:absolute;left:150px;top:210px;transform:translate(-50%,-50%) rotate(28deg);">
+        <svg viewBox="0 0 130 82" width="70" height="44"><use href="#cub"></use></svg>
+      </div>
+      <div style="position:absolute;top:12px;left:12px;font-family:'Special Elite',monospace;font-size:11px;background:rgba(0,0,0,.4);padding:4px 8px;border-radius:4px;">● REC · vlucht over de kaart</div>
+      <div style="position:absolute;bottom:14px;left:0;right:0;text-align:center;">
+        <div onClick="{{ toggleReel }}" style="width:56px;height:56px;margin:0 auto;border-radius:50%;background:#f3e7c9;color:#1f1a14;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.5);cursor:pointer;font-size:22px;">{{ reelIcon }}</div>
+      </div>
+      <div style="position:absolute;bottom:6px;right:12px;font-family:'Special Elite',monospace;font-size:10px;color:#e6b98a;">0:34</div>
+    </div>
+    <!-- filmstrip -->
+    <div style="font-family:'Special Elite',monospace;font-size:10px;color:#9c8a6a;margin:16px 0 8px;letter-spacing:2px;">STORYBOARD · 6 SCÈNES</div>
+    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;">
+      <sc-for list="{{ reelScenes }}" as="r" hint-placeholder-count="6">
+        <div style="flex:none;width:96px;">
+          <div style="height:70px;border-radius:6px;border:2px solid #4a3f2c;background:linear-gradient(150deg,rgba(255,255,255,.2),rgba(0,0,0,.35)),{{ r.tone }};position:relative;">
+            <div style="position:absolute;bottom:3px;right:4px;font-family:'Special Elite',monospace;font-size:8px;color:#f3e7c9;">{{ r.time }}</div>
+          </div>
+          <div style="font-family:'Special Elite',monospace;font-size:9px;color:#c9b98a;margin-top:4px;">{{ r.cap }}</div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:16px;display:flex;align-items:center;gap:10px;font-family:'Special Elite',monospace;font-size:11px;color:#9c8a6a;">
+      <span>♪</span><div style="flex:1;height:20px;border-radius:4px;background:repeating-linear-gradient(90deg,#3a3226 0 2px,transparent 2px 6px);opacity:.6;"></div><span>accordeon-wals</span>
+    </div>
+    <button disabled style="margin-top:18px;width:100%;padding:13px;border:1.5px solid #4a3f2c;border-radius:10px;background:transparent;color:#9c8a6a;font-family:'Special Elite',monospace;font-size:12px;letter-spacing:1px;">⤓ EXPORTEER VIDEO · binnenkort</button>
+  </div>
+  </sc-if>
+
+  <!-- ============ STOP DETAIL SHEET ============ -->
+  <sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ true }}">
+  <div style="position:absolute;inset:0;z-index:60;background:#efe4c9;overflow-y:auto;">
+    <div style="position:relative;">
+      <div style="display:flex;gap:8px;overflow-x:auto;padding:14px 14px 6px;scroll-snap-type:x mandatory;">
+        <sc-for list="{{ cur.gallery }}" as="m" hint-placeholder-count="3">
+          <div style="scroll-snap-align:center;flex:none;width:280px;height:220px;border-radius:8px;border:5px solid #fff;box-shadow:0 3px 8px rgba(80,60,30,.3);position:relative;transform:rotate({{ m.rot }});background:linear-gradient(150deg,rgba(255,255,255,.25),rgba(0,0,0,.32)),{{ m.tone }};">
+            <sc-if value="{{ m.isVideo }}" hint-placeholder-val="{{ true }}">
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><div style="width:48px;height:48px;border-radius:50%;background:rgba(0,0,0,.4);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;">▶</div></div>
+            </sc-if>
+            <div style="position:absolute;bottom:6px;left:8px;font-family:'Special Elite',monospace;font-size:10px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);">{{ m.cap }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <button onClick="{{ closeSheet }}" style="position:absolute;top:20px;left:20px;width:36px;height:36px;border-radius:50%;border:none;background:#efe4c9;color:#3a332a;font-size:18px;cursor:pointer;box-shadow:0 2px 5px rgba(0,0,0,.25);">‹</button>
+    </div>
+    <div style="padding:16px 20px 40px;">
+      <div style="display:flex;align-items:center;gap:8px;font-family:'Special Elite',monospace;font-size:11px;color:#9c6b3a;">
+        <span>{{ cur.flag }} {{ cur.place }}, {{ cur.country }}</span>
+        <sc-if value="{{ cur.isRepair }}" hint-placeholder-val="{{ true }}">
+          <span style="display:inline-flex;align-items:center;gap:3px;color:#fff;background:#2e6d7a;padding:1px 7px;border-radius:10px;"><svg width="11" height="11" viewBox="0 0 24 24" style="color:#fff"><use href="#wrench"></use></svg>REPARATIE</span>
+        </sc-if>
+      </div>
+      <div style="font-weight:700;font-size:29px;line-height:1.05;margin:5px 0 4px;">{{ cur.title }}</div>
+      <div style="font-family:'Special Elite',monospace;font-size:11px;color:#7a6f5a;display:flex;gap:14px;margin-bottom:14px;">
+        <span>{{ cur.dateLabel }}</span><span>◷ {{ cur.km }} km</span><span>{{ cur.weather }}</span>
+      </div>
+      <div style="font-size:16.5px;line-height:1.6;color:#413a2c;text-wrap:pretty;">{{ cur.story }}</div>
+      <sc-if value="{{ cur.isRepair }}" hint-placeholder-val="{{ true }}">
+        <div style="margin-top:18px;border:1.5px solid #2e6d7a;border-radius:10px;overflow:hidden;">
+          <div style="background:#2e6d7a;color:#f1e6cd;font-family:'Special Elite',monospace;font-size:11px;letter-spacing:1px;padding:7px 12px;display:flex;align-items:center;gap:6px;"><svg width="13" height="13" viewBox="0 0 24 24" style="color:#f1e6cd"><use href="#wrench"></use></svg> LOGBOEK — REPARATIE</div>
+          <div style="padding:12px;display:flex;flex-direction:column;gap:8px;">
+            <div><span style="font-family:'Special Elite',monospace;font-size:10px;color:#9c6b3a;">STUK:</span><div style="font-size:15px;">{{ cur.broke }}</div></div>
+            <div><span style="font-family:'Special Elite',monospace;font-size:10px;color:#2e6d7a;">GEMAAKT:</span><div style="font-size:15px;">{{ cur.fixed }}</div></div>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ NEW POST FLOW ============ -->
+  <sc-if value="{{ addOpen }}" hint-placeholder-val="{{ true }}">
+  <div style="position:absolute;inset:0;z-index:70;background:#efe4c9;display:flex;flex-direction:column;">
+    <div style="padding:16px 18px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #d8c79c;">
+      <button onClick="{{ closeAdd }}" style="border:none;background:none;font-size:15px;font-family:'Special Elite',monospace;color:#7a6f5a;cursor:pointer;">✕ sluit</button>
+      <div style="font-family:'Special Elite',monospace;font-size:11px;letter-spacing:2px;color:#9c6b3a;">NIEUWE STOP · {{ addStepLabel }}</div>
+      <div style="width:44px;"></div>
+    </div>
+    <div style="display:flex;gap:6px;padding:12px 18px;">
+      <sc-for list="{{ addDots }}" as="d" hint-placeholder-count="4">
+        <div style="flex:1;height:4px;border-radius:2px;background:{{ d.bg }};"></div>
+      </sc-for>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:6px 18px 18px;">
+      <!-- step 0 location -->
+      <sc-if value="{{ addIs0 }}" hint-placeholder-val="{{ true }}">
+        <div style="font-weight:700;font-size:22px;margin-bottom:10px;">Waar ben je?</div>
+        <div style="position:relative;height:230px;border-radius:12px;overflow:hidden;border:2px solid #b98f4e;">
+          <svg viewBox="0 0 300 230" style="width:100%;height:100%;background:#a9c6cb;">
+            <path d="M-10 40 C80 60 120 20 180 60 C240 100 260 60 320 90 L320 240 L-10 240 Z" fill="#e7d9b6" stroke="#b98f4e" stroke-width="2"></path>
+            <path d="M20 120 C90 140 150 130 250 170" fill="none" stroke="#c0362c" stroke-width="2.5" stroke-dasharray="1 7"></path>
+          </svg>
+          <div style="position:absolute;left:172px;top:120px;transform:translate(-50%,-100%);">
+            <svg width="30" height="40" viewBox="0 0 30 40"><path d="M15 0C7 0 1 6 1 14c0 10 14 26 14 26s14-16 14-26C29 6 23 0 15 0Z" fill="#a3302a" stroke="#f1e6cd" stroke-width="2"></path><circle cx="15" cy="14" r="5" fill="#f1e6cd"></circle></svg>
+          </div>
+          <div style="position:absolute;bottom:8px;left:8px;font-family:'Special Elite',monospace;font-size:10px;background:#efe4c9;padding:3px 7px;border-radius:5px;">sleep de speld ›</div>
+        </div>
+        <div style="margin-top:14px;">
+          <label style="font-family:'Special Elite',monospace;font-size:10px;color:#9c6b3a;">PLAATSNAAM</label>
+          <div style="border:1.5px solid #cbb187;border-radius:8px;padding:11px 12px;background:#f4ecd6;margin-top:4px;font-size:16px;">Firenze, Italië</div>
+          <div style="font-family:'Special Elite',monospace;font-size:11px;color:#7a6f5a;margin-top:8px;">◉ 43.7696° N, 11.2558° E · 19 mei</div>
+        </div>
+      </sc-if>
+      <!-- step 1 media -->
+      <sc-if value="{{ addIs1 }}" hint-placeholder-val="{{ true }}">
+        <div style="font-weight:700;font-size:22px;margin-bottom:4px;">Foto's & video's</div>
+        <div style="font-family:'Special Elite',monospace;font-size:11px;color:#7a6f5a;margin-bottom:14px;">{{ addMedia }} toegevoegd</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <sc-for list="{{ addTiles }}" as="t" hint-placeholder-count="3">
+            <div style="aspect-ratio:1;border-radius:8px;border:4px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.2);background:linear-gradient(150deg,rgba(255,255,255,.25),rgba(0,0,0,.3)),{{ t.tone }};"></div>
+          </sc-for>
+          <button onClick="{{ addPhoto }}" style="aspect-ratio:1;border:2px dashed #b98f4e;border-radius:8px;background:none;color:#8a6a3a;font-size:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;">＋</button>
+        </div>
+      </sc-if>
+      <!-- step 2 story -->
+      <sc-if value="{{ addIs2 }}" hint-placeholder-val="{{ true }}">
+        <div style="font-weight:700;font-size:22px;margin-bottom:12px;">Het verhaal</div>
+        <label style="font-family:'Special Elite',monospace;font-size:10px;color:#9c6b3a;">TITEL</label>
+        <div style="border:1.5px solid #cbb187;border-radius:8px;padding:11px 12px;background:#f4ecd6;margin:4px 0 14px;font-size:17px;font-weight:600;">Aankomst in Toscane</div>
+        <label style="font-family:'Special Elite',monospace;font-size:10px;color:#9c6b3a;">VERHAAL</label>
+        <div style="border:1.5px solid #cbb187;border-radius:8px;padding:12px;background:#f4ecd6;margin-top:4px;min-height:150px;font-size:15.5px;line-height:1.6;color:#413a2c;">De heuvels werden goudkleurig toen we Firenze binnenreden. Cub liep als een zonnetje na de opknapbeurt bij de pas…</div>
+      </sc-if>
+      <!-- step 3 type -->
+      <sc-if value="{{ addIs3 }}" hint-placeholder-val="{{ true }}">
+        <div style="font-weight:700;font-size:22px;margin-bottom:14px;">Wat voor stop?</div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div onClick="{{ setTypeStop }}" style="border:2px solid {{ typeStopBorder }};border-radius:12px;padding:16px;background:{{ typeStopBg }};cursor:pointer;display:flex;align-items:center;gap:14px;">
+            <svg width="34" height="44" viewBox="0 0 30 40"><path d="M15 0C7 0 1 6 1 14c0 10 14 26 14 26s14-16 14-26C29 6 23 0 15 0Z" fill="#a3302a" stroke="#efe4c9" stroke-width="2"></path><circle cx="15" cy="14" r="5" fill="#efe4c9"></circle></svg>
+            <div><div style="font-weight:600;font-size:18px;">Gewone stop</div><div style="font-family:'Special Elite',monospace;font-size:11px;color:#7a6f5a;">een plek, een verhaal</div></div>
+          </div>
+          <div onClick="{{ setTypeRepair }}" style="border:2px solid {{ typeRepairBorder }};border-radius:12px;padding:16px;background:{{ typeRepairBg }};cursor:pointer;display:flex;align-items:center;gap:14px;">
+            <div style="width:34px;height:34px;border-radius:50%;background:#2e6d7a;display:flex;align-items:center;justify-content:center;"><svg width="20" height="20" viewBox="0 0 24 24" style="color:#f1e6cd"><use href="#wrench"></use></svg></div>
+            <div><div style="font-weight:600;font-size:18px;">Reparatie</div><div style="font-family:'Special Elite',monospace;font-size:11px;color:#7a6f5a;">wat brak, wat je maakte</div></div>
+          </div>
+          <sc-if value="{{ addIsRepair }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:2px;">
+              <div><label style="font-family:'Special Elite',monospace;font-size:10px;color:#9c6b3a;">WAT BRAK</label><div style="border:1.5px solid #cbb187;border-radius:8px;padding:10px 12px;background:#f4ecd6;margin-top:4px;font-size:15px;">Bougie verzopen na regen</div></div>
+              <div><label style="font-family:'Special Elite',monospace;font-size:10px;color:#2e6d7a;">WAT JE MAAKTE</label><div style="border:1.5px solid #cbb187;border-radius:8px;padding:10px 12px;background:#f4ecd6;margin-top:4px;font-size:15px;">Nieuwe bougie, tank gedroogd</div></div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+    </div>
+    <div style="padding:14px 18px;border-top:1px solid #d8c79c;display:flex;gap:10px;">
+      <sc-if value="{{ addCanBack }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ addBack }}" style="flex:none;padding:14px 18px;border:1.5px solid #b98f4e;border-radius:10px;background:none;font-family:'Special Elite',monospace;font-size:13px;color:#7a6f5a;cursor:pointer;">‹ terug</button>
+      </sc-if>
+      <button onClick="{{ addNext }}" style="flex:1;padding:14px;border:none;border-radius:10px;background:#a3302a;color:#f3e7c9;font-family:'Special Elite',monospace;font-size:14px;letter-spacing:1px;cursor:pointer;box-shadow:0 3px 0 rgba(90,30,20,.4);">{{ addNextLabel }}</button>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- toast -->
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute;bottom:80px;left:50%;transform:translateX(-50%);z-index:90;background:#332c22;color:#f3e7c9;font-family:'Special Elite',monospace;font-size:12px;padding:10px 18px;border-radius:20px;box-shadow:0 4px 12px rgba(0,0,0,.35);">{{ toast }}</div>
+  </sc-if>
+
+  <!-- ============ BOTTOM NAV ============ -->
+  <div style="position:absolute;left:0;right:0;bottom:0;height:64px;z-index:50;display:flex;align-items:center;justify-content:space-around;background:#efe4c9;border-top:1.5px solid #cbb187;box-shadow:0 -2px 6px rgba(120,90,40,.12);">
+    <button onClick="{{ goMap }}" style="border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:{{ cMap }};font-family:'Special Elite',monospace;font-size:9px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"></path><path d="M9 4v14M15 6v14"></path></svg>KAART</button>
+    <button onClick="{{ goStamps }}" style="border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:{{ cStamps }};font-family:'Special Elite',monospace;font-size:9px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="2"></rect><circle cx="12" cy="11" r="3.5"></circle><path d="M8 17h8"></path></svg>STEMPELS</button>
+    <button onClick="{{ openAdd }}" style="border:none;background:#a3302a;width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#f3e7c9;margin-top:-14px;box-shadow:0 3px 8px rgba(90,30,20,.4);border:3px solid #efe4c9;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"></path></svg></button>
+    <button onClick="{{ goStats }}" style="border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:{{ cStats }};font-family:'Special Elite',monospace;font-size:9px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 19V9M12 19V5M19 19v-7"></path></svg>RECAP</button>
+    <button onClick="{{ goReel }}" style="border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:{{ cReel }};font-family:'Special Elite',monospace;font-size:9px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 9h18M8 5v14M16 5v14"></path></svg>REEL</button>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  state = {
+    screen: 'map', activeIndex: 9, sheetOpen: false, repairOnly: false,
+    progress: 1, dragging: false, addOpen: false, addStep: 0, addType: 'stop',
+    addMedia: 2, statSeed: 0, toast: '', reelPlaying: false
+  };
+
+  stops = [
+    { place:'Amsterdam', country:'Nederland', flag:'🇳🇱', code:'NL', x:452, y:232, date:'2024-05-04', title:'Vertrek', km:0, weather:'Grijs, 14°', type:'stop',
+      story:'Om zes uur \u2019s ochtends de gracht uit, met alles ingepakt op het rekje achterop. De Cub pruttelt nog wat koud, maar we rijden. Vandaag begint de tocht die ik al twee jaar op de keukenkalender heb staan.',
+      media:[{tone:'#c9a24e',cap:'Vertrek · 06:12'},{tone:'#6d7f8f',cap:'Grachten'},{tone:'#94a06a',cap:'Eerste km'}] },
+    { place:'Rotterdam', country:'Nederland', flag:'🇳🇱', code:'NL', x:430, y:270, date:'2024-05-05', title:'Over de Maas', km:78, weather:'Zon, 17°', type:'stop',
+      story:'De Erasmusbrug in de ochtendmist. Een havenarbeider wees me lachend op mijn kenteken \u2014 \u201Ctot in Italië op dat ding?\u201D. Ja, dat is het plan.',
+      media:[{tone:'#5f938f',cap:'Erasmusbrug'},{tone:'#c9a24e',cap:'De haven'}] },
+    { place:'Antwerpen', country:'België', flag:'🇧🇪', code:'BE', x:445, y:302, date:'2024-05-06', title:'De grens over', km:172, weather:'Bewolkt, 16°', type:'stop',
+      story:'Geen slagboom, geen stempel \u2014 alleen een blauw bord en opeens praat iedereen anders. Frietjes met stoofvlees als grensritueel.',
+      media:[{tone:'#9c4a3a',cap:'Grote Markt'},{tone:'#6d7f8f',cap:'Douane'}] },
+    { place:'Gent', country:'België', flag:'🇧🇪', code:'BE', x:438, y:330, date:'2024-05-07', title:'Graslei', km:230, weather:'Regen, 13°', type:'stop',
+      story:'Een dag schuilen voor de regen langs de Leie. De Cub stond te glimmen onder een luifel terwijl ik koffie na koffie dronk en kaarten uitspreidde.',
+      media:[{tone:'#94a06a',cap:'Graslei'},{tone:'#b26a4c',cap:'Frietkot',video:true}] },
+    { place:'Reims', country:'Frankrijk', flag:'🇫🇷', code:'FR', x:455, y:402, date:'2024-05-09', title:'Lekke band', km:388, weather:'Zon, 19°', type:'repair',
+      broke:'Achterband lek \u2014 een spijker uit een wijngaardpad, 8 km voor Reims.', fixed:'Band geplakt langs de kant, nieuwe binnenband uit de tas. Een uur werk en een fles water.',
+      story:'Natuurlijk een lekke band in het land van de champagne. Ik heb hem geplakt in de berm terwijl een tractor voorbij tufte. Daarna ter viering toch maar een glas, ik had het verdiend.',
+      media:[{tone:'#9c4a3a',cap:'Lekke band'},{tone:'#c9a24e',cap:'Champagne'}] },
+    { place:'Dijon', country:'Frankrijk', flag:'🇫🇷', code:'FR', x:492, y:470, date:'2024-05-11', title:'Mosterd & wijn', km:512, weather:'Zon, 22°', type:'stop',
+      story:'Door de Route des Grands Crus, dorpje na dorpje met namen als op de etiketten thuis. De Cub houdt van deze rustige N-wegen, geen haast, geen snelweg.',
+      media:[{tone:'#94a06a',cap:'Wijngaarden'},{tone:'#c9a24e',cap:'Mosterd'},{tone:'#5f938f',cap:'Route N74'}] },
+    { place:'Lausanne', country:'Zwitserland', flag:'🇨🇭', code:'CH', x:516, y:520, date:'2024-05-13', title:'Lac Léman', km:655, weather:'Helder, 20°', type:'stop',
+      story:'Het meer lag als een spiegel en de Alpen stonden er achter alsof ze op me wachtten. Ik nam de veerboot een stukje \u2014 de Cub op het dek, ik met een glimlach van oor tot oor.',
+      media:[{tone:'#7ea6b4',cap:'Lac Léman'},{tone:'#5f938f',cap:'Veerboot',video:true}] },
+    { place:'Interlaken', country:'Zwitserland', flag:'🇨🇭', code:'CH', x:556, y:528, date:'2024-05-15', title:'Carburateur op hoogte', km:742, weather:'Koud, 6°', type:'repair',
+      broke:'Bij de Grimselpass (2.046 m) begon de motor te haperen \u2014 te ijl mengsel op hoogte, hij sloeg af in de haarspeldbochten.', fixed:'Carburateur bijgesteld, stationair omhoog. Handen bevroren, maar hij liep weer als een naaimachine.',
+      story:'De hoogte deed de Cub geen goed \u2014 hij snakte naar adem in de bochten. Met koude vingers de sproeier bijgesteld op een parkeerplaats met uitzicht dat elke schroef waard was.',
+      media:[{tone:'#6d7f8f',cap:'Grimselpass'},{tone:'#9c4a3a',cap:'Carburateur'},{tone:'#7ea6b4',cap:'2046 m'}] },
+    { place:'Milano', country:'Italië', flag:'🇮🇹', code:'IT', x:600, y:610, date:'2024-05-17', title:'Italië in', km:908, weather:'Warm, 26°', type:'stop',
+      story:'Van de koude passen zo de warme Povlakte in \u2014 een klimaatsprong in één dag. Espresso staand aan de bar, de Cub dubbel geparkeerd zoals iedereen hier.',
+      media:[{tone:'#b26a4c',cap:'Duomo'},{tone:'#c9a24e',cap:'Navigli'}] },
+    { place:'Cinque Terre', country:'Italië', flag:'🇮🇹', code:'IT', x:585, y:678, date:'2024-05-19', title:'De zee', km:1024, weather:'Zon, 24°', type:'stop',
+      story:'Het laatste stuk omlaag naar de kust, en daar was de zee. 1.024 kilometer op een 50cc brommer, van de grachten tot de Middellandse Zee. Vanavond focaccia en niets te doen dan uitkijken.',
+      media:[{tone:'#7ea6b4',cap:'De zee'},{tone:'#5f938f',cap:'Vernazza'},{tone:'#b26a4c',cap:'Focaccia',video:true},{tone:'#94a06a',cap:'Aankomst'}] }
+  ];
+
+  recaps = [
+    'Van de grachten tot de Middellandse Zee \u2014 1.024 km op 50cc, en de Cub draait nog.',
+    'Hoogste punt: Grimselpass, 2.046 m. Laagste moment: die spijker bij Reims.',
+    'Vijf landen, twee reparaties, nul pech die een berm en een kop koffie niet oplosten.',
+    '15 dagen onderweg, ontelbare espresso\u2019s, één brommer die nergens voor terugdeinst.'
+  ];
+
+  reelScenes = [
+    {tone:'#c9a24e',time:'0:00',cap:'Vertrek A\u2019dam'},
+    {tone:'#94a06a',time:'0:07',cap:'Gent regen'},
+    {tone:'#9c4a3a',time:'0:14',cap:'Reparatie'},
+    {tone:'#7ea6b4',time:'0:21',cap:'Léman'},
+    {tone:'#6d7f8f',time:'0:27',cap:'Grimsel'},
+    {tone:'#b26a4c',time:'0:32',cap:'Zee'}
+  ];
+
+  // ---- geometry ----
+  geo() {
+    const pts = this.stops.map(s => [s.x, s.y]);
+    const cum = [0]; let total = 0;
+    for (let i = 1; i < pts.length; i++) {
+      total += Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]);
+      cum.push(total);
+    }
+    return { pts, cum, total };
+  }
+  pointAt(t) {
+    const { pts, cum, total } = this.geo();
+    const dist = Math.max(0, Math.min(1, t)) * total;
+    for (let i = 1; i < pts.length; i++) {
+      if (dist <= cum[i] || i === pts.length - 1) {
+        const segd = cum[i] - cum[i-1] || 1;
+        const f = (dist - cum[i-1]) / segd;
+        return {
+          x: pts[i-1][0] + (pts[i][0]-pts[i-1][0]) * f,
+          y: pts[i-1][1] + (pts[i][1]-pts[i-1][1]) * f,
+          angle: Math.atan2(pts[i][1]-pts[i-1][1], pts[i][0]-pts[i-1][0]) * 180 / Math.PI
+        };
+      }
+    }
+    return { x: pts[0][0], y: pts[0][1], angle: 0 };
+  }
+  stopFrac(i) { const { cum, total } = this.geo(); return total ? cum[i]/total : 0; }
+  nearestStop(t) {
+    let best = 0, bd = 1e9;
+    for (let i = 0; i < this.stops.length; i++) {
+      const d = Math.abs(this.stopFrac(i) - t);
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  }
+
+  // ---- nav ----
+  goMap = () => this.setState({ screen:'map', sheetOpen:false, addOpen:false });
+  goStamps = () => this.setState({ screen:'stamps', sheetOpen:false, addOpen:false });
+  goStats = () => this.setState({ screen:'stats', sheetOpen:false, addOpen:false });
+  goReel = () => this.setState({ screen:'reel', sheetOpen:false, addOpen:false });
+
+  toggleRepair = () => this.setState(s => ({ repairOnly: !s.repairOnly }));
+  openSheetCurrent = () => this.setState({ sheetOpen: true });
+  openSheet = (i) => this.setState({ activeIndex: i, sheetOpen: true });
+  closeSheet = () => this.setState({ sheetOpen: false });
+  toggleReel = () => {
+    this.setState(s => ({ reelPlaying: !s.reelPlaying }));
+    this.flash(this.state.reelPlaying ? '' : '▶ voorbeeld speelt…');
+  };
+  regenStat = () => this.setState(s => ({ statSeed: (s.statSeed + 1) % this.recaps.length }));
+
+  // ---- scrubber ----
+  trackFromEvent(e) {
+    const r = e.currentTarget.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  }
+  onTrackDown = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const p = this.trackFromEvent(e);
+    this.setState({ dragging: true, progress: p, activeIndex: this.nearestStop(p) });
+  };
+  onTrackMove = (e) => {
+    if (!this.state.dragging) return;
+    const p = this.trackFromEvent(e);
+    this.setState({ progress: p, activeIndex: this.nearestStop(p) });
+  };
+  onTrackUp = (e) => {
+    const idx = this.nearestStop(this.trackFromEvent(e));
+    this.setState({ dragging: false, progress: this.stopFrac(idx), activeIndex: idx });
+  };
+
+  // ---- add flow ----
+  openAdd = () => this.setState({ addOpen:true, addStep:0, addType:'stop', addMedia:2 });
+  closeAdd = () => this.setState({ addOpen:false });
+  addBack = () => this.setState(s => ({ addStep: Math.max(0, s.addStep - 1) }));
+  addPhoto = () => this.setState(s => ({ addMedia: s.addMedia + 1 }));
+  setTypeStop = () => this.setState({ addType:'stop' });
+  setTypeRepair = () => this.setState({ addType:'repair' });
+  addNext = () => {
+    if (this.state.addStep < 3) { this.setState(s => ({ addStep: s.addStep + 1 })); return; }
+    this.setState({ addOpen:false, screen:'map' });
+    this.flash('✓ Stop toegevoegd aan de route');
+  };
+
+  flash(msg) {
+    if (!msg) { this.setState({ toast:'' }); return; }
+    this.setState({ toast: msg });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ toast:'' }), 2200);
+  }
+
+  renderVals() {
+    const st = this.state;
+    const cur = this.stops[st.activeIndex] || this.stops[0];
+    const pt = this.pointAt(st.progress);
+    const clamp = Math.max(-24, Math.min(24, pt.angle));
+
+    // view follow
+    const k = st.dragging ? 1.75 : 1.2;
+    const fx = 450, fy = 470;
+    const tx = fx - k * pt.x, ty = fy - k * pt.y;
+
+    // stats
+    const days = 15, km = this.stops[this.stops.length-1].km;
+    const repairs = this.stops.filter(s => s.type === 'repair').length;
+    const countryCodes = [...new Set(this.stops.map(s => s.code))];
+
+    // stamps (first stop per country)
+    const seen = {}; const stamps = [];
+    const rots = ['-4deg','3deg','-2deg','5deg','-3deg','2deg'];
+    const monthNL = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+    this.stops.forEach(s => {
+      if (!seen[s.code]) {
+        seen[s.code] = true;
+        const d = new Date(s.date);
+        stamps.push({ code:s.code, name:s.country, flag:s.flag,
+          date: d.getDate() + ' ' + monthNL[d.getMonth()], ink:'#7a3a2e', rot: rots[stamps.length % rots.length] });
+      }
+    });
+
+    // pins
+    const pinRots = [-6,4,-3,5,-2,6,-4,3,-5,2];
+    let visible = this.stops.map((s, i) => ({ s, i }));
+    if (st.repairOnly) visible = visible.filter(o => o.s.type === 'repair');
+    const pins = visible.map(({ s, i }) => ({
+      x: s.x, y: s.y, isRepair: s.type === 'repair', isStop: s.type !== 'repair',
+      rot: pinRots[i % pinRots.length], label: s.place, onClick: () => this.openSheet(i)
+    }));
+
+    // ticks
+    const ticks = this.stops.map((s, i) => ({
+      left: (this.stopFrac(i) * 100).toFixed(2) + '%',
+      bg: s.type === 'repair' ? '#2e6d7a' : '#a3302a'
+    }));
+
+    // route
+    const routeD = this.stops.map((s, i) => (i ? 'L ' : 'M ') + s.x + ' ' + s.y).join(' ');
+
+    const dfmt = (ds) => { const d = new Date(ds); return d.getDate() + ' ' + monthNL[d.getMonth()] + ' 2024'; };
+
+    const galleryRots = ['-1.5deg','1.5deg','-1deg','1deg'];
+    const gallery = (cur.media || []).map((m, i) => ({
+      tone: m.tone, cap: m.cap, isVideo: !!m.video, rot: galleryRots[i % galleryRots.length]
+    }));
+
+    const statCards = [
+      { value: km.toLocaleString('nl-NL'), label:'kilometer', rot:'-1.5deg' },
+      { value: days, label:'dagen onderweg', rot:'1.5deg' },
+      { value: countryCodes.length, label:'landen', rot:'1deg' },
+      { value: this.stops.length, label:'stops', rot:'-1deg' },
+      { value: repairs, label:'reparaties', rot:'1.5deg' },
+      { value: stamps.length, label:'stempels', rot:'-2deg' }
+    ];
+
+    const addTiles = Array.from({ length: st.addMedia }, (_, i) => ({
+      tone: ['#7ea6b4','#c9a24e','#94a06a','#b26a4c'][i % 4]
+    }));
+    const addStepLabels = ['LOCATIE','MEDIA','VERHAAL','TYPE'];
+
+    return {
+      isMap: st.screen === 'map', isStamps: st.screen === 'stamps',
+      isStats: st.screen === 'stats', isReel: st.screen === 'reel',
+      sheetOpen: st.sheetOpen, addOpen: st.addOpen,
+
+      routeD,
+      routeOpacity: st.repairOnly ? 0.25 : 1,
+      routeCasingOpacity: st.repairOnly ? 0.15 : 1,
+      pins, ticks,
+      viewTransform: 'translate(' + tx.toFixed(1) + ',' + ty.toFixed(1) + ') scale(' + k + ')',
+      viewTransition: st.dragging ? 'transform 0s' : 'transform .5s cubic-bezier(.22,.61,.36,1)',
+      cubTransform: 'translate(' + pt.x.toFixed(1) + ',' + pt.y.toFixed(1) + ') rotate(' + clamp.toFixed(1) + ')',
+      cubTransition: st.dragging ? 'transform 0s' : 'transform .5s cubic-bezier(.22,.61,.36,1)',
+      progressPct: (st.progress * 100).toFixed(2) + '%',
+
+      showPreview: st.screen === 'map' && !st.dragging && !st.sheetOpen && !st.addOpen,
+      stops0Label: this.stops[0].place,
+      stopsLastLabel: this.stops[this.stops.length-1].place,
+
+      repairBtnBg: st.repairOnly ? '#2e6d7a' : '#f4ecd6',
+      repairBtnColor: st.repairOnly ? '#f1e6cd' : '#3a332a',
+
+      cur: {
+        flag: cur.flag, place: cur.place, country: cur.country, title: cur.title,
+        story: cur.story, km: cur.km, weather: cur.weather, isRepair: cur.type === 'repair',
+        broke: cur.broke, fixed: cur.fixed, dateLabel: dfmt(cur.date),
+        media0: (cur.media && cur.media[0] && cur.media[0].tone) || '#c9a24e', gallery
+      },
+
+      stats: { km: km.toLocaleString('nl-NL'), days, countries: countryCodes.length, stamps: stamps.length },
+      stamps, statCards, recap: this.recaps[st.statSeed],
+      reelScenes: this.reelScenes, reelIcon: st.reelPlaying ? '❚❚' : '▶', toggleReel: this.toggleReel,
+
+      // add
+      addStepLabel: addStepLabels[st.addStep],
+      addDots: [0,1,2,3].map(i => ({ bg: i <= st.addStep ? '#a3302a' : '#d8c79c' })),
+      addIs0: st.addStep === 0, addIs1: st.addStep === 1, addIs2: st.addStep === 2, addIs3: st.addStep === 3,
+      addMedia: st.addMedia, addTiles,
+      addIsRepair: st.addType === 'repair',
+      typeStopBorder: st.addType === 'stop' ? '#a3302a' : '#cbb187',
+      typeStopBg: st.addType === 'stop' ? '#f7edd6' : '#f4ecd6',
+      typeRepairBorder: st.addType === 'repair' ? '#2e6d7a' : '#cbb187',
+      typeRepairBg: st.addType === 'repair' ? '#eaf1f2' : '#f4ecd6',
+      addCanBack: st.addStep > 0,
+      addNextLabel: st.addStep < 3 ? 'volgende ›' : '✓ plaats stop',
+
+      toast: st.toast, hasToast: !!st.toast,
+
+      // nav colors
+      cMap: st.screen === 'map' ? '#a3302a' : '#a89877',
+      cStamps: st.screen === 'stamps' ? '#a3302a' : '#a89877',
+      cStats: st.screen === 'stats' ? '#a3302a' : '#a89877',
+      cReel: st.screen === 'reel' ? '#a3302a' : '#a89877',
+
+      // handlers
+      goMap: this.goMap, goStamps: this.goStamps, goStats: this.goStats, goReel: this.goReel,
+      toggleRepair: this.toggleRepair, openSheetCurrent: this.openSheetCurrent,
+      closeSheet: this.closeSheet, regenStat: this.regenStat,
+      onTrackDown: this.onTrackDown, onTrackMove: this.onTrackMove, onTrackUp: this.onTrackUp,
+      openAdd: this.openAdd, closeAdd: this.closeAdd, addBack: this.addBack, addNext: this.addNext,
+      addPhoto: this.addPhoto, setTypeStop: this.setTypeStop, setTypeRepair: this.setTypeRepair
+    };
+  }
+}
+</script>
+</body>
+</html>
