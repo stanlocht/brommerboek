@@ -19,7 +19,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Amsterdam",
         country="Nederland",
-        flag="🇳🇱",
         code="NL",
         lat=52.3676,
         lng=4.9041,
@@ -43,7 +42,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Rotterdam",
         country="Nederland",
-        flag="🇳🇱",
         code="NL",
         lat=51.9244,
         lng=4.4777,
@@ -65,7 +63,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Antwerpen",
         country="België",
-        flag="🇧🇪",
         code="BE",
         lat=51.2194,
         lng=4.4025,
@@ -86,7 +83,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Gent",
         country="België",
-        flag="🇧🇪",
         code="BE",
         lat=51.0543,
         lng=3.7174,
@@ -108,7 +104,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Reims",
         country="Frankrijk",
-        flag="🇫🇷",
         code="FR",
         lat=49.2583,
         lng=4.0317,
@@ -135,7 +130,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Dijon",
         country="Frankrijk",
-        flag="🇫🇷",
         code="FR",
         lat=47.3220,
         lng=5.0415,
@@ -158,7 +152,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Lausanne",
         country="Zwitserland",
-        flag="🇨🇭",
         code="CH",
         lat=46.5197,
         lng=6.6323,
@@ -180,7 +173,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Interlaken",
         country="Zwitserland",
-        flag="🇨🇭",
         code="CH",
         lat=46.6863,
         lng=7.8632,
@@ -211,7 +203,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Milano",
         country="Italië",
-        flag="🇮🇹",
         code="IT",
         lat=45.4642,
         lng=9.1900,
@@ -233,7 +224,6 @@ TRIP: list[StopCreate] = [
     StopCreate(
         place="Cinque Terre",
         country="Italië",
-        flag="🇮🇹",
         code="IT",
         lat=44.1350,
         lng=9.6845,

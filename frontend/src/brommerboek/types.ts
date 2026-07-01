@@ -31,10 +31,11 @@ export interface StopsResponse {
   count: number
 }
 
+// `flag` is intentionally absent — the server derives it from `code` on
+// write, so the client shouldn't (and can't) drift out of sync.
 export interface NewStop {
   place: string
   country: string
-  flag: string
   code: string
   lat: number
   lng: number

@@ -6,6 +6,7 @@ from sqlmodel import col, func, select
 
 from app import crud
 from app.api.deps import SessionDep
+from app.geo import haversine_km
 from app.models import (
     Stop,
     StopCreate,
@@ -40,7 +41,11 @@ def read_stats(session: SessionDep) -> Any:
     Aggregate trip statistics for the "Wrapped" recap screen.
     """
     stops = _ordered_stops(session)
-    km = max((s.km for s in stops), default=0)
+    metres = 0.0
+    for prev, cur in zip(stops, stops[1:], strict=False):
+        metres += haversine_km((prev.lat, prev.lng), (cur.lat, cur.lng))
+    km = round(metres)
+    suggested_km = max((s.km for s in stops), default=0)
     codes = {s.code for s in stops if s.code}
     repairs = sum(1 for s in stops if s.type == "repair")
     days = 0
@@ -49,6 +54,7 @@ def read_stats(session: SessionDep) -> Any:
         days = (dates[-1] - dates[0]).days
     return TripStats(
         km=km,
+        suggested_km=suggested_km,
         days=days,
         countries=len(codes),
         stops=len(stops),

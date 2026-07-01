@@ -1,9 +1,9 @@
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react"
 import type { Role } from "./BrommerboekApp"
 import type { RouteGeometry } from "./geo"
-import { stopFraction } from "./geo"
+import { nearestStop, stopFraction } from "./geo"
 import { WrenchIcon } from "./icons"
-import { C, dateLabelNL, FONT_MONO, FONT_SERIF } from "./theme"
+import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import type { TripStats } from "./trip"
 import type { Stop } from "./types"
 import VintageMap from "./VintageMap"
@@ -95,6 +95,7 @@ export default function MapScreen({
   onScrubStart,
   onScrubMove,
   onScrubEnd,
+  onStep,
   onToggleRepair,
   onOpenSheet,
   onPinClick,
@@ -112,6 +113,7 @@ export default function MapScreen({
   onScrubStart: (p: number) => void
   onScrubMove: (p: number) => void
   onScrubEnd: (p: number) => void
+  onStep: (dir: -1 | 1) => void
   onToggleRepair: () => void
   onOpenSheet: () => void
   onPinClick: (i: number) => void
@@ -121,6 +123,9 @@ export default function MapScreen({
   const showPreview = !dragging
   const isRijder = role === "rijder"
   const latest = stops[stops.length - 1]
+  const currentStopIndex = nearestStop(route, progress)
+  const atStart = currentStopIndex === 0
+  const atEnd = currentStopIndex === stops.length - 1
 
   return (
     <div style={{ position: "absolute", inset: 0 }}>
@@ -202,7 +207,9 @@ export default function MapScreen({
                 >
                   JOUW LOGBOEK
                 </span>
-                <span style={{ color: C.red, fontSize: 13 }}>{stats.km}</span>
+                <span style={{ color: C.red, fontSize: 13 }}>
+                  {kmLabel(stats.km)}
+                </span>
                 <span>km · dag {stats.days}</span>
               </div>
             ) : (
@@ -390,71 +397,137 @@ export default function MapScreen({
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
-            fontFamily: FONT_MONO,
-            fontSize: 10,
-            color: C.ochreDeep,
+            alignItems: "center",
+            gap: 8,
             marginBottom: 9,
           }}
         >
-          <span>{stops[0]?.place}</span>
-          <span>rijd de route ›</span>
-          <span>{stops[stops.length - 1]?.place}</span>
+          <div style={{ width: 28, flex: "none" }} />
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              justifyContent: "space-between",
+              fontFamily: FONT_MONO,
+              fontSize: 10,
+              color: C.ochreDeep,
+            }}
+          >
+            <span>{stops[0]?.place}</span>
+            <span>rijd de route ›</span>
+            <span>{stops[stops.length - 1]?.place}</span>
+          </div>
+          <div style={{ width: 28, flex: "none" }} />
         </div>
-        <div
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture(e.pointerId)
-            onScrubStart(frac(e))
-          }}
-          onPointerMove={(e) => {
-            if (dragging) onScrubMove(frac(e))
-          }}
-          onPointerUp={(e) => onScrubEnd(frac(e))}
-          style={{
-            position: "relative",
-            height: 34,
-            cursor: "grab",
-            touchAction: "none",
-          }}
-        >
-          <div
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => onStep(-1)}
+            disabled={atStart}
+            aria-label="Vorige stop"
             style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              top: 15,
-              height: 4,
-              borderRadius: 3,
-              background: "#d8c79c",
+              width: 28,
+              height: 28,
+              flex: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: `1.5px solid ${C.border}`,
+              borderRadius: "50%",
+              background: C.paperCard,
+              color: C.sepia,
+              fontSize: 16,
+              fontFamily: FONT_MONO,
+              lineHeight: 1,
+              cursor: atStart ? "default" : "pointer",
+              opacity: atStart ? 0.35 : 1,
+              boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
             }}
-          />
+          >
+            ‹
+          </button>
           <div
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 15,
-              height: 4,
-              borderRadius: 3,
-              background: C.redBright,
-              width: pct,
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture(e.pointerId)
+              onScrubStart(frac(e))
             }}
-          />
-          {stops.map((s, i) => (
+            onPointerMove={(e) => {
+              if (dragging) onScrubMove(frac(e))
+            }}
+            onPointerUp={(e) => onScrubEnd(frac(e))}
+            style={{
+              position: "relative",
+              flex: 1,
+              height: 34,
+              cursor: "grab",
+              touchAction: "none",
+            }}
+          >
             <div
-              key={s.id}
               style={{
                 position: "absolute",
-                top: 11,
-                width: 11,
-                height: 11,
-                borderRadius: "50%",
-                transform: "translateX(-50%)",
-                left: `${(stopFraction(route, i) * 100).toFixed(2)}%`,
-                background: s.type === "repair" ? C.teal : C.red,
-                border: `2px solid ${C.paperLight}`,
+                left: 0,
+                right: 0,
+                top: 15,
+                height: 4,
+                borderRadius: 3,
+                background: "#d8c79c",
               }}
             />
-          ))}
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 15,
+                height: 4,
+                borderRadius: 3,
+                background: C.redBright,
+                width: pct,
+              }}
+            />
+            {stops.map((s, i) => (
+              <div
+                key={s.id}
+                style={{
+                  position: "absolute",
+                  top: 11,
+                  width: 11,
+                  height: 11,
+                  borderRadius: "50%",
+                  transform: "translateX(-50%)",
+                  left: `${(stopFraction(route, i) * 100).toFixed(2)}%`,
+                  background: s.type === "repair" ? C.teal : C.red,
+                  border: `2px solid ${C.paperLight}`,
+                }}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => onStep(1)}
+            disabled={atEnd}
+            aria-label="Volgende stop"
+            style={{
+              width: 28,
+              height: 28,
+              flex: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: `1.5px solid ${C.border}`,
+              borderRadius: "50%",
+              background: C.paperCard,
+              color: C.sepia,
+              fontSize: 16,
+              fontFamily: FONT_MONO,
+              lineHeight: 1,
+              cursor: atEnd ? "default" : "pointer",
+              opacity: atEnd ? 0.35 : 1,
+              boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+            }}
+          >
+            ›
+          </button>
         </div>
       </div>
 

@@ -124,7 +124,6 @@ export default function AddFlow({
     onSubmit({
       place: picked.place,
       country: picked.country,
-      flag: picked.flag,
       code: picked.code,
       lat: picked.lat,
       lng: picked.lng,

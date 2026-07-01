@@ -177,9 +177,13 @@ class StopsPublic(SQLModel):
     count: int
 
 
-# Aggregate trip statistics for the "Wrapped" recap screen
+# Aggregate trip statistics for the "Wrapped" recap screen. `km` is the summed
+# great-circle distance between consecutive stops (real geography, in km).
+# `suggested_km` is the highest odometer reading seen so far — the frontend
+# uses it to prefill the next stop's km input.
 class TripStats(SQLModel):
     km: int
+    suggested_km: int
     days: int
     countries: int
     stops: int

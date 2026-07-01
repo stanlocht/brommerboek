@@ -4,6 +4,7 @@ from typing import Any
 from sqlmodel import Session, col, select
 
 from app.core.security import get_password_hash, verify_password
+from app.countries import flag_emoji
 from app.models import (
     Item,
     ItemCreate,
@@ -84,7 +85,14 @@ def create_stop(
         order_index = (last.order_index + 1) if last else 0
     media = [m.model_dump() for m in stop_in.media]
     db_stop = Stop.model_validate(
-        stop_in, update={"order_index": order_index, "media": media}
+        stop_in,
+        update={
+            "order_index": order_index,
+            "media": media,
+            # Canonical: derive the emoji flag from the ISO code so the client
+            # can't drift out of sync with the code it also sends.
+            "flag": flag_emoji(stop_in.code),
+        },
     )
     session.add(db_stop)
     session.commit()

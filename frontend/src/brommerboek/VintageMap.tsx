@@ -148,7 +148,7 @@ export default function VintageMap({
       rot.className = "bb-cub-rot"
       const bob = document.createElement("div")
       bob.className = "bb-cub-bob"
-      bob.innerHTML = cubSvgString(40, 54)
+      bob.innerHTML = cubSvgString(60, 81)
       rot.appendChild(bob)
       cubEl.appendChild(rot)
       cubRotRef.current = rot

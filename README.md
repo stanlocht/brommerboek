@@ -64,8 +64,9 @@ The template's auth app is preserved: the demo dashboard moved to `/dashboard`
   along the route with camera-follow; `geo.ts` has the route-geometry helpers.
 - `MapScreen`, `StampScreen`, `StatsScreen`, `ReelScreen`, `StopSheet`,
   `AddFlow`, `BottomNav` — the screens; `BrommerboekApp.tsx` wires state + data.
-- `api.ts` — typed client for the public stops API; `trip.ts` — stats/stamps
-  derivations. Entry route: `frontend/src/routes/index.tsx`.
+- `api.ts` — typed client for the public stops + stats API; `trip.ts` — the
+  TripStats shape (values are computed server-side). Entry route:
+  `frontend/src/routes/index.tsx`.
 
 ## Running it
 

@@ -532,6 +532,10 @@ export const TripStatsSchema = {
             type: 'integer',
             title: 'Km'
         },
+        suggested_km: {
+            type: 'integer',
+            title: 'Suggested Km'
+        },
         days: {
             type: 'integer',
             title: 'Days'
@@ -554,7 +558,7 @@ export const TripStatsSchema = {
         }
     },
     type: 'object',
-    required: ['km', 'days', 'countries', 'stops', 'repairs', 'stamps'],
+    required: ['km', 'suggested_km', 'days', 'countries', 'stops', 'repairs', 'stamps'],
     title: 'TripStats'
 } as const;
 

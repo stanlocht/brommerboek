@@ -2,13 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef, useState } from "react"
 import "./brommerboek.css"
 import AddFlow from "./AddFlow"
-import { createStop, fetchStops } from "./api"
+import { createStop, fetchStats, fetchStops } from "./api"
 import { buildRoute, nearestStop, stopFraction } from "./geo"
 import { CubIcon } from "./icons"
 import MapScreen from "./MapScreen"
 import StopSheet from "./StopSheet"
 import { C, FONT_MONO } from "./theme"
-import { computeStats } from "./trip"
+import { EMPTY_STATS } from "./trip"
 import type { NewStop } from "./types"
 
 export type Role = "rijder" | "volger"
@@ -53,6 +53,11 @@ export default function BrommerboekApp() {
     queryKey: ["stops"],
     queryFn: fetchStops,
   })
+  const { data: statsData } = useQuery({
+    queryKey: ["stops", "stats"],
+    queryFn: fetchStats,
+  })
+  const stats = statsData ?? EMPTY_STATS
 
   const [role, setRole] = useState<Role>(loadRole)
   const [activeIndex, setActiveIndex] = useState(0)
@@ -64,6 +69,17 @@ export default function BrommerboekApp() {
   const [toast, setToast] = useState("")
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const jumpLast = useRef(false)
+  const progressRef = useRef(progress)
+  const animRef = useRef<number | null>(null)
+  useEffect(() => {
+    progressRef.current = progress
+  }, [progress])
+  useEffect(
+    () => () => {
+      if (animRef.current !== null) cancelAnimationFrame(animRef.current)
+    },
+    [],
+  )
 
   useEffect(() => {
     window.localStorage.setItem(ROLE_KEY, role)
@@ -74,7 +90,6 @@ export default function BrommerboekApp() {
       buildRoute((stops ?? []).map((s) => [s.lng, s.lat] as [number, number])),
     [stops],
   )
-  const stats = useMemo(() => computeStats(stops ?? []), [stops])
 
   // On first load, park the cub at the latest stop.
   const initedRef = useRef(false)
@@ -97,6 +112,7 @@ export default function BrommerboekApp() {
     mutationFn: (s: NewStop) => createStop(s),
     onSuccess: async () => {
       jumpLast.current = true
+      // Prefix match — invalidates both ["stops"] and ["stops", "stats"].
       await qc.invalidateQueries({ queryKey: ["stops"] })
       setAddOpen(false)
       flash("✓ Stop toegevoegd aan de route")
@@ -123,7 +139,14 @@ export default function BrommerboekApp() {
   const cur = stops[activeIndex] ?? stops[0]
   const isRijder = role === "rijder"
 
+  const cancelAnim = () => {
+    if (animRef.current !== null) {
+      cancelAnimationFrame(animRef.current)
+      animRef.current = null
+    }
+  }
   const onScrubStart = (p: number) => {
+    cancelAnim()
     setDragging(true)
     setProgress(p)
     setActiveIndex(nearestStop(route, p))
@@ -137,6 +160,36 @@ export default function BrommerboekApp() {
     setDragging(false)
     setProgress(stopFraction(route, idx))
     setActiveIndex(idx)
+  }
+  // Ride the moped smoothly to the neighbouring stop instead of teleporting.
+  // We flag `dragging` for the duration so VintageMap uses jumpTo on the
+  // camera and it stays glued to the marker as it traces the route.
+  const onStep = (dir: -1 | 1) => {
+    cancelAnim()
+    const from = progressRef.current
+    const currentIdx = nearestStop(route, from)
+    const targetIdx = Math.max(0, Math.min(stops.length - 1, currentIdx + dir))
+    if (targetIdx === currentIdx) return
+    const to = stopFraction(route, targetIdx)
+    const duration = 400 + 800 * Math.abs(to - from)
+    const t0 = performance.now()
+    setDragging(true)
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / duration)
+      const eased = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2
+      const cur = from + (to - from) * eased
+      setProgress(cur)
+      setActiveIndex(nearestStop(route, cur))
+      if (k < 1) {
+        animRef.current = requestAnimationFrame(step)
+      } else {
+        animRef.current = null
+        setDragging(false)
+        setProgress(to)
+        setActiveIndex(targetIdx)
+      }
+    }
+    animRef.current = requestAnimationFrame(step)
   }
 
   return (
@@ -154,6 +207,7 @@ export default function BrommerboekApp() {
         onScrubStart={onScrubStart}
         onScrubMove={onScrubMove}
         onScrubEnd={onScrubEnd}
+        onStep={onStep}
         onToggleRepair={() => setRepairOnly((r) => !r)}
         onOpenSheet={() => setSheetOpen(true)}
         onPinClick={(i) => {
@@ -177,7 +231,7 @@ export default function BrommerboekApp() {
       )}
       {addOpen && isRijder && (
         <AddFlow
-          suggestedKm={stats.kmRaw}
+          suggestedKm={stats.suggested_km}
           onClose={() => setAddOpen(false)}
           onSubmit={(s) => createMut.mutate(s)}
         />

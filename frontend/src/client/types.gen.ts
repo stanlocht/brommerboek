@@ -108,6 +108,7 @@ export type Token = {
 
 export type TripStats = {
     km: number;
+    suggested_km: number;
     days: number;
     countries: number;
     stops: number;
