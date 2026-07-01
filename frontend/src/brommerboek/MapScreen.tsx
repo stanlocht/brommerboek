@@ -3,7 +3,6 @@ import type { PointerEvent as ReactPointerEvent } from "react"
 import type { UserPublic } from "@/client"
 import type { RouteGeometry } from "./geo"
 import { nearestStop, stopFraction } from "./geo"
-import { WrenchIcon } from "./icons"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import type { TripStats } from "./trip"
 import type { Stop } from "./types"
@@ -68,13 +67,11 @@ export default function MapScreen({
   cur,
   progress,
   dragging,
-  repairOnly,
   me,
   onScrubStart,
   onScrubMove,
   onScrubEnd,
   onStep,
-  onToggleRepair,
   onOpenSheet,
   onPinClick,
   onAdd,
@@ -87,7 +84,6 @@ export default function MapScreen({
   cur: Stop
   progress: number
   dragging: boolean
-  repairOnly: boolean
   // Signed-in viewer, if any. Drives the login/uit affordance and (via the
   // caller passing/omitting onAdd) the add button.
   me: UserPublic | null | undefined
@@ -95,7 +91,6 @@ export default function MapScreen({
   onScrubMove: (p: number) => void
   onScrubEnd: (p: number) => void
   onStep: (dir: -1 | 1) => void
-  onToggleRepair: () => void
   onOpenSheet: () => void
   onPinClick: (i: number) => void
   onAdd?: () => void
@@ -115,7 +110,6 @@ export default function MapScreen({
         route={route}
         progress={progress}
         dragging={dragging}
-        repairOnly={repairOnly}
         onPinClick={onPinClick}
       />
 
@@ -221,33 +215,6 @@ export default function MapScreen({
           </div>
         </div>
       </div>
-
-      {/* repair toggle (top-right, below the header) */}
-      <button
-        type="button"
-        onClick={onToggleRepair}
-        style={{
-          position: "absolute",
-          top: 128,
-          right: 14,
-          zIndex: 20,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          border: `1.5px solid ${C.ochre}`,
-          borderRadius: 20,
-          padding: "6px 11px",
-          background: repairOnly ? C.teal : C.paperCard,
-          color: repairOnly ? C.cream : C.ink,
-          fontFamily: FONT_MONO,
-          fontSize: 11,
-          cursor: "pointer",
-          boxShadow: "1px 2px 0 rgba(120,90,40,.25)",
-        }}
-      >
-        <WrenchIcon size={15} color="currentColor" />
-        Reparaties
-      </button>
 
       {/* landed preview card */}
       {showPreview && (

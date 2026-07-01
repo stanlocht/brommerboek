@@ -51,7 +51,6 @@ interface Props {
   route: RouteGeometry
   progress: number
   dragging: boolean
-  repairOnly: boolean
   onPinClick: (index: number) => void
 }
 
@@ -60,7 +59,6 @@ export default function VintageMap({
   route,
   progress,
   dragging,
-  repairOnly,
   onPinClick,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -213,24 +211,6 @@ export default function VintageMap({
     if (dragging) interactedRef.current = true
     syncCub(progress, true)
   }, [progress, dragging, syncCub])
-
-  // --- repair filter: hide normal pins + fade route -------------------------
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !readyRef.current) return
-    pinsRef.current.forEach((m, i) => {
-      const hide = repairOnly && stops[i].type !== "repair"
-      m.getElement().style.display = hide ? "none" : ""
-    })
-    if (map.getLayer("route-line")) {
-      map.setPaintProperty("route-line", "line-opacity", repairOnly ? 0.25 : 1)
-      map.setPaintProperty(
-        "route-casing",
-        "line-opacity",
-        repairOnly ? 0.15 : 1,
-      )
-    }
-  }, [repairOnly, stops])
 
   return <div ref={containerRef} className="bb-map-canvas" />
 }

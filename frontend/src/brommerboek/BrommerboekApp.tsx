@@ -63,7 +63,6 @@ export default function BrommerboekApp() {
 
   const [activeIndex, setActiveIndex] = useState(0)
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [repairOnly, setRepairOnly] = useState(false)
   const [progress, setProgress] = useState(1)
   const [dragging, setDragging] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
@@ -204,13 +203,11 @@ export default function BrommerboekApp() {
         cur={cur}
         progress={progress}
         dragging={dragging}
-        repairOnly={repairOnly}
         me={me}
         onScrubStart={onScrubStart}
         onScrubMove={onScrubMove}
         onScrubEnd={onScrubEnd}
         onStep={onStep}
-        onToggleRepair={() => setRepairOnly((r) => !r)}
         onOpenSheet={() => setSheetOpen(true)}
         onPinClick={(i) => {
           setActiveIndex(i)
