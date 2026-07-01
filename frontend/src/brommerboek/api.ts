@@ -22,9 +22,13 @@ export async function fetchStats(): Promise<TripStats> {
 }
 
 export async function createStop(stop: NewStop): Promise<Stop> {
+  const token = localStorage.getItem("access_token") ?? ""
   const res = await fetch(STOPS_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(stop),
   })
   if (!res.ok) throw new Error(`Failed to add stop (${res.status})`)
