@@ -34,7 +34,7 @@ function CenterState({ text }: { text: string }) {
       }}
     >
       <div className="bb-cub-bob">
-        <CubIcon width={110} height={70} />
+        <CubIcon width={70} height={94} />
       </div>
       <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ochreDeep }}>
         {text}

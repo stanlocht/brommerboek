@@ -18,11 +18,16 @@ const FOLLOW_ZOOM = 6.3
 
 // CSS transform that points the (right-facing) Cub along the travel bearing
 // while keeping it wheels-down — mirrors horizontally for westbound legs
-// instead of flipping upside down.
+// instead of flipping upside down. Tilt is capped so the Cub always reads as
+// mostly horizontal even for near-north/south headings.
+const MAX_TILT_DEG = 22
 function cubTransform(bearing: number): string {
-  const phi = bearing - 90 // screen angle (from +x, y-down), north-up map
-  if (bearing <= 180) return `rotate(${phi.toFixed(1)}deg)`
-  return `rotate(${(phi + 180).toFixed(1)}deg) scaleX(-1)`
+  const westbound = bearing > 180
+  const anchor = westbound ? 270 : 90
+  const raw = bearing - anchor
+  const phi = Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, raw))
+  const mirror = westbound ? " scaleX(-1)" : ""
+  return `rotate(${phi.toFixed(1)}deg)${mirror}`
 }
 
 function routeGeoJSON(stops: Stop[]) {
@@ -143,7 +148,7 @@ export default function VintageMap({
       rot.className = "bb-cub-rot"
       const bob = document.createElement("div")
       bob.className = "bb-cub-bob"
-      bob.innerHTML = cubSvgString(60, 38)
+      bob.innerHTML = cubSvgString(40, 54)
       rot.appendChild(bob)
       cubEl.appendChild(rot)
       cubRotRef.current = rot

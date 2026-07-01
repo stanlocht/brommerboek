@@ -1,0 +1,19 @@
+FROM oven/bun:1
+
+WORKDIR /app
+
+COPY package.json bun.lock /app/
+COPY frontend/package.json /app/frontend/
+
+WORKDIR /app/frontend
+
+RUN bun install
+
+COPY ./frontend /app/frontend
+
+# Reliable file watching on bind-mounted source (esp. macOS/WSL)
+ENV CHOKIDAR_USEPOLLING=true
+
+EXPOSE 5173
+
+CMD ["sh", "-c", "bun install && bun run dev -- --host 0.0.0.0"]

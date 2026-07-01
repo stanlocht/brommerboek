@@ -150,7 +150,8 @@
   transform-origin: center;
   animation: bb-bobbing 2.6s ease-in-out infinite;
 }
-.bb-cub-marker svg {
+.bb-cub-marker svg,
+.bb-cub-marker img {
   display: block;
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.28));
 }
