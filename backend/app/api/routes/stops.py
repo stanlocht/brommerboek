@@ -1,11 +1,11 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import col, func, select
 
 from app import crud
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, get_current_active_superuser
 from app.geo import haversine_km
 from app.models import (
     Stop,
@@ -74,9 +74,14 @@ def read_stop(session: SessionDep, id: uuid.UUID) -> Any:
     return stop
 
 
-@router.post("/", response_model=StopPublic)
+@router.post(
+    "/",
+    response_model=StopPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
 def create_stop(*, session: SessionDep, stop_in: StopCreate) -> Any:
     """
-    Add a new stop to the end of the route (from the new-post flow).
+    Add a new stop to the end of the route. Superusers only — this is a
+    single-rider journal.
     """
     return crud.create_stop(session=session, stop_in=stop_in)

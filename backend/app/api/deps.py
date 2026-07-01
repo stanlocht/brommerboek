@@ -17,6 +17,13 @@ reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/login/access-token"
 )
 
+# For endpoints that are public but personalise their response when a caller
+# is authenticated (e.g. "have I honked this stop?"). auto_error=False so a
+# missing/invalid token is silently ignored instead of raising 401.
+optional_oauth2 = OAuth2PasswordBearer(
+    tokenUrl=f"{settings.API_V1_STR}/login/access-token", auto_error=False
+)
+
 
 def get_db() -> Generator[Session]:
     with Session(engine) as session:
@@ -55,3 +62,25 @@ def get_current_active_superuser(current_user: CurrentUser) -> User:
             status_code=403, detail="The user doesn't have enough privileges"
         )
     return current_user
+
+
+def get_optional_current_user(
+    session: SessionDep,
+    token: Annotated[str | None, Depends(optional_oauth2)],
+) -> User | None:
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
+        )
+        token_data = TokenPayload(**payload)
+    except InvalidTokenError, ValidationError:
+        return None
+    user = session.get(User, token_data.sub)
+    if not user or not user.is_active:
+        return None
+    return user
+
+
+OptionalUser = Annotated[User | None, Depends(get_optional_current_user)]

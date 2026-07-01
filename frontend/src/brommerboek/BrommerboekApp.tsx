@@ -1,25 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { UsersService } from "@/client"
+import { isLoggedIn } from "@/hooks/useAuth"
 import "./brommerboek.css"
 import AddFlow from "./AddFlow"
 import { createStop, fetchStats, fetchStops } from "./api"
 import { buildRoute, nearestStop, stopFraction } from "./geo"
 import { CubIcon } from "./icons"
+import LoginPrompt from "./LoginPrompt"
 import MapScreen from "./MapScreen"
 import StopSheet from "./StopSheet"
 import { C, FONT_MONO } from "./theme"
 import { EMPTY_STATS } from "./trip"
 import type { NewStop } from "./types"
-
-export type Role = "rijder" | "volger"
-const ROLE_KEY = "brommerboek:role"
-
-function loadRole(): Role {
-  if (typeof window === "undefined") return "rijder"
-  return window.localStorage.getItem(ROLE_KEY) === "volger"
-    ? "volger"
-    : "rijder"
-}
 
 function CenterState({ text }: { text: string }) {
   return (
@@ -58,14 +51,23 @@ export default function BrommerboekApp() {
     queryFn: fetchStats,
   })
   const stats = statsData ?? EMPTY_STATS
+  // Everyone sees the same trip; only superusers get the add/edit affordances.
+  // Query only fires when a token is present so a signed-out viewer never
+  // triggers a 401 → login redirect.
+  const { data: me } = useQuery({
+    queryKey: ["currentUser"],
+    queryFn: UsersService.readUserMe,
+    enabled: isLoggedIn(),
+  })
+  const canEdit = !!me?.is_superuser
 
-  const [role, setRole] = useState<Role>(loadRole)
   const [activeIndex, setActiveIndex] = useState(0)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [repairOnly, setRepairOnly] = useState(false)
   const [progress, setProgress] = useState(1)
   const [dragging, setDragging] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  const [loginOpen, setLoginOpen] = useState(false)
   const [toast, setToast] = useState("")
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const jumpLast = useRef(false)
@@ -80,10 +82,6 @@ export default function BrommerboekApp() {
     },
     [],
   )
-
-  useEffect(() => {
-    window.localStorage.setItem(ROLE_KEY, role)
-  }, [role])
 
   const route = useMemo(
     () =>
@@ -137,7 +135,12 @@ export default function BrommerboekApp() {
     return <CenterState text="kon de reis niet laden — draait de backend?" />
 
   const cur = stops[activeIndex] ?? stops[0]
-  const isRijder = role === "rijder"
+
+  const onLogout = () => {
+    localStorage.removeItem("access_token")
+    qc.removeQueries({ queryKey: ["currentUser"] })
+    flash("uitgelogd")
+  }
 
   const cancelAnim = () => {
     if (animRef.current !== null) {
@@ -202,8 +205,7 @@ export default function BrommerboekApp() {
         progress={progress}
         dragging={dragging}
         repairOnly={repairOnly}
-        role={role}
-        onRoleChange={setRole}
+        me={me}
         onScrubStart={onScrubStart}
         onScrubMove={onScrubMove}
         onScrubEnd={onScrubEnd}
@@ -214,7 +216,9 @@ export default function BrommerboekApp() {
           setActiveIndex(i)
           setSheetOpen(true)
         }}
-        onAdd={isRijder ? () => setAddOpen(true) : undefined}
+        onAdd={canEdit ? () => setAddOpen(true) : undefined}
+        onLogin={() => setLoginOpen(true)}
+        onLogout={onLogout}
       />
 
       {/* paper textures over everything but chrome */}
@@ -224,16 +228,23 @@ export default function BrommerboekApp() {
       {sheetOpen && (
         <StopSheet
           cur={cur}
-          role={role}
+          canEdit={canEdit}
           onClose={() => setSheetOpen(false)}
           onEdit={() => flash("✎ bewerken komt binnenkort")}
         />
       )}
-      {addOpen && isRijder && (
+      {addOpen && canEdit && (
         <AddFlow
           suggestedKm={stats.suggested_km}
           onClose={() => setAddOpen(false)}
           onSubmit={(s) => createMut.mutate(s)}
+        />
+      )}
+      {loginOpen && (
+        <LoginPrompt
+          intent="signin"
+          onClose={() => setLoginOpen(false)}
+          onSuccess={() => setLoginOpen(false)}
         />
       )}
 

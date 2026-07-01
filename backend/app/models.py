@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, date, datetime
 
 from pydantic import EmailStr
-from sqlalchemy import JSON, DateTime, Text
+from sqlalchemy import JSON, DateTime, Text, UniqueConstraint
 from sqlmodel import Column, Field, Relationship, SQLModel
 
 
@@ -189,6 +189,73 @@ class TripStats(SQLModel):
     stops: int
     repairs: int
     stamps: int
+
+
+# ----------------------------------------------------------------------------
+# Comments + horn honks (public reactions on stops).
+#
+# Anyone can read; only authenticated users can post a comment or honk. A user
+# can honk a given stop at most once — the API toggles.
+# ----------------------------------------------------------------------------
+
+
+class CommentCreate(SQLModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+class Comment(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    stop_id: uuid.UUID = Field(
+        foreign_key="stop.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE"
+    )
+    body: str = Field(sa_type=Text)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class CommentPublic(SQLModel):
+    id: uuid.UUID
+    stop_id: uuid.UUID
+    user_id: uuid.UUID
+    # Rendered display name — full_name when present, otherwise the local part
+    # of the email so we don't leak the full address.
+    author_name: str
+    is_mine: bool = False
+    body: str
+    created_at: datetime | None = None
+
+
+class CommentsPublic(SQLModel):
+    data: list[CommentPublic]
+    count: int
+
+
+class HornHonk(SQLModel, table=True):
+    # A given user can honk a stop at most once — the API toggles.
+    __table_args__ = (UniqueConstraint("stop_id", "user_id", name="uq_honk_stop_user"),)
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    stop_id: uuid.UUID = Field(
+        foreign_key="stop.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class HonkPublic(SQLModel):
+    stop_id: uuid.UUID
+    count: int
+    honked_by_me: bool
 
 
 # Generic message

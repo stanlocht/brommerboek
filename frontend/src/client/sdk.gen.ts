@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class ItemsService {
     /**
@@ -235,6 +235,116 @@ export class PrivateService {
     }
 }
 
+export class ReactionsService {
+    /**
+     * Read Comments
+     * Public list of comments on a stop, newest first.
+     * @param data The data for the request.
+     * @param data.stopId
+     * @returns CommentsPublic Successful Response
+     * @throws ApiError
+     */
+    public static readComments(data: ReactionsReadCommentsData): CancelablePromise<ReactionsReadCommentsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/stops/{stop_id}/comments',
+            path: {
+                stop_id: data.stopId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Create Comment
+     * Leave a comment on a stop. Any active user may comment.
+     * @param data The data for the request.
+     * @param data.stopId
+     * @param data.requestBody
+     * @returns CommentPublic Successful Response
+     * @throws ApiError
+     */
+    public static createComment(data: ReactionsCreateCommentData): CancelablePromise<ReactionsCreateCommentResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/stops/{stop_id}/comments',
+            path: {
+                stop_id: data.stopId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Comment
+     * Delete a comment. The author can delete their own; superusers can delete any.
+     * @param data The data for the request.
+     * @param data.commentId
+     * @returns Message Successful Response
+     * @throws ApiError
+     */
+    public static deleteComment(data: ReactionsDeleteCommentData): CancelablePromise<ReactionsDeleteCommentResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/comments/{comment_id}',
+            path: {
+                comment_id: data.commentId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Honks
+     * Public honk count for a stop, plus whether the caller has honked.
+     * @param data The data for the request.
+     * @param data.stopId
+     * @returns HonkPublic Successful Response
+     * @throws ApiError
+     */
+    public static readHonks(data: ReactionsReadHonksData): CancelablePromise<ReactionsReadHonksResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/stops/{stop_id}/honks',
+            path: {
+                stop_id: data.stopId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Toggle Honk
+     * Toggle the caller's horn honk on a stop.
+     * @param data The data for the request.
+     * @param data.stopId
+     * @returns HonkPublic Successful Response
+     * @throws ApiError
+     */
+    public static toggleHonk(data: ReactionsToggleHonkData): CancelablePromise<ReactionsToggleHonkResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/stops/{stop_id}/honks',
+            path: {
+                stop_id: data.stopId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
 export class StopsService {
     /**
      * Read Stops
@@ -252,7 +362,8 @@ export class StopsService {
     
     /**
      * Create Stop
-     * Add a new stop to the end of the route (from the new-post flow).
+     * Add a new stop to the end of the route. Superusers only — this is a
+     * single-rider journal.
      * @param data The data for the request.
      * @param data.requestBody
      * @returns StopPublic Successful Response

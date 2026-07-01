@@ -9,6 +9,31 @@ export type Body_login_login_access_token = {
     client_secret?: (string | null);
 };
 
+export type CommentCreate = {
+    body: string;
+};
+
+export type CommentPublic = {
+    id: string;
+    stop_id: string;
+    user_id: string;
+    author_name: string;
+    is_mine?: boolean;
+    body: string;
+    created_at?: (string | null);
+};
+
+export type CommentsPublic = {
+    data: Array<CommentPublic>;
+    count: number;
+};
+
+export type HonkPublic = {
+    stop_id: string;
+    count: number;
+    honked_by_me: boolean;
+};
+
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
@@ -235,6 +260,37 @@ export type PrivateCreateUserData = {
 };
 
 export type PrivateCreateUserResponse = (UserPublic);
+
+export type ReactionsReadCommentsData = {
+    stopId: string;
+};
+
+export type ReactionsReadCommentsResponse = (CommentsPublic);
+
+export type ReactionsCreateCommentData = {
+    requestBody: CommentCreate;
+    stopId: string;
+};
+
+export type ReactionsCreateCommentResponse = (CommentPublic);
+
+export type ReactionsDeleteCommentData = {
+    commentId: string;
+};
+
+export type ReactionsDeleteCommentResponse = (Message);
+
+export type ReactionsReadHonksData = {
+    stopId: string;
+};
+
+export type ReactionsReadHonksResponse = (HonkPublic);
+
+export type ReactionsToggleHonkData = {
+    stopId: string;
+};
+
+export type ReactionsToggleHonkResponse = (HonkPublic);
 
 export type StopsReadStopsResponse = (StopsPublic);
 

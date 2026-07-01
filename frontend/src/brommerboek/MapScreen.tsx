@@ -1,5 +1,6 @@
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react"
-import type { Role } from "./BrommerboekApp"
+import { Link } from "@tanstack/react-router"
+import type { PointerEvent as ReactPointerEvent } from "react"
+import type { UserPublic } from "@/client"
 import type { RouteGeometry } from "./geo"
 import { nearestStop, stopFraction } from "./geo"
 import { WrenchIcon } from "./icons"
@@ -13,70 +14,48 @@ function frac(e: ReactPointerEvent<HTMLDivElement>): number {
   return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
 }
 
-// "vandaag" / "gisteren" / "N dagen geleden" — colloquial Dutch relative time
-// for the follower's "Aangekomen in X" line.
-function daysAgoLabel(iso: string): string {
-  const then = new Date(iso).getTime()
-  const now = Date.now()
-  const days = Math.max(0, Math.floor((now - then) / 86400000))
-  if (days === 0) return "vandaag"
-  if (days === 1) return "gisteren"
-  return `${days} dagen geleden`
-}
-
-const roleBtnBase: CSSProperties = {
-  fontFamily: FONT_MONO,
-  fontSize: 10,
-  letterSpacing: 1,
-  padding: "4px 10px",
-  border: "none",
-  borderRadius: 12,
-  cursor: "pointer",
-  color: C.ink,
-  background: "transparent",
-}
-
-function RoleToggle({
-  role,
-  onChange,
+function AuthLink({
+  me,
+  onLogin,
+  onLogout,
 }: {
-  role: Role
-  onChange: (r: Role) => void
+  me: UserPublic | null | undefined
+  onLogin: () => void
+  onLogout: () => void
 }) {
+  const base = {
+    fontFamily: FONT_MONO,
+    fontSize: 11,
+    letterSpacing: 1,
+    color: C.ochreDeep,
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    padding: "4px 6px",
+    textDecoration: "underline",
+  } as const
+  if (!me) {
+    return (
+      <button type="button" onClick={onLogin} style={base}>
+        log in
+      </button>
+    )
+  }
+  const name = me.full_name || me.email.split("@", 1)[0]
   return (
     <div
       style={{
         display: "inline-flex",
-        alignItems: "center",
-        gap: 2,
-        padding: 3,
-        borderRadius: 14,
-        background: C.paperCard,
-        border: `1.5px solid ${C.border}`,
-        boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+        alignItems: "baseline",
+        gap: 6,
+        fontFamily: FONT_MONO,
+        fontSize: 11,
+        color: C.sepia,
       }}
     >
-      <button
-        type="button"
-        onClick={() => onChange("rijder")}
-        style={{
-          ...roleBtnBase,
-          background: role === "rijder" ? C.red : "transparent",
-          color: role === "rijder" ? C.wrappedInk : C.sepia,
-        }}
-      >
-        RIJDER
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("volger")}
-        style={{
-          ...roleBtnBase,
-          background: role === "volger" ? C.teal : "transparent",
-          color: role === "volger" ? C.wrappedInk : C.sepia,
-        }}
-      >
-        VOLGER
+      <span style={{ color: C.ochreDeep }}>{name}</span>
+      <button type="button" onClick={onLogout} style={base}>
+        uit
       </button>
     </div>
   )
@@ -90,8 +69,7 @@ export default function MapScreen({
   progress,
   dragging,
   repairOnly,
-  role,
-  onRoleChange,
+  me,
   onScrubStart,
   onScrubMove,
   onScrubEnd,
@@ -100,6 +78,8 @@ export default function MapScreen({
   onOpenSheet,
   onPinClick,
   onAdd,
+  onLogin,
+  onLogout,
 }: {
   stops: Stop[]
   route: RouteGeometry
@@ -108,8 +88,9 @@ export default function MapScreen({
   progress: number
   dragging: boolean
   repairOnly: boolean
-  role: Role
-  onRoleChange: (r: Role) => void
+  // Signed-in viewer, if any. Drives the login/uit affordance and (via the
+  // caller passing/omitting onAdd) the add button.
+  me: UserPublic | null | undefined
   onScrubStart: (p: number) => void
   onScrubMove: (p: number) => void
   onScrubEnd: (p: number) => void
@@ -118,11 +99,11 @@ export default function MapScreen({
   onOpenSheet: () => void
   onPinClick: (i: number) => void
   onAdd?: () => void
+  onLogin: () => void
+  onLogout: () => void
 }) {
   const pct = `${(progress * 100).toFixed(2)}%`
   const showPreview = !dragging
-  const isRijder = role === "rijder"
-  const latest = stops[stops.length - 1]
   const currentStopIndex = nearestStop(route, progress)
   const atStart = currentStopIndex === 0
   const atEnd = currentStopIndex === stops.length - 1
@@ -179,83 +160,53 @@ export default function MapScreen({
                 marginTop: 2,
               }}
             >
-              De Grote Tocht
+              Van Mokum naar Marroko
             </div>
-            {isRijder ? (
-              <div
+            <Link
+              to="/logboek"
+              aria-label="Open logboek met statistieken"
+              style={{
+                marginTop: 8,
+                display: "inline-flex",
+                alignItems: "baseline",
+                gap: 8,
+                padding: "4px 10px",
+                borderRadius: 8,
+                background: C.paperCard,
+                border: `1.5px solid ${C.border}`,
+                boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+                fontFamily: FONT_MONO,
+                fontSize: 11,
+                color: C.sepia,
+                textDecoration: "none",
+                cursor: "pointer",
+                pointerEvents: "auto",
+              }}
+            >
+              <span
                 style={{
-                  marginTop: 8,
-                  display: "inline-flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                  padding: "4px 10px",
-                  borderRadius: 8,
-                  background: C.paperCard,
-                  border: `1.5px solid ${C.border}`,
-                  boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
-                  fontFamily: FONT_MONO,
-                  fontSize: 11,
-                  color: C.sepia,
+                  fontSize: 10,
+                  letterSpacing: 2,
+                  color: C.ochreDeep,
                 }}
               >
-                <span
-                  style={{
-                    fontSize: 10,
-                    letterSpacing: 2,
-                    color: C.ochreDeep,
-                  }}
-                >
-                  JOUW LOGBOEK
-                </span>
-                <span style={{ color: C.red, fontSize: 13 }}>
-                  {kmLabel(stats.km)}
-                </span>
-                <span>km · dag {stats.days}</span>
-              </div>
-            ) : (
-              <div style={{ marginTop: 6 }}>
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: FONT_MONO,
-                      fontSize: 10,
-                      letterSpacing: 2,
-                      color: C.wrappedInk,
-                      background: C.teal,
-                      padding: "2px 8px",
-                      borderRadius: 10,
-                    }}
-                  >
-                    ✦ VOLGEND
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: FONT_MONO,
-                      fontSize: 11,
-                      color: C.ink,
-                    }}
-                  >
-                    Je volgt Daan de Vries
-                  </span>
-                </div>
-                <div
-                  style={{
-                    fontFamily: FONT_MONO,
-                    fontSize: 10,
-                    color: C.sepia,
-                    marginTop: 3,
-                  }}
-                >
-                  ◉ Aangekomen in {latest.place} · {daysAgoLabel(latest.date)}
-                </div>
-              </div>
-            )}
+                LOGBOEK
+              </span>
+              <span style={{ color: C.red, fontSize: 13 }}>
+                {kmLabel(stats.km)}
+              </span>
+              <span>km · dag {stats.days}</span>
+              <span
+                aria-hidden="true"
+                style={{
+                  fontSize: 11,
+                  color: C.ochreDeep,
+                  marginLeft: 2,
+                }}
+              >
+                ›
+              </span>
+            </Link>
           </div>
           <div
             style={{
@@ -266,7 +217,7 @@ export default function MapScreen({
               pointerEvents: "auto",
             }}
           >
-            <RoleToggle role={role} onChange={onRoleChange} />
+            <AuthLink me={me} onLogin={onLogin} onLogout={onLogout} />
           </div>
         </div>
       </div>
@@ -277,7 +228,7 @@ export default function MapScreen({
         onClick={onToggleRepair}
         style={{
           position: "absolute",
-          top: isRijder ? 128 : 128,
+          top: 128,
           right: 14,
           zIndex: 20,
           display: "flex",

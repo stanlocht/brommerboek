@@ -1,16 +1,16 @@
-import type { Role } from "./BrommerboekApp"
 import { WrenchIcon } from "./icons"
+import StopReactions from "./StopReactions"
 import { C, dateLabelNL, FONT_MONO, GALLERY_ROTS } from "./theme"
 import type { Stop } from "./types"
 
 export default function StopSheet({
   cur,
-  role,
+  canEdit,
   onClose,
   onEdit,
 }: {
   cur: Stop
-  role: Role
+  canEdit: boolean
   onClose: () => void
   onEdit: () => void
 }) {
@@ -116,7 +116,7 @@ export default function StopSheet({
         >
           ‹
         </button>
-        {role === "rijder" && (
+        {canEdit && (
           <button
             type="button"
             onClick={onEdit}
@@ -210,6 +210,7 @@ export default function StopSheet({
         >
           {cur.story}
         </div>
+        <StopReactions stopId={cur.id} />
         {cur.type === "repair" && (
           <div
             style={{

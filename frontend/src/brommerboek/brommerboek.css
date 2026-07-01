@@ -157,6 +157,10 @@
 }
 
 /* MapLibre chrome, retoned */
+/* Line the zoom stack up with the top of the LOGBOEK chip in the header. */
+.bb-app .maplibregl-ctrl-top-right {
+  top: 50px;
+}
 .bb-app .maplibregl-ctrl-group {
   background: #f4ecd6;
   border: 1.5px solid #b98f4e;

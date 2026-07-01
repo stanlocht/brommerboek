@@ -57,6 +57,87 @@ export const Body_login_login_access_tokenSchema = {
     title: 'Body_login-login_access_token'
 } as const;
 
+export const CommentCreateSchema = {
+    properties: {
+        body: {
+            type: 'string',
+            maxLength: 2000,
+            minLength: 1,
+            title: 'Body'
+        }
+    },
+    type: 'object',
+    required: ['body'],
+    title: 'CommentCreate'
+} as const;
+
+export const CommentPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        stop_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Stop Id'
+        },
+        user_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'User Id'
+        },
+        author_name: {
+            type: 'string',
+            title: 'Author Name'
+        },
+        is_mine: {
+            type: 'boolean',
+            title: 'Is Mine',
+            default: false
+        },
+        body: {
+            type: 'string',
+            title: 'Body'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'stop_id', 'user_id', 'author_name', 'body'],
+    title: 'CommentPublic'
+} as const;
+
+export const CommentsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/CommentPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'CommentsPublic'
+} as const;
+
 export const HTTPValidationErrorSchema = {
     properties: {
         detail: {
@@ -69,6 +150,27 @@ export const HTTPValidationErrorSchema = {
     },
     type: 'object',
     title: 'HTTPValidationError'
+} as const;
+
+export const HonkPublicSchema = {
+    properties: {
+        stop_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Stop Id'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        honked_by_me: {
+            type: 'boolean',
+            title: 'Honked By Me'
+        }
+    },
+    type: 'object',
+    required: ['stop_id', 'count', 'honked_by_me'],
+    title: 'HonkPublic'
 } as const;
 
 export const ItemCreateSchema = {
