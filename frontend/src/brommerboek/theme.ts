@@ -18,11 +18,7 @@ export const C = {
   seaInk: "#5f8b93",
   border: "#cbb187",
   borderSoft: "#d8c79c",
-  navIdle: "#a89877",
-  wrappedFrom: "#8f3b2f",
-  wrappedTo: "#6e2c24",
   wrappedInk: "#f3e7c9",
-  wrappedAccent: "#e6b98a",
 } as const
 
 export const FONT_SERIF = "'Zilla Slab', Georgia, serif"
@@ -54,7 +50,6 @@ export function kmLabel(km: number): string {
   return km.toLocaleString("nl-NL")
 }
 
-// Slight hand-placed rotations reused for pins / stamps / cards.
+// Slight hand-placed rotations reused for pins and gallery cards.
 export const PIN_ROTS = [-6, 4, -3, 5, -2, 6, -4, 3, -5, 2]
-export const STAMP_ROTS = ["-4deg", "3deg", "-2deg", "5deg", "-3deg", "2deg"]
 export const GALLERY_ROTS = ["-1.5deg", "1.5deg", "-1deg", "1deg"]

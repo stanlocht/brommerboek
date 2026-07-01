@@ -1,13 +1,18 @@
+import type { Role } from "./BrommerboekApp"
 import { WrenchIcon } from "./icons"
 import { C, dateLabelNL, FONT_MONO, GALLERY_ROTS } from "./theme"
 import type { Stop } from "./types"
 
 export default function StopSheet({
   cur,
+  role,
   onClose,
+  onEdit,
 }: {
   cur: Stop
+  role: Role
   onClose: () => void
+  onEdit: () => void
 }) {
   return (
     <div
@@ -111,6 +116,33 @@ export default function StopSheet({
         >
           ‹
         </button>
+        {role === "rijder" && (
+          <button
+            type="button"
+            onClick={onEdit}
+            aria-label="Bewerk stop"
+            style={{
+              position: "absolute",
+              top: 20,
+              right: 20,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              height: 36,
+              padding: "0 14px",
+              borderRadius: 18,
+              border: `1.5px solid ${C.ochre}`,
+              background: C.paperLight,
+              color: C.ink,
+              fontFamily: FONT_MONO,
+              fontSize: 12,
+              cursor: "pointer",
+              boxShadow: "0 2px 5px rgba(0,0,0,.2)",
+            }}
+          >
+            ✎ bewerk
+          </button>
+        )}
       </div>
 
       <div style={{ padding: "16px 20px 40px" }}>

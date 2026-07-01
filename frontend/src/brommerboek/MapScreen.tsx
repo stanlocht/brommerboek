@@ -1,7 +1,8 @@
-import type { PointerEvent as ReactPointerEvent } from "react"
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react"
+import type { Role } from "./BrommerboekApp"
 import type { RouteGeometry } from "./geo"
 import { stopFraction } from "./geo"
-import { CubIcon, WrenchIcon } from "./icons"
+import { WrenchIcon } from "./icons"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF } from "./theme"
 import type { TripStats } from "./trip"
 import type { Stop } from "./types"
@@ -12,6 +13,75 @@ function frac(e: ReactPointerEvent<HTMLDivElement>): number {
   return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
 }
 
+// "vandaag" / "gisteren" / "N dagen geleden" — colloquial Dutch relative time
+// for the follower's "Aangekomen in X" line.
+function daysAgoLabel(iso: string): string {
+  const then = new Date(iso).getTime()
+  const now = Date.now()
+  const days = Math.max(0, Math.floor((now - then) / 86400000))
+  if (days === 0) return "vandaag"
+  if (days === 1) return "gisteren"
+  return `${days} dagen geleden`
+}
+
+const roleBtnBase: CSSProperties = {
+  fontFamily: FONT_MONO,
+  fontSize: 10,
+  letterSpacing: 1,
+  padding: "4px 10px",
+  border: "none",
+  borderRadius: 12,
+  cursor: "pointer",
+  color: C.ink,
+  background: "transparent",
+}
+
+function RoleToggle({
+  role,
+  onChange,
+}: {
+  role: Role
+  onChange: (r: Role) => void
+}) {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 2,
+        padding: 3,
+        borderRadius: 14,
+        background: C.paperCard,
+        border: `1.5px solid ${C.border}`,
+        boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => onChange("rijder")}
+        style={{
+          ...roleBtnBase,
+          background: role === "rijder" ? C.red : "transparent",
+          color: role === "rijder" ? C.wrappedInk : C.sepia,
+        }}
+      >
+        RIJDER
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("volger")}
+        style={{
+          ...roleBtnBase,
+          background: role === "volger" ? C.teal : "transparent",
+          color: role === "volger" ? C.wrappedInk : C.sepia,
+        }}
+      >
+        VOLGER
+      </button>
+    </div>
+  )
+}
+
 export default function MapScreen({
   stops,
   route,
@@ -20,12 +90,15 @@ export default function MapScreen({
   progress,
   dragging,
   repairOnly,
+  role,
+  onRoleChange,
   onScrubStart,
   onScrubMove,
   onScrubEnd,
   onToggleRepair,
   onOpenSheet,
   onPinClick,
+  onAdd,
 }: {
   stops: Stop[]
   route: RouteGeometry
@@ -34,15 +107,20 @@ export default function MapScreen({
   progress: number
   dragging: boolean
   repairOnly: boolean
+  role: Role
+  onRoleChange: (r: Role) => void
   onScrubStart: (p: number) => void
   onScrubMove: (p: number) => void
   onScrubEnd: (p: number) => void
   onToggleRepair: () => void
   onOpenSheet: () => void
   onPinClick: (i: number) => void
+  onAdd?: () => void
 }) {
   const pct = `${(progress * 100).toFixed(2)}%`
   const showPreview = !dragging
+  const isRijder = role === "rijder"
+  const latest = stops[stops.length - 1]
 
   return (
     <div style={{ position: "absolute", inset: 0 }}>
@@ -71,11 +149,12 @@ export default function MapScreen({
         <div
           style={{
             display: "flex",
-            alignItems: "center",
+            alignItems: "flex-start",
             justifyContent: "space-between",
+            gap: 10,
           }}
         >
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div
               style={{
                 fontFamily: FONT_MONO,
@@ -97,30 +176,102 @@ export default function MapScreen({
             >
               De Grote Tocht
             </div>
+            {isRijder ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  display: "inline-flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  padding: "4px 10px",
+                  borderRadius: 8,
+                  background: C.paperCard,
+                  border: `1.5px solid ${C.border}`,
+                  boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+                  fontFamily: FONT_MONO,
+                  fontSize: 11,
+                  color: C.sepia,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: 2,
+                    color: C.ochreDeep,
+                  }}
+                >
+                  JOUW LOGBOEK
+                </span>
+                <span style={{ color: C.red, fontSize: 13 }}>{stats.km}</span>
+                <span>km · dag {stats.days}</span>
+              </div>
+            ) : (
+              <div style={{ marginTop: 6 }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: 10,
+                      letterSpacing: 2,
+                      color: C.wrappedInk,
+                      background: C.teal,
+                      padding: "2px 8px",
+                      borderRadius: 10,
+                    }}
+                  >
+                    ✦ VOLGEND
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: 11,
+                      color: C.ink,
+                    }}
+                  >
+                    Je volgt Daan de Vries
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontFamily: FONT_MONO,
+                    fontSize: 10,
+                    color: C.sepia,
+                    marginTop: 3,
+                  }}
+                >
+                  ◉ Aangekomen in {latest.place} · {daysAgoLabel(latest.date)}
+                </div>
+              </div>
+            )}
           </div>
           <div
             style={{
-              textAlign: "right",
-              fontFamily: FONT_MONO,
-              fontSize: 11,
-              color: "#5a5040",
-              lineHeight: 1.5,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: 8,
+              pointerEvents: "auto",
             }}
           >
-            <div style={{ fontSize: 19, color: C.red }}>{stats.km}</div>
-            <div>km · dag {stats.days}</div>
+            <RoleToggle role={role} onChange={onRoleChange} />
           </div>
         </div>
       </div>
 
-      {/* repair toggle */}
+      {/* repair toggle (top-right, below the header) */}
       <button
         type="button"
         onClick={onToggleRepair}
         style={{
           position: "absolute",
-          top: 72,
-          left: 14,
+          top: isRijder ? 128 : 128,
+          right: 14,
           zIndex: 20,
           display: "flex",
           alignItems: "center",
@@ -150,7 +301,7 @@ export default function MapScreen({
             position: "absolute",
             left: 14,
             right: 14,
-            bottom: 150,
+            bottom: 108,
             zIndex: 22,
             cursor: "pointer",
             border: "none",
@@ -230,9 +381,9 @@ export default function MapScreen({
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: 64,
+          bottom: 0,
           zIndex: 23,
-          padding: "12px 16px 14px",
+          padding: "12px 16px 20px",
           background: "linear-gradient(#efe4c900,#efe4c9 40%)",
         }}
       >
@@ -304,21 +455,46 @@ export default function MapScreen({
               }}
             />
           ))}
-          <div
-            style={{
-              position: "absolute",
-              top: -9,
-              left: pct,
-              transform: "translateX(-50%)",
-              width: 52,
-              height: 34,
-              pointerEvents: "none",
-            }}
-          >
-            <CubIcon width={52} height={34} />
-          </div>
         </div>
       </div>
+
+      {/* floating + (rijder only) */}
+      {onAdd && (
+        <button
+          type="button"
+          onClick={onAdd}
+          aria-label="Nieuwe stop"
+          style={{
+            position: "absolute",
+            right: 18,
+            bottom: 90,
+            zIndex: 25,
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            border: `3px solid ${C.paperLight}`,
+            background: C.red,
+            color: C.wrappedInk,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            boxShadow: "0 4px 10px rgba(90,30,20,.45)",
+          }}
+        >
+          <svg
+            aria-hidden="true"
+            width="26"
+            height="26"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }
