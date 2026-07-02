@@ -92,8 +92,8 @@ cd frontend && npm install && npm run dev
 ```
 
 The frontend reads the API base from `VITE_API_URL` (`frontend/.env`, default
-`http://localhost:8000`). See `development.md` / `deployment.md` for the full
-template docs.
+`http://localhost:8000`). See `CLAUDE.md` for the production deployment runbook
+(Hetzner + Caddy + GHCR).
 
 ### Map tiles
 

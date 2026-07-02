@@ -6,6 +6,11 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 .env
+.env.tag
+.env.deploy
 .DS_Store
 # Uploaded stop media (bind-mounted into the dev backend container).
 /media/
+# Dedicated CI SSH key (private half in a GitHub secret; never committed).
+deploy_ci
+deploy_ci.pub
