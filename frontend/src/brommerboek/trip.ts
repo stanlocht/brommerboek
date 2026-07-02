@@ -3,8 +3,8 @@
 // path before the query resolves.
 
 export interface TripStats {
-  km: number // real-geography distance, summed haversine between stops
-  suggested_km: number // last odometer reading, prefills the next stop's km input
+  km: number // sum of per-leg km deltas (falls back to haversine when km is missing)
+  suggested_km: number | null // most recent odometer reading; prefills the next stop's km
   days: number
   countries: number
   stops: number
@@ -14,7 +14,7 @@ export interface TripStats {
 
 export const EMPTY_STATS: TripStats = {
   km: 0,
-  suggested_km: 0,
+  suggested_km: null,
   days: 0,
   countries: 0,
   stops: 0,

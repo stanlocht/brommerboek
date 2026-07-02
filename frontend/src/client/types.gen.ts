@@ -9,6 +9,10 @@ export type Body_login_login_access_token = {
     client_secret?: (string | null);
 };
 
+export type Body_stops_upload_stop_media = {
+    file: string;
+};
+
 export type CommentCreate = {
     body: string;
 };
@@ -28,10 +32,18 @@ export type CommentsPublic = {
     count: number;
 };
 
+export type HonkerPublic = {
+    user_id: string;
+    name: string;
+    is_mine?: boolean;
+    created_at?: (string | null);
+};
+
 export type HonkPublic = {
     stop_id: string;
     count: number;
     honked_by_me: boolean;
+    honkers?: Array<HonkerPublic>;
 };
 
 export type HTTPValidationError = {
@@ -62,9 +74,10 @@ export type ItemUpdate = {
 };
 
 export type MediaItem = {
-    tone: string;
+    tone?: string;
     cap?: string;
-    video?: boolean;
+    kind?: string;
+    url?: (string | null);
 };
 
 export type Message = {
@@ -92,8 +105,9 @@ export type StopCreate = {
     lng: number;
     date: string;
     title: string;
-    km?: number;
-    weather?: string;
+    km?: (number | null);
+    weather_temp?: (number | null);
+    weather_condition?: string;
     type?: string;
     story?: string;
     broke?: (string | null);
@@ -110,8 +124,9 @@ export type StopPublic = {
     lng: number;
     date: string;
     title: string;
-    km?: number;
-    weather?: string;
+    km?: (number | null);
+    weather_temp?: (number | null);
+    weather_condition?: string;
     type?: string;
     story?: string;
     broke?: (string | null);
@@ -126,6 +141,24 @@ export type StopsPublic = {
     count: number;
 };
 
+export type StopUpdate = {
+    place?: (string | null);
+    country?: (string | null);
+    code?: (string | null);
+    lat?: (number | null);
+    lng?: (number | null);
+    date?: (string | null);
+    title?: (string | null);
+    km?: (number | null);
+    weather_temp?: (number | null);
+    weather_condition?: (string | null);
+    type?: (string | null);
+    story?: (string | null);
+    broke?: (string | null);
+    fixed?: (string | null);
+    media?: (Array<MediaItem> | null);
+};
+
 export type Token = {
     access_token: string;
     token_type?: string;
@@ -133,7 +166,7 @@ export type Token = {
 
 export type TripStats = {
     km: number;
-    suggested_km: number;
+    suggested_km: (number | null);
     days: number;
     countries: number;
     stops: number;
@@ -307,6 +340,34 @@ export type StopsReadStopData = {
 };
 
 export type StopsReadStopResponse = (StopPublic);
+
+export type StopsUpdateStopData = {
+    id: string;
+    requestBody: StopUpdate;
+};
+
+export type StopsUpdateStopResponse = (StopPublic);
+
+export type StopsDeleteStopData = {
+    id: string;
+};
+
+export type StopsDeleteStopResponse = (Message);
+
+export type StopsUploadStopMediaData = {
+    caption?: string;
+    formData: Body_stops_upload_stop_media;
+    id: string;
+};
+
+export type StopsUploadStopMediaResponse = (StopPublic);
+
+export type StopsDeleteStopMediaData = {
+    id: string;
+    index: number;
+};
+
+export type StopsDeleteStopMediaResponse = (StopPublic);
 
 export type UsersReadUsersData = {
     limit?: number;

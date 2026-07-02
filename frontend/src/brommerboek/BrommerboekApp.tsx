@@ -4,7 +4,14 @@ import { UsersService } from "@/client"
 import { isLoggedIn } from "@/hooks/useAuth"
 import "./brommerboek.css"
 import AddFlow from "./AddFlow"
-import { createStop, fetchStats, fetchStops } from "./api"
+import {
+  createStop,
+  deleteStop,
+  fetchStats,
+  fetchStops,
+  updateStop,
+  uploadStopMedia,
+} from "./api"
 import { buildRoute, nearestStop, stopFraction } from "./geo"
 import { CubIcon } from "./icons"
 import LoginPrompt from "./LoginPrompt"
@@ -12,7 +19,7 @@ import MapScreen from "./MapScreen"
 import StopSheet from "./StopSheet"
 import { C, FONT_MONO } from "./theme"
 import { EMPTY_STATS } from "./trip"
-import type { NewStop } from "./types"
+import type { NewStop, Stop } from "./types"
 
 function CenterState({ text }: { text: string }) {
   return (
@@ -66,6 +73,9 @@ export default function BrommerboekApp() {
   const [progress, setProgress] = useState(1)
   const [dragging, setDragging] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  // When set, AddFlow opens in edit mode for this existing stop instead of
+  // creating a new one.
+  const [editStop, setEditStop] = useState<Stop | null>(null)
   const [loginOpen, setLoginOpen] = useState(false)
   const [toast, setToast] = useState("")
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -106,7 +116,26 @@ export default function BrommerboekApp() {
   }, [stops])
 
   const createMut = useMutation({
-    mutationFn: (s: NewStop) => createStop(s),
+    mutationFn: async (s: NewStop) => {
+      // New stops carry local-preview media whose `url` is a blob: URL that
+      // AddFlow made from the picked File. Create the stop first, then
+      // re-fetch each blob and upload it against the fresh stop id.
+      const created = await createStop({ ...s, media: [] })
+      for (const item of s.media) {
+        if (item.url?.startsWith("blob:")) {
+          try {
+            const blob = await fetch(item.url).then((r) => r.blob())
+            const ext = item.kind === "video" ? "video.mp4" : "photo.jpg"
+            const file = new File([blob], ext, { type: blob.type })
+            await uploadStopMedia(created.id, file, item.cap)
+          } catch {
+            // Individual upload failures don't roll back the stop — the
+            // user can retry the file from the edit flow.
+          }
+        }
+      }
+      return created
+    },
     onSuccess: async () => {
       jumpLast.current = true
       // Prefix match — invalidates both ["stops"] and ["stops", "stats"].
@@ -116,6 +145,35 @@ export default function BrommerboekApp() {
     },
     onError: () => flash("Kon de stop niet opslaan"),
   })
+
+  const patchMut = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: NewStop }) =>
+      updateStop(id, patch),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["stops"] })
+      setEditStop(null)
+      flash("✓ Stop bijgewerkt")
+    },
+    onError: () => flash("Kon de wijziging niet opslaan"),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteStop(id),
+    onSuccess: async () => {
+      // The current activeIndex may now be past the tail; reset before the
+      // list refetches so we don't briefly render an out-of-range stop.
+      initedRef.current = false
+      await qc.invalidateQueries({ queryKey: ["stops"] })
+      setEditStop(null)
+      flash("✓ Stop verwijderd")
+    },
+    onError: () => flash("Kon de stop niet verwijderen"),
+  })
+
+  const applyMediaChange = (updated: Stop) => {
+    setEditStop(updated)
+    qc.invalidateQueries({ queryKey: ["stops"] })
+  }
 
   function flash(msg: string) {
     setToast(msg)
@@ -220,14 +278,27 @@ export default function BrommerboekApp() {
           cur={cur}
           canEdit={canEdit}
           onClose={() => setSheetOpen(false)}
-          onEdit={() => flash("✎ bewerken komt binnenkort")}
+          onEdit={() => {
+            setEditStop(cur)
+            setSheetOpen(false)
+          }}
         />
       )}
       {addOpen && canEdit && (
         <AddFlow
           suggestedKm={stats.suggested_km}
           onClose={() => setAddOpen(false)}
-          onSubmit={(s) => createMut.mutate(s)}
+          onCreate={(s) => createMut.mutate(s)}
+        />
+      )}
+      {editStop && canEdit && (
+        <AddFlow
+          suggestedKm={stats.suggested_km}
+          initialStop={editStop}
+          onClose={() => setEditStop(null)}
+          onPatch={(id, patch) => patchMut.mutate({ id, patch })}
+          onDelete={(id) => deleteMut.mutate(id)}
+          onMediaChanged={applyMediaChange}
         />
       )}
       {loginOpen && (

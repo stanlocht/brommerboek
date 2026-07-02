@@ -11,6 +11,7 @@ from app.models import (
     CommentCreate,
     CommentPublic,
     CommentsPublic,
+    HonkerPublic,
     HonkPublic,
     HornHonk,
     Message,
@@ -113,19 +114,45 @@ def delete_comment(
 # ----- Horn honks (a like button that goes 'toet') ---------------------------
 
 
+HONKERS_LIMIT = 50
+
+
 def _honk_state(session: SessionDep, me: User | None, stop_id: uuid.UUID) -> HonkPublic:
     count = session.exec(
         select(func.count()).select_from(HornHonk).where(HornHonk.stop_id == stop_id)
     ).one()
-    honked_by_me = False
-    if me is not None:
-        existing = session.exec(
+    rows = session.exec(
+        select(HornHonk, User)
+        .join(User, col(HornHonk.user_id) == col(User.id))
+        .where(HornHonk.stop_id == stop_id)
+        .order_by(col(HornHonk.created_at).desc())
+        .limit(HONKERS_LIMIT)
+    ).all()
+    honkers = [
+        HonkerPublic(
+            user_id=h.user_id,
+            name=_display_name(u),
+            is_mine=me is not None and me.id == h.user_id,
+            created_at=h.created_at,
+        )
+        for h, u in rows
+    ]
+    honked_by_me = me is not None and any(h.is_mine for h in honkers)
+    if me is not None and not honked_by_me and count > HONKERS_LIMIT:
+        # Rare: the viewer's own honk was truncated off the tail. Confirm
+        # via a targeted lookup so the button still shows the right state.
+        mine = session.exec(
             select(HornHonk).where(
                 HornHonk.stop_id == stop_id, HornHonk.user_id == me.id
             )
         ).first()
-        honked_by_me = existing is not None
-    return HonkPublic(stop_id=stop_id, count=count, honked_by_me=honked_by_me)
+        honked_by_me = mine is not None
+    return HonkPublic(
+        stop_id=stop_id,
+        count=count,
+        honked_by_me=honked_by_me,
+        honkers=honkers,
+    )
 
 
 @router.get("/stops/{stop_id}/honks", response_model=HonkPublic)

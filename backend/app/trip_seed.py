@@ -25,7 +25,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 4),
         title="Vertrek",
         km=0,
-        weather="Grijs, 14°",
+        weather_temp=14,
+        weather_condition="cloudy",
         type="stop",
         story=(
             "Om zes uur ’s ochtends de gracht uit, met alles ingepakt op het "
@@ -48,7 +49,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 5),
         title="Over de Maas",
         km=78,
-        weather="Zon, 17°",
+        weather_temp=17,
+        weather_condition="sunny",
         type="stop",
         story=(
             "De Erasmusbrug in de ochtendmist. Een havenarbeider wees me "
@@ -69,7 +71,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 6),
         title="De grens over",
         km=172,
-        weather="Bewolkt, 16°",
+        weather_temp=16,
+        weather_condition="cloudy",
         type="stop",
         story=(
             "Geen slagboom, geen stempel — alleen een blauw bord en opeens "
@@ -89,7 +92,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 7),
         title="Graslei",
         km=230,
-        weather="Regen, 13°",
+        weather_temp=13,
+        weather_condition="rain",
         type="stop",
         story=(
             "Een dag schuilen voor de regen langs de Leie. De Cub stond te "
@@ -98,7 +102,7 @@ TRIP: list[StopCreate] = [
         ),
         media=[
             MediaItem(tone="#94a06a", cap="Graslei"),
-            MediaItem(tone="#b26a4c", cap="Frietkot", video=True),
+            MediaItem(tone="#b26a4c", cap="Frietkot", kind="video"),
         ],
     ),
     StopCreate(
@@ -110,7 +114,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 9),
         title="Lekke band",
         km=388,
-        weather="Zon, 19°",
+        weather_temp=19,
+        weather_condition="sunny",
         type="repair",
         broke=("Achterband lek — een spijker uit een wijngaardpad, 8 km voor Reims."),
         fixed=(
@@ -136,7 +141,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 11),
         title="Mosterd & wijn",
         km=512,
-        weather="Zon, 22°",
+        weather_temp=22,
+        weather_condition="sunny",
         type="stop",
         story=(
             "Door de Route des Grands Crus, dorpje na dorpje met namen als op "
@@ -158,7 +164,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 13),
         title="Lac Léman",
         km=655,
-        weather="Helder, 20°",
+        weather_temp=20,
+        weather_condition="sunny",
         type="stop",
         story=(
             "Het meer lag als een spiegel en de Alpen stonden er achter alsof "
@@ -167,7 +174,7 @@ TRIP: list[StopCreate] = [
         ),
         media=[
             MediaItem(tone="#7ea6b4", cap="Lac Léman"),
-            MediaItem(tone="#5f938f", cap="Veerboot", video=True),
+            MediaItem(tone="#5f938f", cap="Veerboot", kind="video"),
         ],
     ),
     StopCreate(
@@ -179,7 +186,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 15),
         title="Carburateur op hoogte",
         km=742,
-        weather="Koud, 6°",
+        weather_temp=6,
+        weather_condition="cloudy",
         type="repair",
         broke=(
             "Bij de Grimselpass (2.046 m) begon de motor te haperen — te ijl "
@@ -209,7 +217,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 17),
         title="Italië in",
         km=908,
-        weather="Warm, 26°",
+        weather_temp=26,
+        weather_condition="sunny",
         type="stop",
         story=(
             "Van de koude passen zo de warme Povlakte in — een klimaatsprong "
@@ -230,7 +239,8 @@ TRIP: list[StopCreate] = [
         date=date(2024, 5, 19),
         title="De zee",
         km=1024,
-        weather="Zon, 24°",
+        weather_temp=24,
+        weather_condition="sunny",
         type="stop",
         story=(
             "Het laatste stuk omlaag naar de kust, en daar was de zee. 1.024 "
@@ -241,7 +251,7 @@ TRIP: list[StopCreate] = [
         media=[
             MediaItem(tone="#7ea6b4", cap="De zee"),
             MediaItem(tone="#5f938f", cap="Vernazza"),
-            MediaItem(tone="#b26a4c", cap="Focaccia", video=True),
+            MediaItem(tone="#b26a4c", cap="Focaccia", kind="video"),
             MediaItem(tone="#94a06a", cap="Aankomst"),
         ],
     ),

@@ -118,6 +118,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    volumes:
+      # Uploaded stop media lives on a named volume so it survives image
+      # rebuilds; matches MEDIA_ROOT in app/core/media.py.
+      - app-media-data:/app/media
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
@@ -167,6 +171,7 @@ services:
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
 volumes:
   app-db-data:
+  app-media-data:
 
 networks:
   traefik-public:

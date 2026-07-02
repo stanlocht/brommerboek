@@ -7,3 +7,5 @@ node_modules/
 /playwright/.cache/
 .env
 .DS_Store
+# Uploaded stop media (bind-mounted into the dev backend container).
+/media/

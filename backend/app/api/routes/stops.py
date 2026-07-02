@@ -1,21 +1,37 @@
+import shutil
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlmodel import col, func, select
 
 from app import crud
 from app.api.deps import SessionDep, get_current_active_superuser
+from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX
 from app.geo import haversine_km
 from app.models import (
+    Message,
     Stop,
     StopCreate,
     StopPublic,
     StopsPublic,
+    StopUpdate,
     TripStats,
 )
 
 router = APIRouter(prefix="/stops", tags=["stops"])
+
+ALLOWED_MEDIA_TYPES = {
+    "image/jpeg": ("image", "jpg"),
+    "image/png": ("image", "png"),
+    "image/webp": ("image", "webp"),
+    "image/gif": ("image", "gif"),
+    "image/heic": ("image", "heic"),
+    "video/mp4": ("video", "mp4"),
+    "video/quicktime": ("video", "mov"),
+    "video/webm": ("video", "webm"),
+}
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MiB — plenty for phone photos/clips
 
 
 def _ordered_stops(session: SessionDep) -> list[Stop]:
@@ -41,11 +57,22 @@ def read_stats(session: SessionDep) -> Any:
     Aggregate trip statistics for the "Wrapped" recap screen.
     """
     stops = _ordered_stops(session)
-    metres = 0.0
+    # Prefer odometer delta per leg when both endpoints have km; that matches
+    # the actual road distance (haversine cuts across every switchback).
+    km_total = 0.0
     for prev, cur in zip(stops, stops[1:], strict=False):
-        metres += haversine_km((prev.lat, prev.lng), (cur.lat, cur.lng))
-    km = round(metres)
-    suggested_km = max((s.km for s in stops), default=0)
+        if prev.km is not None and cur.km is not None and cur.km >= prev.km:
+            km_total += cur.km - prev.km
+        else:
+            km_total += haversine_km((prev.lat, prev.lng), (cur.lat, cur.lng))
+    # Suggested km = the most recent stop's odometer reading (whatever order
+    # we happened to add them in — falls back to earlier stops if the latest
+    # has no reading).
+    suggested_km: int | None = None
+    for s in reversed(stops):
+        if s.km is not None:
+            suggested_km = s.km
+            break
     codes = {s.code for s in stops if s.code}
     repairs = sum(1 for s in stops if s.type == "repair")
     days = 0
@@ -53,7 +80,7 @@ def read_stats(session: SessionDep) -> Any:
         dates = sorted(s.date for s in stops)
         days = (dates[-1] - dates[0]).days
     return TripStats(
-        km=km,
+        km=round(km_total),
         suggested_km=suggested_km,
         days=days,
         countries=len(codes),
@@ -85,3 +112,124 @@ def create_stop(*, session: SessionDep, stop_in: StopCreate) -> Any:
     single-rider journal.
     """
     return crud.create_stop(session=session, stop_in=stop_in)
+
+
+@router.patch(
+    "/{id}",
+    response_model=StopPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def update_stop(*, session: SessionDep, id: uuid.UUID, stop_in: StopUpdate) -> Any:
+    """
+    Partially update a stop. Superusers only.
+    """
+    db_stop = session.get(Stop, id)
+    if not db_stop:
+        raise HTTPException(status_code=404, detail="Stop not found")
+    return crud.update_stop(session=session, db_stop=db_stop, stop_in=stop_in)
+
+
+@router.post(
+    "/{id}/media",
+    response_model=StopPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def upload_stop_media(
+    *,
+    session: SessionDep,
+    id: uuid.UUID,
+    file: UploadFile = File(...),
+    caption: str = "",
+) -> Any:
+    """
+    Attach a photo or short video to a stop. Files land on the media volume
+    under `/media/{stop_id}/…` and the stop's `media` array grows by one.
+    """
+    db_stop = session.get(Stop, id)
+    if not db_stop:
+        raise HTTPException(status_code=404, detail="Stop not found")
+    if file.content_type not in ALLOWED_MEDIA_TYPES:
+        raise HTTPException(
+            status_code=415, detail=f"Unsupported media type: {file.content_type}"
+        )
+    kind, ext = ALLOWED_MEDIA_TYPES[file.content_type]
+    # Stream to disk, aborting if it turns out oversized.
+    stop_dir = MEDIA_ROOT / str(id)
+    stop_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    dest = stop_dir / filename
+    try:
+        size = 0
+        with dest.open("wb") as out:
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    out.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB)",
+                    )
+                out.write(chunk)
+    finally:
+        file.file.close()
+    url = f"{MEDIA_URL_PREFIX}/{id}/{filename}"
+    media_items = list(db_stop.media or [])
+    media_items.append({"tone": "", "cap": caption[:255], "kind": kind, "url": url})
+    db_stop.media = media_items
+    session.add(db_stop)
+    session.commit()
+    session.refresh(db_stop)
+    return db_stop
+
+
+@router.delete(
+    "/{id}/media/{index}",
+    response_model=StopPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def delete_stop_media(*, session: SessionDep, id: uuid.UUID, index: int) -> Any:
+    """
+    Remove a media item by its position in the stop's media array. Also
+    deletes the file on disk (if any).
+    """
+    db_stop = session.get(Stop, id)
+    if not db_stop:
+        raise HTTPException(status_code=404, detail="Stop not found")
+    media_items = list(db_stop.media or [])
+    if not 0 <= index < len(media_items):
+        raise HTTPException(status_code=404, detail="Media index out of range")
+    item = media_items.pop(index)
+    url = item.get("url") if isinstance(item, dict) else None
+    if url and url.startswith(f"{MEDIA_URL_PREFIX}/"):
+        rel = url[len(MEDIA_URL_PREFIX) + 1 :]
+        path = MEDIA_ROOT / rel
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    db_stop.media = media_items
+    session.add(db_stop)
+    session.commit()
+    session.refresh(db_stop)
+    return db_stop
+
+
+@router.delete(
+    "/{id}",
+    response_model=Message,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def delete_stop(*, session: SessionDep, id: uuid.UUID) -> Any:
+    """
+    Delete a stop and any media files attached to it.
+    """
+    db_stop = session.get(Stop, id)
+    if not db_stop:
+        raise HTTPException(status_code=404, detail="Stop not found")
+    stop_dir = MEDIA_ROOT / str(id)
+    if stop_dir.exists():
+        shutil.rmtree(stop_dir, ignore_errors=True)
+    session.delete(db_stop)
+    session.commit()
+    return Message(message="Stop deleted")

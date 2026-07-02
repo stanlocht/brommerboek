@@ -1,7 +1,93 @@
+import { mediaSrc } from "./api"
 import { WrenchIcon } from "./icons"
 import StopReactions from "./StopReactions"
 import { C, dateLabelNL, FONT_MONO, GALLERY_ROTS } from "./theme"
-import type { Stop } from "./types"
+import type { MediaItem, Stop } from "./types"
+import { weatherLabel } from "./weather"
+
+function GalleryTile({ item, index }: { item: MediaItem; index: number }) {
+  const src = mediaSrc(item.url)
+  const rot = GALLERY_ROTS[index % GALLERY_ROTS.length]
+  const shell: React.CSSProperties = {
+    scrollSnapAlign: "center",
+    flex: "none",
+    width: 280,
+    height: 220,
+    borderRadius: 8,
+    border: "5px solid #fff",
+    boxShadow: "0 3px 8px rgba(80,60,30,.3)",
+    position: "relative",
+    overflow: "hidden",
+    transform: `rotate(${rot})`,
+  }
+  return (
+    <div style={shell}>
+      {src && item.kind === "video" ? (
+        // biome-ignore lint/a11y/useMediaCaption: caption sits below the tile
+        <video
+          src={src}
+          controls
+          playsInline
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : src ? (
+        <img
+          src={src}
+          alt={item.cap || ""}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : (
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            background: `linear-gradient(150deg,rgba(255,255,255,.25),rgba(0,0,0,.32)),${item.tone || "#c9a24e"}`,
+          }}
+        />
+      )}
+      {item.kind === "video" && !src && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              background: "rgba(0,0,0,.4)",
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 18,
+            }}
+          >
+            ▶
+          </div>
+        </div>
+      )}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 6,
+          left: 8,
+          fontFamily: FONT_MONO,
+          fontSize: 10,
+          color: "#fff",
+          textShadow: "0 1px 2px rgba(0,0,0,.6)",
+        }}
+      >
+        {item.cap}
+      </div>
+    </div>
+  )
+}
 
 export default function StopSheet({
   cur,
@@ -14,6 +100,8 @@ export default function StopSheet({
   onClose: () => void
   onEdit: () => void
 }) {
+  const kmText = cur.km != null ? `${cur.km} km` : "— km"
+  const weatherText = weatherLabel(cur.weather_condition, cur.weather_temp)
   return (
     <div
       style={{
@@ -37,62 +125,7 @@ export default function StopSheet({
           }}
         >
           {cur.media.map((m, i) => (
-            <div
-              key={`${m.tone}-${i}`}
-              style={{
-                scrollSnapAlign: "center",
-                flex: "none",
-                width: 280,
-                height: 220,
-                borderRadius: 8,
-                border: "5px solid #fff",
-                boxShadow: "0 3px 8px rgba(80,60,30,.3)",
-                position: "relative",
-                transform: `rotate(${GALLERY_ROTS[i % GALLERY_ROTS.length]})`,
-                background: `linear-gradient(150deg,rgba(255,255,255,.25),rgba(0,0,0,.32)),${m.tone}`,
-              }}
-            >
-              {m.video && (
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: "50%",
-                      background: "rgba(0,0,0,.4)",
-                      color: "#fff",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 18,
-                    }}
-                  >
-                    ▶
-                  </div>
-                </div>
-              )}
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: 6,
-                  left: 8,
-                  fontFamily: FONT_MONO,
-                  fontSize: 10,
-                  color: "#fff",
-                  textShadow: "0 1px 2px rgba(0,0,0,.6)",
-                }}
-              >
-                {m.cap}
-              </div>
-            </div>
+            <GalleryTile key={`${m.url ?? m.tone}-${i}`} item={m} index={i} />
           ))}
         </div>
         <button
@@ -197,8 +230,8 @@ export default function StopSheet({
           }}
         >
           <span>{dateLabelNL(cur.date)}</span>
-          <span>◷ {cur.km} km</span>
-          <span>{cur.weather}</span>
+          <span>◷ {kmText}</span>
+          {weatherText && <span>{weatherText}</span>}
         </div>
         <div
           style={{

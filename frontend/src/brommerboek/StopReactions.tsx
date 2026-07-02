@@ -8,6 +8,7 @@ import { useState } from "react"
 
 import { ReactionsService } from "@/client"
 import { isLoggedIn } from "@/hooks/useAuth"
+import { fetchHonks, toggleHonk as toggleHonkApi } from "./api"
 import LoginPrompt from "./LoginPrompt"
 import { C, dateLabelNL, FONT_MONO } from "./theme"
 
@@ -23,6 +24,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   // The action the viewer clicked while signed out. Set → LoginPrompt shows;
   // on successful login we replay the action so the click "just worked".
   const [pending, setPending] = useState<PendingAction>(null)
+  const [showAllHonkers, setShowAllHonkers] = useState(false)
 
   const commentsQ = useQuery({
     queryKey: ["stops", stopId, "comments"],
@@ -30,7 +32,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   })
   const honksQ = useQuery({
     queryKey: ["stops", stopId, "honks"],
-    queryFn: () => ReactionsService.readHonks({ stopId }),
+    queryFn: () => fetchHonks(stopId),
   })
 
   const addComment = useMutation({
@@ -50,7 +52,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   })
 
   const toggleHonk = useMutation({
-    mutationFn: () => ReactionsService.toggleHonk({ stopId }),
+    mutationFn: () => toggleHonkApi(stopId),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["stops", stopId, "honks"] }),
   })
@@ -91,6 +93,18 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   const honks = honksQ.data
   const honked = honks?.honked_by_me ?? false
   const honkCount = honks?.count ?? 0
+  const honkers = honks?.honkers ?? []
+  // Sort the current viewer to the front — "jij en 4 anderen" reads
+  // better than burying them somewhere in the middle.
+  const orderedHonkers = [...honkers].sort((a, b) =>
+    a.is_mine === b.is_mine ? 0 : a.is_mine ? -1 : 1,
+  )
+  const VISIBLE = 6
+  const shownHonkers = showAllHonkers
+    ? orderedHonkers
+    : orderedHonkers.slice(0, VISIBLE)
+  const hiddenTruncated = honkCount - orderedHonkers.length
+  const hiddenCollapsed = orderedHonkers.length - shownHonkers.length
 
   return (
     <div style={{ marginTop: 28 }}>
@@ -139,6 +153,94 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
           </span>
         )}
       </div>
+
+      {honkCount > 0 && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: 18,
+            fontFamily: FONT_MONO,
+            fontSize: 11,
+            color: C.sepia,
+          }}
+        >
+          <span
+            style={{
+              letterSpacing: 1,
+              color: C.ochreDeep,
+              textTransform: "uppercase",
+              marginRight: 2,
+            }}
+          >
+            getoeterd door
+          </span>
+          {shownHonkers.map((h) => (
+            <span
+              key={h.user_id}
+              title={h.created_at ? dateLabelNL(h.created_at) : undefined}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "3px 9px",
+                borderRadius: 12,
+                border: `1px solid ${h.is_mine ? C.red : C.borderSoft}`,
+                background: h.is_mine ? "#f7edd6" : C.paperLight,
+                color: h.is_mine ? C.red : C.ink,
+              }}
+            >
+              <span aria-hidden style={{ fontSize: 11 }}>
+                📯
+              </span>
+              {h.is_mine ? "jij" : h.name}
+            </span>
+          ))}
+          {hiddenCollapsed > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAllHonkers(true)}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                fontFamily: FONT_MONO,
+                fontSize: 11,
+                color: C.ochreDeep,
+                textDecoration: "underline",
+                padding: 0,
+              }}
+            >
+              +{hiddenCollapsed} meer
+            </button>
+          )}
+          {showAllHonkers && orderedHonkers.length > VISIBLE && (
+            <button
+              type="button"
+              onClick={() => setShowAllHonkers(false)}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                fontFamily: FONT_MONO,
+                fontSize: 11,
+                color: C.ochreDeep,
+                textDecoration: "underline",
+                padding: 0,
+              }}
+            >
+              minder
+            </button>
+          )}
+          {hiddenTruncated > 0 && (
+            <span style={{ color: C.sepia, opacity: 0.8 }}>
+              +{hiddenTruncated} eerdere toeters
+            </span>
+          )}
+        </div>
+      )}
 
       <div
         style={{

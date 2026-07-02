@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, StopsUpdateStopData, StopsUpdateStopResponse, StopsDeleteStopData, StopsDeleteStopResponse, StopsUploadStopMediaData, StopsUploadStopMediaResponse, StopsDeleteStopMediaData, StopsDeleteStopMediaResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class ItemsService {
     /**
@@ -408,6 +408,104 @@ export class StopsService {
             url: '/api/v1/stops/{id}',
             path: {
                 id: data.id
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Stop
+     * Partially update a stop. Superusers only.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns StopPublic Successful Response
+     * @throws ApiError
+     */
+    public static updateStop(data: StopsUpdateStopData): CancelablePromise<StopsUpdateStopResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/stops/{id}',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Stop
+     * Delete a stop and any media files attached to it.
+     * @param data The data for the request.
+     * @param data.id
+     * @returns Message Successful Response
+     * @throws ApiError
+     */
+    public static deleteStop(data: StopsDeleteStopData): CancelablePromise<StopsDeleteStopResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/stops/{id}',
+            path: {
+                id: data.id
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Upload Stop Media
+     * Attach a photo or short video to a stop. Files land on the media volume
+     * under `/media/{stop_id}/…` and the stop's `media` array grows by one.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.formData
+     * @param data.caption
+     * @returns StopPublic Successful Response
+     * @throws ApiError
+     */
+    public static uploadStopMedia(data: StopsUploadStopMediaData): CancelablePromise<StopsUploadStopMediaResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/stops/{id}/media',
+            path: {
+                id: data.id
+            },
+            query: {
+                caption: data.caption
+            },
+            formData: data.formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Stop Media
+     * Remove a media item by its position in the stop's media array. Also
+     * deletes the file on disk (if any).
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.index
+     * @returns StopPublic Successful Response
+     * @throws ApiError
+     */
+    public static deleteStopMedia(data: StopsDeleteStopMediaData): CancelablePromise<StopsDeleteStopMediaResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/stops/{id}/media/{index}',
+            path: {
+                id: data.id,
+                index: data.index
             },
             errors: {
                 422: 'Validation Error'

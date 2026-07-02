@@ -10,6 +10,7 @@ from app.models import (
     ItemCreate,
     Stop,
     StopCreate,
+    StopUpdate,
     User,
     UserCreate,
     UserUpdate,
@@ -94,6 +95,27 @@ def create_stop(
             "flag": flag_emoji(stop_in.code),
         },
     )
+    session.add(db_stop)
+    session.commit()
+    session.refresh(db_stop)
+    return db_stop
+
+
+def update_stop(*, session: Session, db_stop: Stop, stop_in: StopUpdate) -> Stop:
+    data = stop_in.model_dump(exclude_unset=True)
+    extra: dict[str, Any] = {}
+    # Media items arrive as MediaItem models — flatten to plain dicts for the
+    # JSON column.
+    if "media" in data and data["media"] is not None:
+        extra["media"] = [
+            m.model_dump() if hasattr(m, "model_dump") else dict(m)
+            for m in stop_in.media or []
+        ]
+        data.pop("media")
+    # Keep flag derived from the ISO code, same rule as create_stop.
+    if "code" in data:
+        extra["flag"] = flag_emoji(data["code"])
+    db_stop.sqlmodel_update(data, update=extra)
     session.add(db_stop)
     session.commit()
     session.refresh(db_stop)

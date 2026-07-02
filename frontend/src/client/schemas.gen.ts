@@ -57,6 +57,19 @@ export const Body_login_login_access_tokenSchema = {
     title: 'Body_login-login_access_token'
 } as const;
 
+export const Body_stops_upload_stop_mediaSchema = {
+    properties: {
+        file: {
+            type: 'string',
+            contentMediaType: 'application/octet-stream',
+            title: 'File'
+        }
+    },
+    type: 'object',
+    required: ['file'],
+    title: 'Body_stops-upload_stop_media'
+} as const;
+
 export const CommentCreateSchema = {
     properties: {
         body: {
@@ -166,11 +179,52 @@ export const HonkPublicSchema = {
         honked_by_me: {
             type: 'boolean',
             title: 'Honked By Me'
+        },
+        honkers: {
+            items: {
+                '$ref': '#/components/schemas/HonkerPublic'
+            },
+            type: 'array',
+            title: 'Honkers'
         }
     },
     type: 'object',
     required: ['stop_id', 'count', 'honked_by_me'],
     title: 'HonkPublic'
+} as const;
+
+export const HonkerPublicSchema = {
+    properties: {
+        user_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'User Id'
+        },
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        is_mine: {
+            type: 'boolean',
+            title: 'Is Mine',
+            default: false
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['user_id', 'name'],
+    title: 'HonkerPublic'
 } as const;
 
 export const ItemCreateSchema = {
@@ -303,7 +357,8 @@ export const MediaItemSchema = {
         tone: {
             type: 'string',
             maxLength: 32,
-            title: 'Tone'
+            title: 'Tone',
+            default: ''
         },
         cap: {
             type: 'string',
@@ -311,14 +366,26 @@ export const MediaItemSchema = {
             title: 'Cap',
             default: ''
         },
-        video: {
-            type: 'boolean',
-            title: 'Video',
-            default: false
+        kind: {
+            type: 'string',
+            maxLength: 8,
+            title: 'Kind',
+            default: 'image'
+        },
+        url: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 512
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Url'
         }
     },
     type: 'object',
-    required: ['tone'],
     title: 'MediaItem'
 } as const;
 
@@ -423,15 +490,32 @@ export const StopCreateSchema = {
             title: 'Title'
         },
         km: {
-            type: 'integer',
-            minimum: 0,
-            title: 'Km',
-            default: 0
+            anyOf: [
+                {
+                    type: 'integer',
+                    minimum: 0
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Km'
         },
-        weather: {
+        weather_temp: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Weather Temp'
+        },
+        weather_condition: {
             type: 'string',
-            maxLength: 255,
-            title: 'Weather',
+            maxLength: 16,
+            title: 'Weather Condition',
             default: ''
         },
         type: {
@@ -526,15 +610,32 @@ export const StopPublicSchema = {
             title: 'Title'
         },
         km: {
-            type: 'integer',
-            minimum: 0,
-            title: 'Km',
-            default: 0
+            anyOf: [
+                {
+                    type: 'integer',
+                    minimum: 0
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Km'
         },
-        weather: {
+        weather_temp: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Weather Temp'
+        },
+        weather_condition: {
             type: 'string',
-            maxLength: 255,
-            title: 'Weather',
+            maxLength: 16,
+            title: 'Weather Condition',
             default: ''
         },
         type: {
@@ -592,6 +693,192 @@ export const StopPublicSchema = {
     title: 'StopPublic'
 } as const;
 
+export const StopUpdateSchema = {
+    properties: {
+        place: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255,
+                    minLength: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Place'
+        },
+        country: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255,
+                    minLength: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Country'
+        },
+        code: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 8
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Code'
+        },
+        lat: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Lat'
+        },
+        lng: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Lng'
+        },
+        date: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Date'
+        },
+        title: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255,
+                    minLength: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Title'
+        },
+        km: {
+            anyOf: [
+                {
+                    type: 'integer',
+                    minimum: 0
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Km'
+        },
+        weather_temp: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Weather Temp'
+        },
+        weather_condition: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 16
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Weather Condition'
+        },
+        type: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 16
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Type'
+        },
+        story: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Story'
+        },
+        broke: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Broke'
+        },
+        fixed: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Fixed'
+        },
+        media: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/MediaItem'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Media'
+        }
+    },
+    type: 'object',
+    title: 'StopUpdate'
+} as const;
+
 export const StopsPublicSchema = {
     properties: {
         data: {
@@ -635,7 +922,14 @@ export const TripStatsSchema = {
             title: 'Km'
         },
         suggested_km: {
-            type: 'integer',
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Suggested Km'
         },
         days: {

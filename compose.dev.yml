@@ -115,6 +115,9 @@ services:
       - ./backend/alembic.ini:/app/backend/alembic.ini
       - ./backend/pyproject.toml:/app/backend/pyproject.toml
       - ./backend/htmlcov:/app/backend/htmlcov
+      # Uploaded stop media (photos + short videos). Matches MEDIA_ROOT in
+      # app/core/media.py — a bind-mount so it's easy to peek at from the host.
+      - ./media:/app/media
     command:
       - fastapi
       - dev

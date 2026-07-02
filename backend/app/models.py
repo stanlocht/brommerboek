@@ -124,11 +124,27 @@ class ItemsPublic(SQLModel):
 
 
 class MediaItem(SQLModel):
-    # `tone` is a hex colour used as a vintage-photo placeholder swatch until a
-    # real image is dropped in; `cap` is the caption; `video` marks a clip.
-    tone: str = Field(max_length=32)
+    # `url` points at the uploaded file (served by StaticFiles at /media/…);
+    # when absent the frontend falls back to the `tone` hex swatch placeholder.
+    # `kind` distinguishes photo from clip.
+    tone: str = Field(default="", max_length=32)
     cap: str = Field(default="", max_length=255)
-    video: bool = False
+    kind: str = Field(default="image", max_length=8)  # "image" | "video"
+    url: str | None = Field(default=None, max_length=512)
+
+
+# Short-code weather conditions the picker offers. Kept as a plain str field
+# on the wire so we can add new values without a migration.
+WEATHER_CONDITIONS = {
+    "sunny",
+    "partly",
+    "cloudy",
+    "rain",
+    "storm",
+    "wind",
+    "snow",
+    "fog",
+}
 
 
 # Shared properties
@@ -141,8 +157,13 @@ class StopBase(SQLModel):
     lng: float
     date: date
     title: str = Field(min_length=1, max_length=255)
-    km: int = Field(default=0, ge=0)
-    weather: str = Field(default="", max_length=255)
+    # `km` is the odometer reading at this stop. Optional — a rider who forgot
+    # to note it just leaves it blank.
+    km: int | None = Field(default=None, ge=0)
+    # Weather is split for the picker UI: a temperature in °C and one of the
+    # `WEATHER_CONDITIONS` short codes (or an empty string for "unspecified").
+    weather_temp: int | None = Field(default=None)
+    weather_condition: str = Field(default="", max_length=16)
     type: str = Field(default="stop", max_length=16)  # "stop" | "repair"
     story: str = Field(default="", sa_type=Text)
     broke: str | None = Field(default=None, sa_type=Text)  # repair: what broke
@@ -152,6 +173,27 @@ class StopBase(SQLModel):
 # Properties to receive on stop creation
 class StopCreate(StopBase):
     media: list[MediaItem] = Field(default_factory=list)
+
+
+# Partial update — every field optional so the frontend can PATCH just what
+# the user changed. `media` is intentionally *not* patched here; that goes
+# through the dedicated upload/delete endpoints.
+class StopUpdate(SQLModel):
+    place: str | None = Field(default=None, min_length=1, max_length=255)
+    country: str | None = Field(default=None, min_length=1, max_length=255)
+    code: str | None = Field(default=None, max_length=8)
+    lat: float | None = None
+    lng: float | None = None
+    date: date | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    km: int | None = Field(default=None, ge=0)
+    weather_temp: int | None = None
+    weather_condition: str | None = Field(default=None, max_length=16)
+    type: str | None = Field(default=None, max_length=16)
+    story: str | None = None
+    broke: str | None = None
+    fixed: str | None = None
+    media: list[MediaItem] | None = None
 
 
 # Database model, database table inferred from class name
@@ -177,13 +219,13 @@ class StopsPublic(SQLModel):
     count: int
 
 
-# Aggregate trip statistics for the "Wrapped" recap screen. `km` is the summed
-# great-circle distance between consecutive stops (real geography, in km).
-# `suggested_km` is the highest odometer reading seen so far — the frontend
-# uses it to prefill the next stop's km input.
+# Aggregate trip statistics for the "Wrapped" recap screen. `km` uses each
+# leg's odometer delta when both endpoints have a km value, and falls back
+# to great-circle distance otherwise. `suggested_km` is the last known
+# odometer reading — the frontend prefills the next stop's km input with it.
 class TripStats(SQLModel):
     km: int
-    suggested_km: int
+    suggested_km: int | None
     days: int
     countries: int
     stops: int
@@ -252,10 +294,23 @@ class HornHonk(SQLModel, table=True):
     )
 
 
+class HonkerPublic(SQLModel):
+    # One row per user who honked. Names use the same rendering rule as
+    # comments (`full_name` or the email local-part).
+    user_id: uuid.UUID
+    name: str
+    is_mine: bool = False
+    created_at: datetime | None = None
+
+
 class HonkPublic(SQLModel):
     stop_id: uuid.UUID
     count: int
     honked_by_me: bool
+    # Most recent honks first. The list is capped server-side to avoid a
+    # popular stop shipping a giant payload; when longer, `count` is still
+    # the true total.
+    honkers: list[HonkerPublic] = Field(default_factory=list)
 
 
 # Generic message

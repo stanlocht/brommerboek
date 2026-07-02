@@ -7,6 +7,7 @@ import { CubIcon } from "./icons"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import { EMPTY_STATS } from "./trip"
 import type { Stop } from "./types"
+import { weatherLabel } from "./weather"
 
 interface CountryTally {
   code: string
@@ -52,8 +53,13 @@ function derive(stops: Stop[], totalKm: number, days: number): Derived {
   for (let i = 1; i < stops.length; i++) {
     const a = stops[i - 1]
     const b = stops[i]
-    const km = haversine([a.lng, a.lat], [b.lng, b.lat]) / 1000
-    if (!longest || km > longest.km) longest = { from: a, to: b, km }
+    // Prefer the odometer delta (real road distance); fall back to the
+    // straight-line haversine when either endpoint has no km value.
+    const legKm =
+      a.km != null && b.km != null && b.km >= a.km
+        ? b.km - a.km
+        : haversine([a.lng, a.lat], [b.lng, b.lat]) / 1000
+    if (!longest || legKm > longest.km) longest = { from: a, to: b, km: legKm }
   }
 
   const dates = stops.map((s) => s.date).sort()
@@ -62,8 +68,9 @@ function derive(stops: Stop[], totalKm: number, days: number): Derived {
 
   const weatherCounts = new Map<string, number>()
   for (const s of stops) {
-    if (!s.weather) continue
-    weatherCounts.set(s.weather, (weatherCounts.get(s.weather) ?? 0) + 1)
+    const label = weatherLabel(s.weather_condition, s.weather_temp)
+    if (!label) continue
+    weatherCounts.set(label, (weatherCounts.get(label) ?? 0) + 1)
   }
   const weathers = Array.from(weatherCounts.entries())
     .map(([label, count]) => ({ label, count }))
@@ -408,7 +415,7 @@ export default function LogboekScreen() {
                       marginLeft: 4,
                     }}
                   >
-                    km hemelsbreed
+                    km
                   </span>
                 </div>
               </div>

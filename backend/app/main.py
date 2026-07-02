@@ -1,10 +1,12 @@
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
 from app.core.config import settings
+from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -31,3 +33,8 @@ if settings.all_cors_origins:
     )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Serve uploaded stop media from the mounted volume. Kept outside the
+# versioned API prefix so the URLs stored in `Stop.media[].url` stay stable
+# across API-version bumps.
+app.mount(MEDIA_URL_PREFIX, StaticFiles(directory=MEDIA_ROOT), name="media")

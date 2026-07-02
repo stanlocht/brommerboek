@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router"
 import type { PointerEvent as ReactPointerEvent } from "react"
 import type { UserPublic } from "@/client"
+import { mediaSrc } from "./api"
 import type { RouteGeometry } from "./geo"
 import { nearestStop, stopFraction } from "./geo"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
@@ -240,19 +241,52 @@ export default function MapScreen({
               transform: "rotate(-.5deg)",
             }}
           >
-            <div
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: 7,
-                flex: "none",
-                border: "3px solid #fff",
-                boxShadow: "0 1px 3px rgba(0,0,0,.2)",
-                background: `linear-gradient(150deg,rgba(255,255,255,.28),rgba(0,0,0,.3)),${
-                  cur.media[0]?.tone ?? "#c9a24e"
-                }`,
-              }}
-            />
+            {(() => {
+              const first = cur.media[0]
+              const src = mediaSrc(first?.url)
+              return (
+                <div
+                  style={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: 7,
+                    flex: "none",
+                    border: "3px solid #fff",
+                    boxShadow: "0 1px 3px rgba(0,0,0,.2)",
+                    overflow: "hidden",
+                    background: src
+                      ? "#000"
+                      : `linear-gradient(150deg,rgba(255,255,255,.28),rgba(0,0,0,.3)),${
+                          first?.tone || "#c9a24e"
+                        }`,
+                  }}
+                >
+                  {src && first?.kind !== "video" && (
+                    <img
+                      src={src}
+                      alt=""
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
+                    />
+                  )}
+                  {src && first?.kind === "video" && (
+                    <video
+                      src={src}
+                      muted
+                      playsInline
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
+                    />
+                  )}
+                </div>
+              )
+            })()}
             <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
