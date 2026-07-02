@@ -1,11 +1,8 @@
 FROM oven/bun:1
 
-WORKDIR /app
-
-COPY package.json bun.lock /app/
-COPY frontend/package.json /app/frontend/
-
 WORKDIR /app/frontend
+
+COPY frontend/package.json frontend/bun.lock /app/frontend/
 
 RUN bun install
 

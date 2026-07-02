@@ -1,0 +1,83 @@
+# Production stack for the Hetzner box (Caddy in front, GHCR images).
+#
+# The CI workflow at .github/workflows/deploy.yml passes `-f docker-compose.yml`
+# explicitly so this wins over the legacy Traefik `compose.yml`. Never add
+# `build:` here — the box has 4 GB of RAM and a frontend build will OOM it.
+# Images are built by CI and pulled from GHCR; TAG is injected at deploy time.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+  frontend:
+    image: ghcr.io/stanlocht/brommerboek-frontend:${TAG:-latest}
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  prestart:
+    image: ghcr.io/stanlocht/brommerboek-backend:${TAG:-latest}
+    command: bash scripts/prestart.sh
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    image: ghcr.io/stanlocht/brommerboek-backend:${TAG:-latest}
+    restart: unless-stopped
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
+    volumes:
+      - ./media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      prestart:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pgdata:

@@ -1,13 +1,9 @@
 # Stage 0, "build-stage", based on Bun, to build and compile the frontend
 FROM oven/bun:1 AS build-stage
 
-WORKDIR /app
-
-COPY package.json bun.lock /app/
-
-COPY frontend/package.json /app/frontend/
-
 WORKDIR /app/frontend
+
+COPY frontend/package.json frontend/bun.lock /app/frontend/
 
 RUN bun install
 
