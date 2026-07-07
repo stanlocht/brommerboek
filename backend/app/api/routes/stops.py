@@ -10,6 +10,8 @@ from app.api.deps import SessionDep, get_current_active_superuser
 from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
 from app.geo import haversine_km
 from app.models import (
+    Comment,
+    HornHonk,
     Message,
     Stop,
     StopCreate,
@@ -39,15 +41,39 @@ def _ordered_stops(session: SessionDep) -> list[Stop]:
     return list(session.exec(statement).all())
 
 
+def _honk_counts(session: SessionDep) -> dict[uuid.UUID, int]:
+    """Honks per stop_id — one GROUP BY query for the whole trip."""
+    rows = session.exec(
+        select(HornHonk.stop_id, func.count()).group_by(col(HornHonk.stop_id))
+    ).all()
+    return dict(rows)
+
+
+def _comment_counts(session: SessionDep) -> dict[uuid.UUID, int]:
+    """Comments per stop_id — one GROUP BY query for the whole trip."""
+    rows = session.exec(
+        select(Comment.stop_id, func.count()).group_by(col(Comment.stop_id))
+    ).all()
+    return dict(rows)
+
+
 @router.get("/", response_model=StopsPublic)
 def read_stops(session: SessionDep) -> Any:
     """
     Retrieve all stops of the trip, in route order. Public — this is a
-    personal, single-trip showcase.
+    personal, single-trip showcase. Each stop carries its honk and comment
+    counts so the map can badge pins without extra requests.
     """
     count = session.exec(select(func.count()).select_from(Stop)).one()
     stops = _ordered_stops(session)
-    data = [StopPublic.model_validate(s) for s in stops]
+    honks = _honk_counts(session)
+    comments = _comment_counts(session)
+    data = []
+    for s in stops:
+        pub = StopPublic.model_validate(s)
+        pub.honk_count = honks.get(s.id, 0)
+        pub.comment_count = comments.get(s.id, 0)
+        data.append(pub)
     return StopsPublic(data=data, count=count)
 
 
@@ -98,7 +124,14 @@ def read_stop(session: SessionDep, id: uuid.UUID) -> Any:
     stop = session.get(Stop, id)
     if not stop:
         raise HTTPException(status_code=404, detail="Stop not found")
-    return stop
+    pub = StopPublic.model_validate(stop)
+    pub.honk_count = session.exec(
+        select(func.count()).select_from(HornHonk).where(HornHonk.stop_id == id)
+    ).one()
+    pub.comment_count = session.exec(
+        select(func.count()).select_from(Comment).where(Comment.stop_id == id)
+    ).one()
+    return pub
 
 
 @router.post(

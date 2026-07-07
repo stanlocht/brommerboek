@@ -581,6 +581,16 @@ export const StopPublicSchema = {
             },
             type: 'array',
             title: 'Media'
+        },
+        honk_count: {
+            type: 'integer',
+            title: 'Honk Count',
+            default: 0
+        },
+        comment_count: {
+            type: 'integer',
+            title: 'Comment Count',
+            default: 0
         }
     },
     type: 'object',

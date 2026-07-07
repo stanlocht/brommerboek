@@ -4,6 +4,7 @@ import type { UserPublic } from "@/client"
 import { mediaSrc } from "./api"
 import type { RouteGeometry } from "./geo"
 import { nearestStop, stopFraction } from "./geo"
+import { legInfo, legLabel } from "./legs"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import type { TripStats } from "./trip"
 import type { Stop } from "./types"
@@ -98,6 +99,8 @@ export default function MapScreen({
   const currentStopIndex = nearestStop(route, progress)
   const atStart = currentStopIndex === 0
   const atEnd = currentStopIndex === stops.length - 1
+  // While scrubbing the endpoint labels make way for the current leg.
+  const leg = dragging ? legInfo(stops, route, progress) : null
 
   return (
     <div style={{ position: "absolute", inset: 0 }}>
@@ -204,6 +207,30 @@ export default function MapScreen({
               >
                 ›
               </span>
+            </Link>
+            <Link
+              to="/stempels"
+              aria-label="Open de stempelmuur"
+              style={{
+                marginTop: 8,
+                marginLeft: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "4px 12px",
+                borderRadius: 999,
+                background: C.paperCard,
+                border: `1.5px solid ${C.border}`,
+                boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+                fontFamily: FONT_MONO,
+                fontSize: 10,
+                letterSpacing: 2,
+                color: C.ochreDeep,
+                textDecoration: "none",
+                cursor: "pointer",
+                pointerEvents: "auto",
+              }}
+            >
+              STEMPELS
             </Link>
           </div>
           <div
@@ -364,15 +391,30 @@ export default function MapScreen({
             style={{
               flex: 1,
               display: "flex",
-              justifyContent: "space-between",
+              justifyContent: leg ? "center" : "space-between",
               fontFamily: FONT_MONO,
               fontSize: 10,
               color: C.ochreDeep,
             }}
           >
-            <span>{stops[0]?.place}</span>
-            <span>rijd de route ›</span>
-            <span>{stops[stops.length - 1]?.place}</span>
+            {leg ? (
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: C.sepia,
+                }}
+              >
+                {legLabel(leg)}
+              </span>
+            ) : (
+              <>
+                <span>{stops[0]?.place}</span>
+                <span>rijd de route ›</span>
+                <span>{stops[stops.length - 1]?.place}</span>
+              </>
+            )}
           </div>
           <div style={{ width: 28, flex: "none" }} />
         </div>
