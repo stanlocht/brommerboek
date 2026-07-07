@@ -1,11 +1,21 @@
+import { useState } from "react"
 import { mediaSrc } from "./api"
 import { WrenchIcon } from "./icons"
+import Lightbox from "./Lightbox"
 import StopReactions from "./StopReactions"
 import { C, dateLabelNL, FONT_MONO, GALLERY_ROTS } from "./theme"
 import type { MediaItem, Stop } from "./types"
 import { weatherLabel } from "./weather"
 
-function GalleryTile({ item, index }: { item: MediaItem; index: number }) {
+function GalleryTile({
+  item,
+  index,
+  onOpen,
+}: {
+  item: MediaItem
+  index: number
+  onOpen: () => void
+}) {
   const src = mediaSrc(item.url)
   const rot = GALLERY_ROTS[index % GALLERY_ROTS.length]
   const shell: React.CSSProperties = {
@@ -85,6 +95,46 @@ function GalleryTile({ item, index }: { item: MediaItem; index: number }) {
       >
         {item.cap}
       </div>
+      {src && item.kind !== "video" && (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={item.cap ? `bekijk groot: ${item.cap}` : "bekijk groot"}
+          style={{
+            position: "absolute",
+            inset: 0,
+            border: "none",
+            background: "none",
+            padding: 0,
+            cursor: "zoom-in",
+          }}
+        />
+      )}
+      {src && item.kind === "video" && (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label="bekijk groot"
+          style={{
+            position: "absolute",
+            top: 6,
+            right: 6,
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            border: "none",
+            background: "rgba(0,0,0,.55)",
+            color: "#fff",
+            fontSize: 14,
+            cursor: "zoom-in",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          ⛶
+        </button>
+      )}
     </div>
   )
 }
@@ -102,6 +152,8 @@ export default function StopSheet({
 }) {
   const kmText = cur.km != null ? `${cur.km} km` : "— km"
   const weatherText = weatherLabel(cur.weather_condition, cur.weather_temp)
+  // Index of the media item shown full-screen; null = lightbox closed.
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   return (
     <div
       style={{
@@ -125,7 +177,12 @@ export default function StopSheet({
           }}
         >
           {cur.media.map((m, i) => (
-            <GalleryTile key={`${m.url ?? m.tone}-${i}`} item={m} index={i} />
+            <GalleryTile
+              key={`${m.url ?? m.tone}-${i}`}
+              item={m}
+              index={i}
+              onOpen={() => setLightboxIndex(i)}
+            />
           ))}
         </div>
         <button
@@ -300,6 +357,13 @@ export default function StopSheet({
           </div>
         )}
       </div>
+      {lightboxIndex !== null && (
+        <Lightbox
+          items={cur.media}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
     </div>
   )
 }

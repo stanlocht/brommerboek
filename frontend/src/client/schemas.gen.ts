@@ -227,6 +227,19 @@ export const HonkerPublicSchema = {
     title: 'HonkerPublic'
 } as const;
 
+export const MediaCaptionUpdateSchema = {
+    properties: {
+        cap: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Cap'
+        }
+    },
+    type: 'object',
+    required: ['cap'],
+    title: 'MediaCaptionUpdate'
+} as const;
+
 export const MediaItemSchema = {
     properties: {
         tone: {

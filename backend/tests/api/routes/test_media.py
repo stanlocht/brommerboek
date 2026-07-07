@@ -167,6 +167,89 @@ def test_delete_media_index_out_of_range(
         assert r.json()["detail"] == "Media index out of range"
 
 
+def test_patch_media_caption_happy_path(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    _upload(client, superuser_token_headers, stop.id, caption="een")
+    uploaded = _upload(client, superuser_token_headers, stop.id, caption="twee").json()
+    assert [m["cap"] for m in uploaded["media"]] == ["een", "twee"]
+
+    r = client.patch(
+        f"{STOPS_URL}{stop.id}/media/1",
+        headers=superuser_token_headers,
+        json={"cap": "de Cub bij zonsondergang"},
+    )
+    assert r.status_code == 200
+    media = r.json()["media"]
+    assert [m["cap"] for m in media] == ["een", "de Cub bij zonsondergang"]
+    # The change survived the round trip to the JSON column.
+    refetched = client.get(f"{STOPS_URL}{stop.id}").json()
+    assert refetched["media"][1]["cap"] == "de Cub bij zonsondergang"
+    # The file itself is untouched.
+    assert media[1]["url"] == uploaded["media"][1]["url"]
+
+
+@pytest.mark.usefixtures("media_root")
+def test_patch_media_caption_index_out_of_range(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    for bad_index in (0, 5, -1):
+        r = client.patch(
+            f"{STOPS_URL}{stop.id}/media/{bad_index}",
+            headers=superuser_token_headers,
+            json={"cap": "spook"},
+        )
+        assert r.status_code == 404
+        assert r.json()["detail"] == "Media index out of range"
+
+
+@pytest.mark.usefixtures("media_root")
+def test_patch_media_caption_stop_not_found(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    r = client.patch(
+        f"{STOPS_URL}{uuid.uuid4()}/media/0",
+        headers=superuser_token_headers,
+        json={"cap": "spook"},
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Stop not found"
+
+
+def test_patch_media_caption_requires_superuser(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    _upload(client, superuser_token_headers, stop.id)
+    url = f"{STOPS_URL}{stop.id}/media/0"
+    assert client.patch(url, json={"cap": "nee"}).status_code == 401
+    r = client.patch(url, headers=normal_user_token_headers, json={"cap": "nee"})
+    assert r.status_code == 403
+
+
+def test_patch_media_caption_rejects_overlong_caption(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    _upload(client, superuser_token_headers, stop.id)
+    r = client.patch(
+        f"{STOPS_URL}{stop.id}/media/0",
+        headers=superuser_token_headers,
+        json={"cap": "x" * 256},
+    )
+    assert r.status_code == 422
+
+
 def test_delete_stop_removes_media_directory(
     client: TestClient,
     superuser_token_headers: dict[str, str],

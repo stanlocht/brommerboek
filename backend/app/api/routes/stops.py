@@ -10,6 +10,7 @@ from app.api.deps import SessionDep, get_current_active_superuser
 from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX
 from app.geo import haversine_km
 from app.models import (
+    MediaCaptionUpdate,
     Message,
     Stop,
     StopCreate,
@@ -176,6 +177,38 @@ def upload_stop_media(
     url = f"{MEDIA_URL_PREFIX}/{id}/{filename}"
     media_items = list(db_stop.media or [])
     media_items.append({"tone": "", "cap": caption[:255], "kind": kind, "url": url})
+    db_stop.media = media_items
+    session.add(db_stop)
+    session.commit()
+    session.refresh(db_stop)
+    return db_stop
+
+
+@router.patch(
+    "/{id}/media/{index}",
+    response_model=StopPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def update_stop_media_caption(
+    *,
+    session: SessionDep,
+    id: uuid.UUID,
+    index: int,
+    caption_in: MediaCaptionUpdate,
+) -> Any:
+    """
+    Change the caption of a media item by its position in the stop's media
+    array. The file itself is immutable — delete and re-upload to replace it.
+    """
+    db_stop = session.get(Stop, id)
+    if not db_stop:
+        raise HTTPException(status_code=404, detail="Stop not found")
+    # Copy the inner dicts too: mutating the loaded JSON in place would leave
+    # SQLAlchemy's change detection comparing the value against itself.
+    media_items = [dict(m) for m in db_stop.media or []]
+    if not 0 <= index < len(media_items):
+        raise HTTPException(status_code=404, detail="Media index out of range")
+    media_items[index]["cap"] = caption_in.cap
     db_stop.media = media_items
     session.add(db_stop)
     session.commit()
