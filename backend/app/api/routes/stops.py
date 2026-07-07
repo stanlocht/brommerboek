@@ -2,14 +2,18 @@ import shutil
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlmodel import col, func, select
 
 from app import crud
 from app.api.deps import SessionDep, get_current_active_superuser
-from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX
+from app.core import push
+from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
 from app.geo import haversine_km
 from app.models import (
+    Comment,
+    HornHonk,
+    MediaCaptionUpdate,
     Message,
     Stop,
     StopCreate,
@@ -39,15 +43,39 @@ def _ordered_stops(session: SessionDep) -> list[Stop]:
     return list(session.exec(statement).all())
 
 
+def _honk_counts(session: SessionDep) -> dict[uuid.UUID, int]:
+    """Honks per stop_id — one GROUP BY query for the whole trip."""
+    rows = session.exec(
+        select(HornHonk.stop_id, func.count()).group_by(col(HornHonk.stop_id))
+    ).all()
+    return dict(rows)
+
+
+def _comment_counts(session: SessionDep) -> dict[uuid.UUID, int]:
+    """Comments per stop_id — one GROUP BY query for the whole trip."""
+    rows = session.exec(
+        select(Comment.stop_id, func.count()).group_by(col(Comment.stop_id))
+    ).all()
+    return dict(rows)
+
+
 @router.get("/", response_model=StopsPublic)
 def read_stops(session: SessionDep) -> Any:
     """
     Retrieve all stops of the trip, in route order. Public — this is a
-    personal, single-trip showcase.
+    personal, single-trip showcase. Each stop carries its honk and comment
+    counts so the map can badge pins without extra requests.
     """
     count = session.exec(select(func.count()).select_from(Stop)).one()
     stops = _ordered_stops(session)
-    data = [StopPublic.model_validate(s) for s in stops]
+    honks = _honk_counts(session)
+    comments = _comment_counts(session)
+    data = []
+    for s in stops:
+        pub = StopPublic.model_validate(s)
+        pub.honk_count = honks.get(s.id, 0)
+        pub.comment_count = comments.get(s.id, 0)
+        data.append(pub)
     return StopsPublic(data=data, count=count)
 
 
@@ -98,7 +126,14 @@ def read_stop(session: SessionDep, id: uuid.UUID) -> Any:
     stop = session.get(Stop, id)
     if not stop:
         raise HTTPException(status_code=404, detail="Stop not found")
-    return stop
+    pub = StopPublic.model_validate(stop)
+    pub.honk_count = session.exec(
+        select(func.count()).select_from(HornHonk).where(HornHonk.stop_id == id)
+    ).one()
+    pub.comment_count = session.exec(
+        select(func.count()).select_from(Comment).where(Comment.stop_id == id)
+    ).one()
+    return pub
 
 
 @router.post(
@@ -106,12 +141,21 @@ def read_stop(session: SessionDep, id: uuid.UUID) -> Any:
     response_model=StopPublic,
     dependencies=[Depends(get_current_active_superuser)],
 )
-def create_stop(*, session: SessionDep, stop_in: StopCreate) -> Any:
+def create_stop(
+    *, session: SessionDep, stop_in: StopCreate, background_tasks: BackgroundTasks
+) -> Any:
     """
     Add a new stop to the end of the route. Superusers only — this is a
     single-rider journal.
     """
-    return crud.create_stop(session=session, stop_in=stop_in)
+    stop = crud.create_stop(session=session, stop_in=stop_in)
+    background_tasks.add_task(
+        push.send_to_followers,
+        title=f"nieuwe stop: {stop.place} 🛵",
+        body=stop.title,
+        url=f"/?stop={stop.id}",
+    )
+    return stop
 
 
 @router.patch(
@@ -174,8 +218,49 @@ def upload_stop_media(
     finally:
         file.file.close()
     url = f"{MEDIA_URL_PREFIX}/{id}/{filename}"
+    # Pre-generate a small WebP for gallery tiles; videos keep thumb None
+    # (no ffmpeg on board) and a failed thumbnail never fails the upload.
+    thumb_url: str | None = None
+    if kind == "image":
+        thumb_path = generate_thumbnail(dest)
+        if thumb_path is not None:
+            thumb_url = f"{MEDIA_URL_PREFIX}/{id}/{thumb_path.name}"
     media_items = list(db_stop.media or [])
-    media_items.append({"tone": "", "cap": caption[:255], "kind": kind, "url": url})
+    media_items.append(
+        {"tone": "", "cap": caption[:255], "kind": kind, "url": url, "thumb": thumb_url}
+    )
+    db_stop.media = media_items
+    session.add(db_stop)
+    session.commit()
+    session.refresh(db_stop)
+    return db_stop
+
+
+@router.patch(
+    "/{id}/media/{index}",
+    response_model=StopPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def update_stop_media_caption(
+    *,
+    session: SessionDep,
+    id: uuid.UUID,
+    index: int,
+    caption_in: MediaCaptionUpdate,
+) -> Any:
+    """
+    Change the caption of a media item by its position in the stop's media
+    array. The file itself is immutable — delete and re-upload to replace it.
+    """
+    db_stop = session.get(Stop, id)
+    if not db_stop:
+        raise HTTPException(status_code=404, detail="Stop not found")
+    # Copy the inner dicts too: mutating the loaded JSON in place would leave
+    # SQLAlchemy's change detection comparing the value against itself.
+    media_items = [dict(m) for m in db_stop.media or []]
+    if not 0 <= index < len(media_items):
+        raise HTTPException(status_code=404, detail="Media index out of range")
+    media_items[index]["cap"] = caption_in.cap
     db_stop.media = media_items
     session.add(db_stop)
     session.commit()
@@ -200,14 +285,15 @@ def delete_stop_media(*, session: SessionDep, id: uuid.UUID, index: int) -> Any:
     if not 0 <= index < len(media_items):
         raise HTTPException(status_code=404, detail="Media index out of range")
     item = media_items.pop(index)
-    url = item.get("url") if isinstance(item, dict) else None
-    if url and url.startswith(f"{MEDIA_URL_PREFIX}/"):
-        rel = url[len(MEDIA_URL_PREFIX) + 1 :]
-        path = MEDIA_ROOT / rel
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            pass
+    for key in ("url", "thumb"):
+        url = item.get(key) if isinstance(item, dict) else None
+        if url and url.startswith(f"{MEDIA_URL_PREFIX}/"):
+            rel = url[len(MEDIA_URL_PREFIX) + 1 :]
+            path = MEDIA_ROOT / rel
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
     db_stop.media = media_items
     session.add(db_stop)
     session.commit()

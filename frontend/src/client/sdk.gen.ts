@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, StopsUpdateStopData, StopsUpdateStopResponse, StopsDeleteStopData, StopsDeleteStopResponse, StopsUploadStopMediaData, StopsUploadStopMediaResponse, StopsDeleteStopMediaData, StopsDeleteStopMediaResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, PushReadPublicKeyResponse, PushSubscribeData, PushSubscribeResponse, PushUnsubscribeData, PushUnsubscribeResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, StopsUpdateStopData, StopsUpdateStopResponse, StopsDeleteStopData, StopsDeleteStopResponse, StopsUploadStopMediaData, StopsUploadStopMediaResponse, StopsUpdateStopMediaCaptionData, StopsUpdateStopMediaCaptionResponse, StopsDeleteStopMediaData, StopsDeleteStopMediaResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse, WeatherSuggestWeatherData, WeatherSuggestWeatherResponse } from './types.gen';
 
 export class LoginService {
     /**
@@ -115,6 +115,66 @@ export class PrivateService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/private/users/',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class PushService {
+    /**
+     * Read Public Key
+     * The VAPID application server key browsers need to subscribe. Public.
+     * @returns PushPublicKey Successful Response
+     * @throws ApiError
+     */
+    public static readPublicKey(): CancelablePromise<PushReadPublicKeyResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/push/public-key'
+        });
+    }
+    
+    /**
+     * Subscribe
+     * Register (or refresh) a browser push subscription. Public — anonymous
+     * followers are welcome. Upserts by endpoint. When the caller is signed in
+     * the subscription is linked to their account; `wants_reactions` only
+     * sticks for superusers.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns Message Successful Response
+     * @throws ApiError
+     */
+    public static subscribe(data: PushSubscribeData): CancelablePromise<PushSubscribeResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/push/subscribe',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Unsubscribe
+     * Remove a push subscription by endpoint. Idempotent: unknown endpoints
+     * return 200 too. Works even when push is unconfigured, so stale browsers
+     * can always clean up after themselves.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns Message Successful Response
+     * @throws ApiError
+     */
+    public static unsubscribe(data: PushUnsubscribeData): CancelablePromise<PushUnsubscribeResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/push/subscribe',
             body: data.requestBody,
             mediaType: 'application/json',
             errors: {
@@ -245,7 +305,8 @@ export class StopsService {
     /**
      * Read Stops
      * Retrieve all stops of the trip, in route order. Public — this is a
-     * personal, single-trip showcase.
+     * personal, single-trip showcase. Each stop carries its honk and comment
+     * counts so the map can badge pins without extra requests.
      * @returns StopsPublic Successful Response
      * @throws ApiError
      */
@@ -379,6 +440,33 @@ export class StopsService {
             },
             formData: data.formData,
             mediaType: 'multipart/form-data',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Stop Media Caption
+     * Change the caption of a media item by its position in the stop's media
+     * array. The file itself is immutable — delete and re-upload to replace it.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.index
+     * @param data.requestBody
+     * @returns StopPublic Successful Response
+     * @throws ApiError
+     */
+    public static updateStopMediaCaption(data: StopsUpdateStopMediaCaptionData): CancelablePromise<StopsUpdateStopMediaCaptionResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/stops/{id}/media/{index}',
+            path: {
+                id: data.id,
+                index: data.index
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }
@@ -638,6 +726,36 @@ export class UtilsService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/utils/health-check/'
+        });
+    }
+}
+
+export class WeatherService {
+    /**
+     * Suggest Weather
+     * Suggest the weather at a stop: mean temperature (°C) and a condition
+     * short code, looked up at Open-Meteo for the given day and coordinates.
+     * Public and read-only. Returns 503 when the upstream is unreachable —
+     * the client treats that as "no suggestion", never as an error.
+     * @param data The data for the request.
+     * @param data.lat
+     * @param data.lng
+     * @param data.date
+     * @returns WeatherSuggestion Successful Response
+     * @throws ApiError
+     */
+    public static suggestWeather(data: WeatherSuggestWeatherData): CancelablePromise<WeatherSuggestWeatherResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/weather/suggest',
+            query: {
+                lat: data.lat,
+                lng: data.lng,
+                date: data.date
+            },
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
 }

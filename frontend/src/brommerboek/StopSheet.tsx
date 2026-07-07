@@ -1,11 +1,21 @@
+import { useState } from "react"
 import { mediaSrc } from "./api"
-import { WrenchIcon } from "./icons"
+import { ShareIcon, WrenchIcon } from "./icons"
+import Lightbox from "./Lightbox"
 import StopReactions from "./StopReactions"
 import { C, dateLabelNL, FONT_MONO, GALLERY_ROTS } from "./theme"
 import type { MediaItem, Stop } from "./types"
 import { weatherLabel } from "./weather"
 
-function GalleryTile({ item, index }: { item: MediaItem; index: number }) {
+function GalleryTile({
+  item,
+  index,
+  onOpen,
+}: {
+  item: MediaItem
+  index: number
+  onOpen: () => void
+}) {
   const src = mediaSrc(item.url)
   const rot = GALLERY_ROTS[index % GALLERY_ROTS.length]
   const shell: React.CSSProperties = {
@@ -32,8 +42,10 @@ function GalleryTile({ item, index }: { item: MediaItem; index: number }) {
         />
       ) : src ? (
         <img
-          src={src}
+          src={mediaSrc(item.thumb ?? item.url)}
           alt={item.cap || ""}
+          loading="lazy"
+          decoding="async"
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
       ) : (
@@ -85,6 +97,46 @@ function GalleryTile({ item, index }: { item: MediaItem; index: number }) {
       >
         {item.cap}
       </div>
+      {src && item.kind !== "video" && (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={item.cap ? `bekijk groot: ${item.cap}` : "bekijk groot"}
+          style={{
+            position: "absolute",
+            inset: 0,
+            border: "none",
+            background: "none",
+            padding: 0,
+            cursor: "zoom-in",
+          }}
+        />
+      )}
+      {src && item.kind === "video" && (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label="bekijk groot"
+          style={{
+            position: "absolute",
+            top: 6,
+            right: 6,
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            border: "none",
+            background: "rgba(0,0,0,.55)",
+            color: "#fff",
+            fontSize: 14,
+            cursor: "zoom-in",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          ⛶
+        </button>
+      )}
     </div>
   )
 }
@@ -93,15 +145,34 @@ export default function StopSheet({
   cur,
   canEdit,
   onClose,
+  onShare,
   onEdit,
 }: {
   cur: Stop
   canEdit: boolean
   onClose: () => void
+  onShare: () => void
   onEdit: () => void
 }) {
   const kmText = cur.km != null ? `${cur.km} km` : "— km"
   const weatherText = weatherLabel(cur.weather_condition, cur.weather_temp)
+  const headerButton: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    height: 36,
+    padding: "0 14px",
+    borderRadius: 18,
+    border: `1.5px solid ${C.ochre}`,
+    background: C.paperLight,
+    color: C.ink,
+    fontFamily: FONT_MONO,
+    fontSize: 12,
+    cursor: "pointer",
+    boxShadow: "0 2px 5px rgba(0,0,0,.2)",
+  }
+  // Index of the media item shown full-screen; null = lightbox closed.
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   return (
     <div
       style={{
@@ -125,7 +196,12 @@ export default function StopSheet({
           }}
         >
           {cur.media.map((m, i) => (
-            <GalleryTile key={`${m.url ?? m.tone}-${i}`} item={m} index={i} />
+            <GalleryTile
+              key={`${m.url ?? m.tone}-${i}`}
+              item={m}
+              index={i}
+              onOpen={() => setLightboxIndex(i)}
+            />
           ))}
         </div>
         <button
@@ -149,33 +225,34 @@ export default function StopSheet({
         >
           ‹
         </button>
-        {canEdit && (
+        <div
+          style={{
+            position: "absolute",
+            top: 20,
+            right: 20,
+            display: "flex",
+            gap: 8,
+          }}
+        >
           <button
             type="button"
-            onClick={onEdit}
-            aria-label="Bewerk stop"
-            style={{
-              position: "absolute",
-              top: 20,
-              right: 20,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              height: 36,
-              padding: "0 14px",
-              borderRadius: 18,
-              border: `1.5px solid ${C.ochre}`,
-              background: C.paperLight,
-              color: C.ink,
-              fontFamily: FONT_MONO,
-              fontSize: 12,
-              cursor: "pointer",
-              boxShadow: "0 2px 5px rgba(0,0,0,.2)",
-            }}
+            onClick={onShare}
+            aria-label="Deel stop"
+            style={headerButton}
           >
-            ✎ bewerk
+            <ShareIcon size={13} /> deel
           </button>
-        )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label="Bewerk stop"
+              style={headerButton}
+            >
+              ✎ bewerk
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ padding: "16px 20px 40px" }}>
@@ -300,6 +377,13 @@ export default function StopSheet({
           </div>
         )}
       </div>
+      {lightboxIndex !== null && (
+        <Lightbox
+          items={cur.media}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
     </div>
   )
 }

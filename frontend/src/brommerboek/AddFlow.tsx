@@ -5,7 +5,13 @@ import {
   useRef,
   useState,
 } from "react"
-import { deleteStopMedia, mediaSrc, uploadStopMedia } from "./api"
+import {
+  deleteStopMedia,
+  mediaSrc,
+  suggestWeather,
+  updateStopMediaCaption,
+  uploadStopMedia,
+} from "./api"
 import { type PlaceHit, searchPlaces } from "./geocode"
 import { WrenchIcon } from "./icons"
 import { C, FONT_MONO } from "./theme"
@@ -75,8 +81,10 @@ function MediaThumb({ item }: { item: MediaItem }) {
   if (src) {
     return (
       <img
-        src={src}
+        src={mediaSrc(item.thumb ?? item.url)}
         alt={item.cap || ""}
+        loading="lazy"
+        decoding="async"
         style={{
           width: "100%",
           height: "100%",
@@ -158,6 +166,11 @@ export default function AddFlow({
   const [weatherCondition, setWeatherCondition] = useState<WeatherCondition>(
     initialStop?.weather_condition ?? "",
   )
+  // Weather auto-fill from Open-Meteo — one shot per opened flow. "done"
+  // covers both a successful fill and a silent give-up on failure.
+  const [weatherFetch, setWeatherFetch] = useState<"idle" | "loading" | "done">(
+    "idle",
+  )
   // Empty string = user hasn't filled it. Only prefill when there IS a
   // prior reading; leaving it blank should stay blank.
   const initialKm =
@@ -176,6 +189,12 @@ export default function AddFlow({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // Captions as the server last saw them (edit mode) — a blur only PATCHes
+  // when the text actually changed. Indices track `media` because both are
+  // refreshed together from every server response.
+  const savedCapsRef = useRef<string[]>(
+    (initialStop?.media ?? []).map((m) => m.cap),
+  )
   // Two-step delete: first click shows the confirm bar; second click fires
   // onDelete. Confirmation resets whenever the user navigates a step.
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -239,6 +258,37 @@ export default function AddFlow({
     if (!title.trim()) setTitle(hit.place)
   }
 
+  // Offer the auto-fill only while both weather fields are untouched; a
+  // suggestion must never overwrite what the rider typed.
+  const canSuggestWeather =
+    picked !== null &&
+    date !== "" &&
+    weatherTemp === "" &&
+    weatherCondition === "" &&
+    weatherFetch !== "done"
+
+  const fetchWeather = async () => {
+    if (!picked || !date) return
+    setWeatherFetch("loading")
+    try {
+      const suggestion = await suggestWeather(picked.lat, picked.lng, date)
+      const temp = suggestion.temp
+      const condition = suggestion.condition
+      if (temp != null) {
+        setWeatherTemp((cur) => (cur === "" ? String(temp) : cur))
+      }
+      if (condition && WEATHER_OPTIONS.some((o) => o.code === condition)) {
+        setWeatherCondition((cur) =>
+          cur === "" ? (condition as WeatherCondition) : cur,
+        )
+      }
+    } catch {
+      // Silent give-up — the fields simply stay manual.
+    } finally {
+      setWeatherFetch("done")
+    }
+  }
+
   const parsedTemp =
     weatherTemp.trim() === "" ? null : Number.parseInt(weatherTemp, 10)
   const parsedKm = km.trim() === "" ? null : Number.parseInt(km, 10)
@@ -290,6 +340,34 @@ export default function AddFlow({
 
   const onPickFile = () => fileInputRef.current?.click()
 
+  // Every server media response resets both the visible list and the
+  // saved-caption baseline.
+  const syncFromServer = (updated: Stop) => {
+    setMedia(updated.media)
+    savedCapsRef.current = updated.media.map((m) => m.cap)
+    onMediaChanged?.(updated)
+  }
+
+  const onCaptionChange = (index: number, cap: string) => {
+    setMedia((m) => m.map((item, i) => (i === index ? { ...item, cap } : item)))
+  }
+
+  // Persist a caption edit when the input loses focus — only for media that
+  // already lives on the server; new-stop captions travel with the payload.
+  const onCaptionBlur = async (index: number) => {
+    const item = media[index]
+    if (!isEdit || !initialStop || !item?.url?.startsWith("/media/")) return
+    const cap = item.cap.trim()
+    if (cap === savedCapsRef.current[index]) return
+    setUploadError(null)
+    try {
+      const updated = await updateStopMediaCaption(initialStop.id, index, cap)
+      syncFromServer(updated)
+    } catch (err) {
+      setUploadError((err as Error).message ?? "Bijschrift opslaan mislukt")
+    }
+  }
+
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = "" // allow re-selecting the same file
@@ -301,8 +379,7 @@ export default function AddFlow({
       setUploading(true)
       try {
         const updated = await uploadStopMedia(initialStop.id, file)
-        setMedia(updated.media)
-        onMediaChanged?.(updated)
+        syncFromServer(updated)
       } catch (err) {
         setUploadError((err as Error).message ?? "Upload mislukt")
       } finally {
@@ -326,8 +403,7 @@ export default function AddFlow({
       setUploading(true)
       try {
         const updated = await deleteStopMedia(initialStop.id, index)
-        setMedia(updated.media)
-        onMediaChanged?.(updated)
+        syncFromServer(updated)
       } catch (err) {
         setUploadError((err as Error).message ?? "Verwijderen mislukt")
       } finally {
@@ -764,54 +840,76 @@ export default function AddFlow({
                 <div
                   key={`${item.url ?? item.tone}-${i}`}
                   style={{
-                    position: "relative",
-                    aspectRatio: "1",
-                    borderRadius: 8,
-                    border: "4px solid #fff",
-                    boxShadow: "0 2px 5px rgba(0,0,0,.2)",
-                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
                   }}
                 >
-                  <MediaThumb item={item} />
-                  {item.kind === "video" && (
-                    <div
-                      aria-hidden="true"
-                      style={{
-                        position: "absolute",
-                        top: 6,
-                        left: 6,
-                        padding: "1px 6px",
-                        borderRadius: 4,
-                        background: "rgba(0,0,0,.55)",
-                        color: "#fff",
-                        fontFamily: FONT_MONO,
-                        fontSize: 10,
-                        letterSpacing: 1,
-                      }}
-                    >
-                      ▶ VIDEO
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onRemoveMedia(i)}
-                    aria-label="Verwijder"
+                  <div
                     style={{
-                      position: "absolute",
-                      top: 4,
-                      right: 4,
-                      width: 22,
-                      height: 22,
-                      borderRadius: "50%",
-                      border: "none",
-                      background: "rgba(0,0,0,.55)",
-                      color: "#fff",
-                      fontSize: 12,
-                      cursor: "pointer",
+                      position: "relative",
+                      aspectRatio: "1",
+                      borderRadius: 8,
+                      border: "4px solid #fff",
+                      boxShadow: "0 2px 5px rgba(0,0,0,.2)",
+                      overflow: "hidden",
                     }}
                   >
-                    ✕
-                  </button>
+                    <MediaThumb item={item} />
+                    {item.kind === "video" && (
+                      <div
+                        aria-hidden="true"
+                        style={{
+                          position: "absolute",
+                          top: 6,
+                          left: 6,
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          background: "rgba(0,0,0,.55)",
+                          color: "#fff",
+                          fontFamily: FONT_MONO,
+                          fontSize: 10,
+                          letterSpacing: 1,
+                        }}
+                      >
+                        ▶ VIDEO
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onRemoveMedia(i)}
+                      aria-label="Verwijder"
+                      style={{
+                        position: "absolute",
+                        top: 4,
+                        right: 4,
+                        width: 22,
+                        height: 22,
+                        borderRadius: "50%",
+                        border: "none",
+                        background: "rgba(0,0,0,.55)",
+                        color: "#fff",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <input
+                    value={item.cap}
+                    onChange={(e) => onCaptionChange(i, e.target.value)}
+                    onBlur={() => onCaptionBlur(i)}
+                    maxLength={140}
+                    placeholder="bijschrift…"
+                    aria-label="Bijschrift"
+                    style={{
+                      ...fieldStyle,
+                      padding: "6px 8px",
+                      fontFamily: FONT_MONO,
+                      fontSize: 11,
+                    }}
+                  />
                 </div>
               ))}
               <button
@@ -821,6 +919,7 @@ export default function AddFlow({
                 disabled={uploading}
                 style={{
                   aspectRatio: "1",
+                  alignSelf: "start",
                   border: `2px dashed ${C.ochre}`,
                   borderRadius: 8,
                   background: "none",
@@ -934,6 +1033,29 @@ export default function AddFlow({
                 </select>
               </div>
             </Field>
+            {(canSuggestWeather || weatherFetch === "loading") && (
+              <button
+                type="button"
+                onClick={fetchWeather}
+                disabled={weatherFetch === "loading"}
+                style={{
+                  marginBottom: 14,
+                  padding: "7px 12px",
+                  border: `1.5px dashed ${C.ochre}`,
+                  borderRadius: 8,
+                  background: "none",
+                  fontFamily: FONT_MONO,
+                  fontSize: 11,
+                  color: C.sepia,
+                  cursor: weatherFetch === "loading" ? "wait" : "pointer",
+                  opacity: weatherFetch === "loading" ? 0.6 : 1,
+                }}
+              >
+                {weatherFetch === "loading"
+                  ? "weer ophalen…"
+                  : "⛅ haal weer op"}
+              </button>
+            )}
             <div style={{ marginBottom: 14 }}>
               <Field label="KM-STAND">
                 <input
@@ -967,6 +1089,18 @@ export default function AddFlow({
                 }}
               />
             </Field>
+            <div
+              style={{
+                marginTop: 12,
+                fontFamily: FONT_MONO,
+                fontSize: 9,
+                letterSpacing: 1,
+                color: C.sepia,
+                opacity: 0.75,
+              }}
+            >
+              weer · Open-Meteo (CC BY 4.0)
+            </div>
           </div>
         )}
 

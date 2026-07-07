@@ -50,11 +50,16 @@ export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
 
+export type MediaCaptionUpdate = {
+    cap: string;
+};
+
 export type MediaItem = {
     tone?: string;
     cap?: string;
     kind?: 'image' | 'video';
     url?: (string | null);
+    thumb?: (string | null);
 };
 
 export type kind = 'image' | 'video';
@@ -73,6 +78,25 @@ export type PrivateUserCreate = {
     password: string;
     full_name: string;
     is_verified?: boolean;
+};
+
+export type PushPublicKey = {
+    public_key: string;
+};
+
+export type PushSubscribeIn = {
+    endpoint: string;
+    keys: PushSubscriptionKeys;
+    wants_reactions?: boolean;
+};
+
+export type PushSubscriptionKeys = {
+    p256dh: string;
+    auth: string;
+};
+
+export type PushUnsubscribeIn = {
+    endpoint: string;
 };
 
 export type StopCreate = {
@@ -113,6 +137,8 @@ export type StopPublic = {
     id: string;
     order_index: number;
     media?: Array<MediaItem>;
+    honk_count?: number;
+    comment_count?: number;
 };
 
 export type StopsPublic = {
@@ -209,6 +235,11 @@ export type ValidationError = {
     };
 };
 
+export type WeatherSuggestion = {
+    temp: (number | null);
+    condition: (string | null);
+};
+
 export type LoginLoginAccessTokenData = {
     formData: Body_login_login_access_token;
 };
@@ -240,6 +271,20 @@ export type PrivateCreateUserData = {
 };
 
 export type PrivateCreateUserResponse = (UserPublic);
+
+export type PushReadPublicKeyResponse = (PushPublicKey);
+
+export type PushSubscribeData = {
+    requestBody: PushSubscribeIn;
+};
+
+export type PushSubscribeResponse = (Message);
+
+export type PushUnsubscribeData = {
+    requestBody: PushUnsubscribeIn;
+};
+
+export type PushUnsubscribeResponse = (Message);
 
 export type ReactionsReadCommentsData = {
     limit?: number;
@@ -311,6 +356,14 @@ export type StopsUploadStopMediaData = {
 
 export type StopsUploadStopMediaResponse = (StopPublic);
 
+export type StopsUpdateStopMediaCaptionData = {
+    id: string;
+    index: number;
+    requestBody: MediaCaptionUpdate;
+};
+
+export type StopsUpdateStopMediaCaptionResponse = (StopPublic);
+
 export type StopsDeleteStopMediaData = {
     id: string;
     index: number;
@@ -379,3 +432,11 @@ export type UtilsTestEmailData = {
 export type UtilsTestEmailResponse = (Message);
 
 export type UtilsHealthCheckResponse = (boolean);
+
+export type WeatherSuggestWeatherData = {
+    date: string;
+    lat: number;
+    lng: number;
+};
+
+export type WeatherSuggestWeatherResponse = (WeatherSuggestion);

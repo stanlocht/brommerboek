@@ -18,6 +18,7 @@ import LoginPrompt from "./LoginPrompt"
 import MapScreen from "./MapScreen"
 import ReplayOverlay from "./ReplayOverlay"
 import StopSheet from "./StopSheet"
+import { shareUrl, stopIdFromSearch, withoutStopParam } from "./share"
 import { C, FONT_MONO } from "./theme"
 import { EMPTY_STATS } from "./trip"
 import type { NewStop, Stop } from "./types"
@@ -110,14 +111,33 @@ export default function BrommerboekApp() {
   })
   const replaying = replay.phase !== "idle"
 
-  // On first load, park the cub at the latest stop.
+  // On first load, park the cub at the latest stop — unless the URL carries
+  // a ?stop=<id> deep link (from a share link — /s/<id> bounces humans here —
+  // or from a push notification), in which case ride to that stop and open
+  // its sheet. The param is scrubbed from the address bar either way so a
+  // refresh doesn't replay it; an unknown id is ignored silently.
   const initedRef = useRef(false)
   useEffect(() => {
     if (!stops || stops.length === 0 || initedRef.current) return
     initedRef.current = true
+    const sharedId = stopIdFromSearch(window.location.search)
+    if (sharedId) {
+      window.history.replaceState(
+        null,
+        "",
+        withoutStopParam(window.location.href),
+      )
+      const idx = stops.findIndex((s) => s.id === sharedId)
+      if (idx >= 0) {
+        setActiveIndex(idx)
+        setProgress(stopFraction(route, idx))
+        setSheetOpen(true)
+        return
+      }
+    }
     setActiveIndex(stops.length - 1)
     setProgress(1)
-  }, [stops])
+  }, [stops, route])
 
   // After adding a stop, jump to the new latest stop once data refetches.
   useEffect(() => {
@@ -197,6 +217,26 @@ export default function BrommerboekApp() {
   const applyMediaChange = (updated: Stop) => {
     setEditStop(updated)
     qc.invalidateQueries({ queryKey: ["stops"] })
+  }
+
+  // Native share sheet when the browser has one (mobile), else copy the
+  // link and confirm with a toast.
+  const shareCurrentStop = async (stop: Stop) => {
+    const url = shareUrl(window.location.origin, stop.id)
+    if (navigator.share) {
+      try {
+        await navigator.share({ url })
+      } catch {
+        // Dismissing the share sheet rejects — nothing to report.
+      }
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(url)
+      flash("link gekopieerd")
+    } catch {
+      flash("kon de link niet kopiëren")
+    }
   }
 
   function flash(msg: string) {
@@ -332,6 +372,7 @@ export default function BrommerboekApp() {
           cur={cur}
           canEdit={canEdit}
           onClose={() => setSheetOpen(false)}
+          onShare={() => shareCurrentStop(cur)}
           onEdit={() => {
             setEditStop(cur)
             setSheetOpen(false)

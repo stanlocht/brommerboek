@@ -53,3 +53,11 @@ export function kmLabel(km: number): string {
 // Slight hand-placed rotations reused for pins and gallery cards.
 export const PIN_ROTS = [-6, 4, -3, 5, -2, 6, -4, 3, -5, 2]
 export const GALLERY_ROTS = ["-1.5deg", "1.5deg", "-1deg", "1deg"]
+export const STAMP_ROTS = [
+  "-2deg",
+  "1.6deg",
+  "-1.2deg",
+  "2.2deg",
+  "-1.8deg",
+  "1.4deg",
+]

@@ -227,6 +227,19 @@ export const HonkerPublicSchema = {
     title: 'HonkerPublic'
 } as const;
 
+export const MediaCaptionUpdateSchema = {
+    properties: {
+        cap: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Cap'
+        }
+    },
+    type: 'object',
+    required: ['cap'],
+    title: 'MediaCaptionUpdate'
+} as const;
+
 export const MediaItemSchema = {
     properties: {
         tone: {
@@ -258,6 +271,18 @@ export const MediaItemSchema = {
                 }
             ],
             title: 'Url'
+        },
+        thumb: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 512
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Thumb'
         }
     },
     type: 'object',
@@ -317,6 +342,74 @@ export const PrivateUserCreateSchema = {
     type: 'object',
     required: ['email', 'password', 'full_name'],
     title: 'PrivateUserCreate'
+} as const;
+
+export const PushPublicKeySchema = {
+    properties: {
+        public_key: {
+            type: 'string',
+            title: 'Public Key'
+        }
+    },
+    type: 'object',
+    required: ['public_key'],
+    title: 'PushPublicKey'
+} as const;
+
+export const PushSubscribeInSchema = {
+    properties: {
+        endpoint: {
+            type: 'string',
+            maxLength: 1024,
+            minLength: 1,
+            title: 'Endpoint'
+        },
+        keys: {
+            '$ref': '#/components/schemas/PushSubscriptionKeys'
+        },
+        wants_reactions: {
+            type: 'boolean',
+            title: 'Wants Reactions',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['endpoint', 'keys'],
+    title: 'PushSubscribeIn'
+} as const;
+
+export const PushSubscriptionKeysSchema = {
+    properties: {
+        p256dh: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'P256Dh'
+        },
+        auth: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Auth'
+        }
+    },
+    type: 'object',
+    required: ['p256dh', 'auth'],
+    title: 'PushSubscriptionKeys'
+} as const;
+
+export const PushUnsubscribeInSchema = {
+    properties: {
+        endpoint: {
+            type: 'string',
+            maxLength: 1024,
+            minLength: 1,
+            title: 'Endpoint'
+        }
+    },
+    type: 'object',
+    required: ['endpoint'],
+    title: 'PushUnsubscribeIn'
 } as const;
 
 export const StopCreateSchema = {
@@ -569,6 +662,16 @@ export const StopPublicSchema = {
             },
             type: 'array',
             title: 'Media'
+        },
+        honk_count: {
+            type: 'integer',
+            title: 'Honk Count',
+            default: 0
+        },
+        comment_count: {
+            type: 'integer',
+            title: 'Comment Count',
+            default: 0
         }
     },
     type: 'object',
@@ -1145,4 +1248,34 @@ export const ValidationErrorSchema = {
     type: 'object',
     required: ['loc', 'msg', 'type'],
     title: 'ValidationError'
+} as const;
+
+export const WeatherSuggestionSchema = {
+    properties: {
+        temp: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Temp'
+        },
+        condition: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Condition'
+        }
+    },
+    type: 'object',
+    required: ['temp', 'condition'],
+    title: 'WeatherSuggestion'
 } as const;
