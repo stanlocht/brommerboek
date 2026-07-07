@@ -235,8 +235,15 @@ Every pull request gets its own staging deployment at
 - **Isolation**: Caddy reaches preview stacks over a shared external docker
   network named `previews`, using per-PR aliases (`pr-<N>-backend`,
   `pr-<N>-frontend`); each preview's db stays on that stack's private network.
-  Preview services carry `mem_limit`s (~1 GB worst case per preview), so keep
-  **at most 2–3 previews open at once** on the 4 GB box — close stale PRs.
+  Preview services carry `mem_limit`s (~1 GB worst case per preview, ~250 MB
+  typical), so previews can never eat production's memory.
+- **Concurrency cap (automatic)**: at most **`MAX_PREVIEWS=3`** stacks run at
+  once (constant in `preview.yml`). Deploying a preview beyond the cap
+  **evicts the least-recently-deployed one first** (by the mtime of
+  `previews/pr-<N>/.env`, refreshed on every deploy). Eviction is harmless:
+  the next push to an evicted PR — or re-running its last `preview` workflow
+  run from the Actions tab — redeploys it from scratch. Nothing to babysit;
+  lower the constant to 2 if the box ever feels tight.
 - **Config**: the per-PR env file `~/brommerboek/previews/pr-<N>/.env` is a
   copy of the production `.env` with `DOMAIN`/`FRONTEND_HOST`/
   `BACKEND_CORS_ORIGINS` pointed at the preview host, `ENVIRONMENT=staging`,
@@ -268,6 +275,14 @@ Every pull request gets its own staging deployment at
 No new GitHub secrets — the workflow reuses `BOX_IP` and `SSH_PRIVATE_KEY`.
 `docker-compose.preview.yml` itself is (re)written on the box by CI on every
 preview deploy, so it never needs manual copying.
+
+Optional safety net (root, one-time): 2 GB of swap, so a memory spike degrades
+to slow instead of the kernel OOM-killing a production container:
+
+```bash
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
 
 ### Preview triage / manual teardown
 

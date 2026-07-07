@@ -113,6 +113,29 @@ jobs:
             SMTP_HOST=
             EOF
 
+            # Cap concurrent previews so they can never crowd out production
+            # on the 4 GB box: evict least-recently-deployed stacks until at
+            # most MAX_PREVIEWS (including this one) remain. The .env mtime is
+            # the freshness marker (rewritten just above on every deploy), and
+            # eviction is safe — an evicted PR gets its preview back on its
+            # next push. Runs before pull/up so the memory is free first.
+            MAX_PREVIEWS=3
+            evict() {
+              echo "evicting preview $1 (cap: $MAX_PREVIEWS)"
+              docker compose -p "$1" -f docker-compose.preview.yml \
+                --env-file "previews/$1/.env" down -v --remove-orphans || true
+              rm -f "caddy-previews/$1.caddy"
+              rm -rf "previews/$1"
+              docker rmi "ghcr.io/stanlocht/brommerboek-backend:$1" \
+                "ghcr.io/stanlocht/brommerboek-frontend:$1" 2>/dev/null || true
+            }
+            while [ "$(ls -1 previews | wc -l)" -gt "$MAX_PREVIEWS" ]; do
+              oldest=$(ls -1tr previews/*/.env 2>/dev/null | head -1 | xargs -r dirname | xargs -r basename)
+              [ -n "$oldest" ] || break
+              [ "$oldest" = "$PR_SLUG" ] && break
+              evict "$oldest"
+            done
+
             COMPOSE="docker compose -p $PR_SLUG -f docker-compose.preview.yml --env-file previews/$PR_SLUG/.env"
             fail() {
               echo "preview deploy failed: $1" >&2
