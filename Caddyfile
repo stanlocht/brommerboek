@@ -1,13 +1,18 @@
 brommerboek.nl {
     encode gzip
 
-    # FastAPI serves /api/* (routes) and /media/* (uploaded stop photos/videos
-    # via StaticFiles) — both must reach the backend, not the SPA.
+    # FastAPI serves /api/* (routes), /media/* (uploaded stop photos/videos
+    # via StaticFiles) and /s/* (per-stop share pages with OG tags for link
+    # previews) — all must reach the backend, not the SPA.
     handle /api/* {
         reverse_proxy backend:8000
     }
 
     handle /media/* {
+        reverse_proxy backend:8000
+    }
+
+    handle /s/* {
         reverse_proxy backend:8000
     }
 

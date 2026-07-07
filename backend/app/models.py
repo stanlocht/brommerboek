@@ -89,6 +89,9 @@ class MediaItem(SQLModel):
     cap: str = Field(default="", max_length=255)
     kind: Literal["image", "video"] = "image"
     url: str | None = Field(default=None, max_length=512)
+    # Pre-generated WebP thumbnail next to the original (`thumb_<name>.webp`);
+    # None for videos and for uploads that predate thumbnails.
+    thumb: str | None = Field(default=None, max_length=512)
 
 
 # Short-code weather conditions the picker offers. Kept as a plain str field
@@ -189,6 +192,12 @@ class StopUpdate(SQLModel):
     @classmethod
     def validate_type(cls, v: str | None) -> str | None:
         return check_stop_type(v)
+
+
+# Caption edit for one media item — the only mutable field after upload; the
+# file itself is replaced by delete + re-upload.
+class MediaCaptionUpdate(SQLModel):
+    cap: str = Field(max_length=255)
 
 
 # Database model, database table inferred from class name
