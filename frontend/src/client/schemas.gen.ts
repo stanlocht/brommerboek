@@ -227,6 +227,19 @@ export const HonkerPublicSchema = {
     title: 'HonkerPublic'
 } as const;
 
+export const MediaCaptionUpdateSchema = {
+    properties: {
+        cap: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Cap'
+        }
+    },
+    type: 'object',
+    required: ['cap'],
+    title: 'MediaCaptionUpdate'
+} as const;
+
 export const MediaItemSchema = {
     properties: {
         tone: {
@@ -258,6 +271,18 @@ export const MediaItemSchema = {
                 }
             ],
             title: 'Url'
+        },
+        thumb: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 512
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Thumb'
         }
     },
     type: 'object',
@@ -637,6 +662,16 @@ export const StopPublicSchema = {
             },
             type: 'array',
             title: 'Media'
+        },
+        honk_count: {
+            type: 'integer',
+            title: 'Honk Count',
+            default: 0
+        },
+        comment_count: {
+            type: 'integer',
+            title: 'Comment Count',
+            default: 0
         }
     },
     type: 'object',
@@ -1213,4 +1248,34 @@ export const ValidationErrorSchema = {
     type: 'object',
     required: ['loc', 'msg', 'type'],
     title: 'ValidationError'
+} as const;
+
+export const WeatherSuggestionSchema = {
+    properties: {
+        temp: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Temp'
+        },
+        condition: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Condition'
+        }
+    },
+    type: 'object',
+    required: ['temp', 'condition'],
+    title: 'WeatherSuggestion'
 } as const;

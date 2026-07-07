@@ -50,11 +50,16 @@ export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
 
+export type MediaCaptionUpdate = {
+    cap: string;
+};
+
 export type MediaItem = {
     tone?: string;
     cap?: string;
     kind?: 'image' | 'video';
     url?: (string | null);
+    thumb?: (string | null);
 };
 
 export type kind = 'image' | 'video';
@@ -132,6 +137,8 @@ export type StopPublic = {
     id: string;
     order_index: number;
     media?: Array<MediaItem>;
+    honk_count?: number;
+    comment_count?: number;
 };
 
 export type StopsPublic = {
@@ -226,6 +233,11 @@ export type ValidationError = {
     ctx?: {
         [key: string]: unknown;
     };
+};
+
+export type WeatherSuggestion = {
+    temp: (number | null);
+    condition: (string | null);
 };
 
 export type LoginLoginAccessTokenData = {
@@ -344,6 +356,14 @@ export type StopsUploadStopMediaData = {
 
 export type StopsUploadStopMediaResponse = (StopPublic);
 
+export type StopsUpdateStopMediaCaptionData = {
+    id: string;
+    index: number;
+    requestBody: MediaCaptionUpdate;
+};
+
+export type StopsUpdateStopMediaCaptionResponse = (StopPublic);
+
 export type StopsDeleteStopMediaData = {
     id: string;
     index: number;
@@ -412,3 +432,11 @@ export type UtilsTestEmailData = {
 export type UtilsTestEmailResponse = (Message);
 
 export type UtilsHealthCheckResponse = (boolean);
+
+export type WeatherSuggestWeatherData = {
+    date: string;
+    lat: number;
+    lng: number;
+};
+
+export type WeatherSuggestWeatherResponse = (WeatherSuggestion);

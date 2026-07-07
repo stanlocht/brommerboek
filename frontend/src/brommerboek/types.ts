@@ -11,6 +11,9 @@ export interface MediaItem {
   // Server-relative URL to the uploaded file (e.g. "/media/<stop>/<uuid>.jpg").
   // Null while the item is still just a placeholder.
   url: string | null
+  // Pre-generated WebP thumbnail ("/media/<stop>/thumb_<uuid>.webp"). Null
+  // for videos and for uploads that predate thumbnails — fall back to `url`.
+  thumb?: string | null
 }
 
 // Short-code weather conditions the picker offers. Empty string means
@@ -45,6 +48,10 @@ export interface Stop {
   broke: string | null
   fixed: string | null
   media: MediaItem[]
+  // Reaction totals, included by the list/detail endpoints so the map can
+  // badge pins without a per-stop honks request.
+  honk_count: number
+  comment_count: number
 }
 
 export interface StopsResponse {
