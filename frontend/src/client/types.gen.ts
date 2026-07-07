@@ -117,6 +117,8 @@ export type StopPublic = {
     id: string;
     order_index: number;
     media?: Array<MediaItem>;
+    honk_count?: number;
+    comment_count?: number;
 };
 
 export type StopsPublic = {

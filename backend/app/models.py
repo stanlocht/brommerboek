@@ -208,11 +208,15 @@ class Stop(StopBase, table=True):
     )
 
 
-# Properties to return via API, id is always required
+# Properties to return via API, id is always required. The reaction counts
+# let the map badge pins in one call; the read endpoints populate them and
+# they default to 0 elsewhere (e.g. right after a create).
 class StopPublic(StopBase):
     id: uuid.UUID
     order_index: int
     media: list[MediaItem] = Field(default_factory=list)
+    honk_count: int = 0
+    comment_count: int = 0
 
 
 class StopsPublic(SQLModel):
