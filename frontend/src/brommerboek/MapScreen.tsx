@@ -71,6 +71,11 @@ export default function MapScreen({
   onPinClick,
   onAdd,
   onLogin,
+  replaying = false,
+  replayFollow = true,
+  replayReduced = false,
+  onReplay,
+  onReplayGesture,
 }: {
   stops: Stop[]
   route: RouteGeometry
@@ -92,6 +97,15 @@ export default function MapScreen({
   onPinClick: (i: number) => void
   onAdd?: () => void
   onLogin: () => void
+  // "Rij de reis" replay: while true the header/preview/scrubber/FAB chrome
+  // hides for a clean stage and the map runs its cinematic camera.
+  replaying?: boolean
+  replayFollow?: boolean
+  replayReduced?: boolean
+  // Absent when a replay isn't possible (fewer than 2 stops) — hides the
+  // play button.
+  onReplay?: () => void
+  onReplayGesture?: () => void
 }) {
   const pct = `${(progress * 100).toFixed(2)}%`
   const showPreview = !dragging
@@ -107,9 +121,13 @@ export default function MapScreen({
         progress={progress}
         dragging={dragging}
         onPinClick={onPinClick}
+        replaying={replaying}
+        replayFollow={replayFollow}
+        replayReduced={replayReduced}
+        onReplayGesture={onReplayGesture}
       />
 
-      {/* header */}
+      {/* header (hidden during replay for a clean stage) */}
       <div
         style={{
           position: "absolute",
@@ -120,6 +138,7 @@ export default function MapScreen({
           padding: "14px 16px 22px",
           background: "linear-gradient(#efe4c9ee,#efe4c900)",
           pointerEvents: "none",
+          display: replaying ? "none" : undefined,
         }}
       >
         <div
@@ -221,7 +240,7 @@ export default function MapScreen({
       </div>
 
       {/* landed preview card */}
-      {showPreview && (
+      {!replaying && showPreview && (
         <button
           type="button"
           onClick={onOpenSheet}
@@ -347,6 +366,7 @@ export default function MapScreen({
           zIndex: 23,
           padding: "12px 16px 20px",
           background: "linear-gradient(#efe4c900,#efe4c9 40%)",
+          display: replaying ? "none" : undefined,
         }}
       >
         <div
@@ -486,8 +506,38 @@ export default function MapScreen({
         </div>
       </div>
 
+      {/* replay entry — round play button opposite the FAB, above scrubber */}
+      {!replaying && onReplay && (
+        <button
+          type="button"
+          onClick={onReplay}
+          aria-label="Rij de reis af"
+          style={{
+            position: "absolute",
+            left: 18,
+            bottom: 90,
+            zIndex: 25,
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            border: `3px solid ${C.paperLight}`,
+            background: C.teal,
+            color: C.wrappedInk,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 15,
+            paddingLeft: 3,
+            cursor: "pointer",
+            boxShadow: "0 4px 10px rgba(30,60,70,.4)",
+          }}
+        >
+          ▶
+        </button>
+      )}
+
       {/* floating + (rijder only) */}
-      {onAdd && (
+      {!replaying && onAdd && (
         <button
           type="button"
           onClick={onAdd}
