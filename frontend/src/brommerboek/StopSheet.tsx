@@ -1,5 +1,5 @@
 import { mediaSrc } from "./api"
-import { WrenchIcon } from "./icons"
+import { ShareIcon, WrenchIcon } from "./icons"
 import StopReactions from "./StopReactions"
 import { C, dateLabelNL, FONT_MONO, GALLERY_ROTS } from "./theme"
 import type { MediaItem, Stop } from "./types"
@@ -93,15 +93,32 @@ export default function StopSheet({
   cur,
   canEdit,
   onClose,
+  onShare,
   onEdit,
 }: {
   cur: Stop
   canEdit: boolean
   onClose: () => void
+  onShare: () => void
   onEdit: () => void
 }) {
   const kmText = cur.km != null ? `${cur.km} km` : "— km"
   const weatherText = weatherLabel(cur.weather_condition, cur.weather_temp)
+  const headerButton: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    height: 36,
+    padding: "0 14px",
+    borderRadius: 18,
+    border: `1.5px solid ${C.ochre}`,
+    background: C.paperLight,
+    color: C.ink,
+    fontFamily: FONT_MONO,
+    fontSize: 12,
+    cursor: "pointer",
+    boxShadow: "0 2px 5px rgba(0,0,0,.2)",
+  }
   return (
     <div
       style={{
@@ -149,33 +166,34 @@ export default function StopSheet({
         >
           ‹
         </button>
-        {canEdit && (
+        <div
+          style={{
+            position: "absolute",
+            top: 20,
+            right: 20,
+            display: "flex",
+            gap: 8,
+          }}
+        >
           <button
             type="button"
-            onClick={onEdit}
-            aria-label="Bewerk stop"
-            style={{
-              position: "absolute",
-              top: 20,
-              right: 20,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              height: 36,
-              padding: "0 14px",
-              borderRadius: 18,
-              border: `1.5px solid ${C.ochre}`,
-              background: C.paperLight,
-              color: C.ink,
-              fontFamily: FONT_MONO,
-              fontSize: 12,
-              cursor: "pointer",
-              boxShadow: "0 2px 5px rgba(0,0,0,.2)",
-            }}
+            onClick={onShare}
+            aria-label="Deel stop"
+            style={headerButton}
           >
-            ✎ bewerk
+            <ShareIcon size={13} /> deel
           </button>
-        )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label="Bewerk stop"
+              style={headerButton}
+            >
+              ✎ bewerk
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ padding: "16px 20px 40px" }}>

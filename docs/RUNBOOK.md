@@ -8,8 +8,16 @@ SSH'd into the box as `deploy` with the app at `~/brommerboek`.
 - **One Hetzner box** (4 GB RAM — never build images on it, see the warning in
   `docker-compose.yml`). App lives in `/home/deploy/brommerboek`.
 - **Caddy** (`caddy:2-alpine`) terminates TLS for `brommerboek.nl` with
-  automatic certificates. Routing per `Caddyfile`: `/api/*` and `/media/*` →
-  `backend:8000`, everything else → `frontend:80`.
+  automatic certificates. Routing per `Caddyfile`: `/api/*`, `/media/*` and
+  `/s/*` → `backend:8000`, everything else → `frontend:80`.
+- **Share links** (`/s/<stop_id>`): the backend renders a minimal HTML page
+  with Open Graph tags so pasted links unfurl in WhatsApp/Slack/social
+  (crawlers don't run the SPA's JS); human visitors are immediately
+  redirected to `/?stop=<id>`, which the SPA restores to that stop's sheet.
+  The `/s/*` handle in the `Caddyfile` must stay pointed at the backend — if
+  it ever falls through to the SPA, previews silently stop working while the
+  links keep looking fine in a browser. Absolute URLs in the tags are built
+  from `FRONTEND_HOST` in `.env`.
 - **Images from GHCR**: `ghcr.io/stanlocht/brommerboek-backend` and
   `ghcr.io/stanlocht/brommerboek-frontend`, tagged with the git SHA and
   `latest`. Built by CI, pulled on deploy; `TAG` is injected via `.env.deploy`.
