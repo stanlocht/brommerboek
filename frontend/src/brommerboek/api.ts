@@ -12,12 +12,20 @@ const mediaUrl = (id: string) => `${BASE}/api/v1/stops/${id}/media`
 const mediaIndexUrl = (id: string, i: number) =>
   `${BASE}/api/v1/stops/${id}/media/${i}`
 const honksUrl = (id: string) => `${BASE}/api/v1/stops/${id}/honks`
+const WEATHER_SUGGEST_URL = `${BASE}/api/v1/weather/suggest`
 
 export interface Honker {
   user_id: string
   name: string
   is_mine: boolean
   created_at: string | null
+}
+
+// Weather auto-fill suggestion from the backend (which asks Open-Meteo).
+// Either field may be null when the upstream data is incomplete.
+export interface WeatherSuggestion {
+  temp: number | null
+  condition: string | null
 }
 
 export interface HonkState {
@@ -51,6 +59,21 @@ export async function fetchStats(): Promise<TripStats> {
   const res = await fetch(STATS_URL)
   if (!res.ok) throw new Error(`Failed to load stats (${res.status})`)
   return (await res.json()) as TripStats
+}
+
+export async function suggestWeather(
+  lat: number,
+  lng: number,
+  date: string,
+): Promise<WeatherSuggestion> {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lng: String(lng),
+    date,
+  })
+  const res = await fetch(`${WEATHER_SUGGEST_URL}?${params}`)
+  if (!res.ok) throw new Error(`No weather suggestion (${res.status})`)
+  return (await res.json()) as WeatherSuggestion
 }
 
 export async function createStop(stop: NewStop): Promise<Stop> {

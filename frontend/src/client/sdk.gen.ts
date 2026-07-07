@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, StopsUpdateStopData, StopsUpdateStopResponse, StopsDeleteStopData, StopsDeleteStopResponse, StopsUploadStopMediaData, StopsUploadStopMediaResponse, StopsDeleteStopMediaData, StopsDeleteStopMediaResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, StopsUpdateStopData, StopsUpdateStopResponse, StopsDeleteStopData, StopsDeleteStopResponse, StopsUploadStopMediaData, StopsUploadStopMediaResponse, StopsDeleteStopMediaData, StopsDeleteStopMediaResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse, WeatherSuggestWeatherData, WeatherSuggestWeatherResponse } from './types.gen';
 
 export class LoginService {
     /**
@@ -638,6 +638,36 @@ export class UtilsService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/utils/health-check/'
+        });
+    }
+}
+
+export class WeatherService {
+    /**
+     * Suggest Weather
+     * Suggest the weather at a stop: mean temperature (°C) and a condition
+     * short code, looked up at Open-Meteo for the given day and coordinates.
+     * Public and read-only. Returns 503 when the upstream is unreachable —
+     * the client treats that as "no suggestion", never as an error.
+     * @param data The data for the request.
+     * @param data.lat
+     * @param data.lng
+     * @param data.date
+     * @returns WeatherSuggestion Successful Response
+     * @throws ApiError
+     */
+    public static suggestWeather(data: WeatherSuggestWeatherData): CancelablePromise<WeatherSuggestWeatherResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/weather/suggest',
+            query: {
+                lat: data.lat,
+                lng: data.lng,
+                date: data.date
+            },
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
 }

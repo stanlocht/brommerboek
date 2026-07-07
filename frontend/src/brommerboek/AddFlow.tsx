@@ -5,7 +5,12 @@ import {
   useRef,
   useState,
 } from "react"
-import { deleteStopMedia, mediaSrc, uploadStopMedia } from "./api"
+import {
+  deleteStopMedia,
+  mediaSrc,
+  suggestWeather,
+  uploadStopMedia,
+} from "./api"
 import { type PlaceHit, searchPlaces } from "./geocode"
 import { WrenchIcon } from "./icons"
 import { C, FONT_MONO } from "./theme"
@@ -158,6 +163,11 @@ export default function AddFlow({
   const [weatherCondition, setWeatherCondition] = useState<WeatherCondition>(
     initialStop?.weather_condition ?? "",
   )
+  // Weather auto-fill from Open-Meteo — one shot per opened flow. "done"
+  // covers both a successful fill and a silent give-up on failure.
+  const [weatherFetch, setWeatherFetch] = useState<"idle" | "loading" | "done">(
+    "idle",
+  )
   // Empty string = user hasn't filled it. Only prefill when there IS a
   // prior reading; leaving it blank should stay blank.
   const initialKm =
@@ -237,6 +247,37 @@ export default function AddFlow({
     setResults([])
     setQuery("")
     if (!title.trim()) setTitle(hit.place)
+  }
+
+  // Offer the auto-fill only while both weather fields are untouched; a
+  // suggestion must never overwrite what the rider typed.
+  const canSuggestWeather =
+    picked !== null &&
+    date !== "" &&
+    weatherTemp === "" &&
+    weatherCondition === "" &&
+    weatherFetch !== "done"
+
+  const fetchWeather = async () => {
+    if (!picked || !date) return
+    setWeatherFetch("loading")
+    try {
+      const suggestion = await suggestWeather(picked.lat, picked.lng, date)
+      const temp = suggestion.temp
+      const condition = suggestion.condition
+      if (temp != null) {
+        setWeatherTemp((cur) => (cur === "" ? String(temp) : cur))
+      }
+      if (condition && WEATHER_OPTIONS.some((o) => o.code === condition)) {
+        setWeatherCondition((cur) =>
+          cur === "" ? (condition as WeatherCondition) : cur,
+        )
+      }
+    } catch {
+      // Silent give-up — the fields simply stay manual.
+    } finally {
+      setWeatherFetch("done")
+    }
   }
 
   const parsedTemp =
@@ -934,6 +975,29 @@ export default function AddFlow({
                 </select>
               </div>
             </Field>
+            {(canSuggestWeather || weatherFetch === "loading") && (
+              <button
+                type="button"
+                onClick={fetchWeather}
+                disabled={weatherFetch === "loading"}
+                style={{
+                  marginBottom: 14,
+                  padding: "7px 12px",
+                  border: `1.5px dashed ${C.ochre}`,
+                  borderRadius: 8,
+                  background: "none",
+                  fontFamily: FONT_MONO,
+                  fontSize: 11,
+                  color: C.sepia,
+                  cursor: weatherFetch === "loading" ? "wait" : "pointer",
+                  opacity: weatherFetch === "loading" ? 0.6 : 1,
+                }}
+              >
+                {weatherFetch === "loading"
+                  ? "weer ophalen…"
+                  : "⛅ haal weer op"}
+              </button>
+            )}
             <div style={{ marginBottom: 14 }}>
               <Field label="KM-STAND">
                 <input
@@ -967,6 +1031,18 @@ export default function AddFlow({
                 }}
               />
             </Field>
+            <div
+              style={{
+                marginTop: 12,
+                fontFamily: FONT_MONO,
+                fontSize: 9,
+                letterSpacing: 1,
+                color: C.sepia,
+                opacity: 0.75,
+              }}
+            >
+              weer · Open-Meteo (CC BY 4.0)
+            </div>
           </div>
         )}
 
