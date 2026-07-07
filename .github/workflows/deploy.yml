@@ -59,9 +59,27 @@ jobs:
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            set -euo pipefail
+            set -eu
             cd ~/brommerboek
             echo "TAG=${{ github.sha }}" > .env.deploy
-            docker compose -f docker-compose.yml --env-file .env --env-file .env.deploy pull
-            docker compose -f docker-compose.yml --env-file .env --env-file .env.deploy up -d
+            COMPOSE="docker compose -f docker-compose.yml --env-file .env --env-file .env.deploy"
+            fail() {
+              echo "deploy failed: $1" >&2
+              $COMPOSE logs --tail=100 prestart backend || true
+              exit 1
+            }
+            $COMPOSE pull
+            $COMPOSE up -d || fail "docker compose up -d exited non-zero (dependency or start failure)"
+            PRESTART_ID=$($COMPOSE ps -aq prestart)
+            [ -n "$PRESTART_ID" ] || fail "prestart container not found"
+            PRESTART_EXIT=$(docker inspect -f '{{.State.ExitCode}}' "$PRESTART_ID")
+            [ "$PRESTART_EXIT" = "0" ] || fail "prestart (migrations) exited with code $PRESTART_EXIT"
+            i=0
+            until $COMPOSE exec -T backend curl -fsS http://localhost:8000/api/v1/utils/health-check/ >/dev/null 2>&1; do
+              i=$((i + 1))
+              [ "$i" -lt 12 ] || fail "backend not healthy after $i attempts"
+              echo "waiting for backend health ($i/12)..."
+              sleep 5
+            done
+            echo "backend healthy, pruning old images"
             docker image prune -f
