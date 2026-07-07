@@ -208,6 +208,30 @@ export default function MapScreen({
                 ›
               </span>
             </Link>
+            <Link
+              to="/stempels"
+              aria-label="Open de stempelmuur"
+              style={{
+                marginTop: 8,
+                marginLeft: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "4px 12px",
+                borderRadius: 999,
+                background: C.paperCard,
+                border: `1.5px solid ${C.border}`,
+                boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+                fontFamily: FONT_MONO,
+                fontSize: 10,
+                letterSpacing: 2,
+                color: C.ochreDeep,
+                textDecoration: "none",
+                cursor: "pointer",
+                pointerEvents: "auto",
+              }}
+            >
+              STEMPELS
+            </Link>
           </div>
           <div
             style={{

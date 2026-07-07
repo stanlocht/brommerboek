@@ -408,12 +408,18 @@ export default function LogboekScreen() {
               color={C.teal}
               rot=".4deg"
             />
-            <StatTile
-              value={stats.stamps}
-              label="STEMPELS"
-              color={C.ochreDeep}
-              rot="-.5deg"
-            />
+            <Link
+              to="/stempels"
+              aria-label="Bekijk de stempelmuur"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <StatTile
+                value={stats.stamps}
+                label="STEMPELS"
+                color={C.ochreDeep}
+                rot="-.5deg"
+              />
+            </Link>
           </div>
 
           {d.firstDate && d.lastDate && (
