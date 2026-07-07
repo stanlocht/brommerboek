@@ -45,6 +45,10 @@ export interface Stop {
   broke: string | null
   fixed: string | null
   media: MediaItem[]
+  // Reaction totals, included by the list/detail endpoints so the map can
+  // badge pins without a per-stop honks request.
+  honk_count: number
+  comment_count: number
 }
 
 export interface StopsResponse {
