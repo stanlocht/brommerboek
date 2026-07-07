@@ -130,7 +130,22 @@ tar xzf /home/deploy/backups/media-<STAMP>.tar.gz -C ~/brommerboek
 docker compose -f docker-compose.yml --env-file .env --env-file .env.deploy up -d
 ```
 
-## 5. Health & monitoring
+## 5. Maintenance
+
+### Backfill media thumbnails
+
+Image uploads get a `thumb_<name>.webp` generated next to the original at
+upload time. Media uploaded before that feature existed has no thumbnail, so
+the frontend falls back to the full-resolution file. Generate the missing
+ones (idempotent, safe to re-run):
+
+```bash
+docker compose exec backend python app/backfill_thumbs.py
+```
+
+(or `dc exec backend python app/backfill_thumbs.py` with the alias above).
+
+## 6. Health & monitoring
 
 - Health endpoint: `GET /api/v1/utils/health-check/` (returns `true`), defined
   in `backend/app/api/routes/utils.py`. Publicly reachable at

@@ -302,8 +302,10 @@ export default function MapScreen({
                 >
                   {src && first?.kind !== "video" && (
                     <img
-                      src={src}
+                      src={mediaSrc(first?.thumb ?? first?.url)}
                       alt=""
+                      loading="lazy"
+                      decoding="async"
                       style={{
                         width: "100%",
                         height: "100%",

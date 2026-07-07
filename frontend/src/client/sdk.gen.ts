@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, StopsUpdateStopData, StopsUpdateStopResponse, StopsDeleteStopData, StopsDeleteStopResponse, StopsUploadStopMediaData, StopsUploadStopMediaResponse, StopsDeleteStopMediaData, StopsDeleteStopMediaResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, StopsUpdateStopData, StopsUpdateStopResponse, StopsDeleteStopData, StopsDeleteStopResponse, StopsUploadStopMediaData, StopsUploadStopMediaResponse, StopsUpdateStopMediaCaptionData, StopsUpdateStopMediaCaptionResponse, StopsDeleteStopMediaData, StopsDeleteStopMediaResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class LoginService {
     /**
@@ -380,6 +380,33 @@ export class StopsService {
             },
             formData: data.formData,
             mediaType: 'multipart/form-data',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Stop Media Caption
+     * Change the caption of a media item by its position in the stop's media
+     * array. The file itself is immutable — delete and re-upload to replace it.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.index
+     * @param data.requestBody
+     * @returns StopPublic Successful Response
+     * @throws ApiError
+     */
+    public static updateStopMediaCaption(data: StopsUpdateStopMediaCaptionData): CancelablePromise<StopsUpdateStopMediaCaptionResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/stops/{id}/media/{index}',
+            path: {
+                id: data.id,
+                index: data.index
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }
