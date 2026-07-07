@@ -14,8 +14,17 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Per-PR site snippets written by .github/workflows/preview.yml; the
+      # Caddyfile imports /etc/caddy/previews/*.caddy.
+      - ./caddy-previews:/etc/caddy/previews:ro
       - caddy_data:/data
       - caddy_config:/config
+    networks:
+      # `previews` is a shared external network (docker network create previews)
+      # so Caddy can reach per-PR preview stacks; `default` keeps it attached to
+      # the production frontend/backend.
+      - default
+      - previews
     depends_on:
       - frontend
       - backend
@@ -81,3 +90,7 @@ volumes:
   caddy_data:
   caddy_config:
   pgdata:
+
+networks:
+  previews:
+    external: true

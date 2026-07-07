@@ -214,7 +214,77 @@ docker compose exec backend python app/backfill_thumbs.py
 
 (or `dc exec backend python app/backfill_thumbs.py` with the alias above).
 
-## 7. Health & monitoring
+## 7. PR previews (`pr-<N>.brommerboek.nl`)
+
+Every pull request gets its own staging deployment at
+`https://pr-<N>.brommerboek.nl`, driven by `.github/workflows/preview.yml`:
+
+- **On PR open/push**: CI builds both images tagged `pr-<N>` (the frontend
+  with `VITE_API_URL=https://pr-<N>.brommerboek.nl` baked in, since Vite
+  inlines it at build time), then SSHes to the box and brings up an isolated
+  stack from `docker-compose.preview.yml` with project name `pr-<N>`:
+  frontend, backend, **its own throwaway Postgres** (fresh volume, migrated
+  and seeded by `prestart` — PR migrations never touch production data) and a
+  per-preview media volume. Once the backend health check passes, CI writes
+  `~/brommerboek/caddy-previews/pr-<N>.caddy` and reloads Caddy, which fetches
+  a certificate for the subdomain automatically. The preview URL is posted as
+  a PR comment.
+- **On PR close/merge**: the stack is torn down with `down -v` (volumes gone),
+  the Caddy snippet and `previews/pr-<N>/` are removed, Caddy reloads, and the
+  `pr-<N>` images are deleted from the box.
+- **Isolation**: Caddy reaches preview stacks over a shared external docker
+  network named `previews`, using per-PR aliases (`pr-<N>-backend`,
+  `pr-<N>-frontend`); each preview's db stays on that stack's private network.
+  Preview services carry `mem_limit`s (~1 GB worst case per preview), so keep
+  **at most 2–3 previews open at once** on the 4 GB box — close stale PRs.
+- **Config**: the per-PR env file `~/brommerboek/previews/pr-<N>/.env` is a
+  copy of the production `.env` with `DOMAIN`/`FRONTEND_HOST`/
+  `BACKEND_CORS_ORIGINS` pointed at the preview host, `ENVIRONMENT=staging`,
+  and `SENTRY_DSN`/`SMTP_HOST` blanked (no alerts or mail from previews).
+
+### One-time setup
+
+1. **DNS**: add a wildcard record at the DNS provider —
+   `*.brommerboek.nl  A  <box IP>` (or a wildcard CNAME to `brommerboek.nl`).
+   Requests to unknown subdomains just get connection-refused by Caddy; certs
+   are only issued for site blocks that exist.
+2. **Box**, as `deploy`:
+
+   ```bash
+   cd ~/brommerboek
+   docker network create previews
+   mkdir -p caddy-previews previews
+   ```
+
+3. Copy the updated `docker-compose.yml` and `Caddyfile` from the repo to
+   `~/brommerboek/` (they add the previews network, the
+   `/etc/caddy/previews` mount and the `import previews/*.caddy` line), then
+   recreate Caddy:
+
+   ```bash
+   docker compose -f docker-compose.yml --env-file .env --env-file .env.deploy up -d caddy
+   ```
+
+No new GitHub secrets — the workflow reuses `BOX_IP` and `SSH_PRIVATE_KEY`.
+`docker-compose.preview.yml` itself is (re)written on the box by CI on every
+preview deploy, so it never needs manual copying.
+
+### Preview triage / manual teardown
+
+```bash
+cd ~/brommerboek
+alias pc='docker compose -p pr-<N> -f docker-compose.preview.yml --env-file previews/pr-<N>/.env'
+pc ps -a
+pc logs --tail=100 prestart backend
+
+# nuke a preview by hand (e.g. the teardown job never ran):
+pc down -v --remove-orphans
+rm -f caddy-previews/pr-<N>.caddy && rm -rf previews/pr-<N>
+docker compose -f docker-compose.yml --env-file .env --env-file .env.deploy \
+  exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+## 8. Health & monitoring
 
 - Health endpoint: `GET /api/v1/utils/health-check/` (returns `true`), defined
   in `backend/app/api/routes/utils.py`. Publicly reachable at
@@ -233,7 +303,7 @@ dc logs --tail=100 prestart
 docker inspect -f '{{.State.ExitCode}}' "$(dc ps -aq prestart)"
 ```
 
-## 8. External services
+## 9. External services
 
 - **Weather auto-fill: Open-Meteo** (https://open-meteo.com). The backend's
   `GET /api/v1/weather/suggest` endpoint asks `api.open-meteo.com` (recent
