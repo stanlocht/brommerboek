@@ -146,11 +146,15 @@ function SectionTitle({ children }: { children: ReactNode }) {
 }
 
 export default function LogboekScreen() {
-  const { data: stops = [] } = useQuery({
+  const {
+    data: stops = [],
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ["stops"],
     queryFn: fetchStops,
   })
-  const { data: statsData } = useQuery({
+  const { data: statsData, isError: statsUnavailable } = useQuery({
     queryKey: ["stops", "stats"],
     queryFn: fetchStats,
   })
@@ -160,6 +164,59 @@ export default function LogboekScreen() {
     () => derive(stops, stats.km, stats.days),
     [stops, stats.km, stats.days],
   )
+
+  if (isLoading) {
+    return (
+      <div
+        className="bb-app"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 14,
+        }}
+      >
+        <div className="bb-cub-bob">
+          <CubIcon width={70} height={94} />
+        </div>
+        <div
+          style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ochreDeep }}
+        >
+          het logboek wordt geladen…
+        </div>
+      </div>
+    )
+  }
+  if (isError) {
+    return (
+      <div
+        className="bb-app"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+        }}
+      >
+        <div
+          style={{
+            background: C.paperCard,
+            border: `1.5px solid ${C.border}`,
+            borderRadius: 10,
+            padding: "14px 16px",
+            boxShadow: "1px 3px 0 rgba(120,90,40,.22)",
+            fontFamily: FONT_MONO,
+            fontSize: 12,
+            color: C.sepia,
+            textAlign: "center",
+          }}
+        >
+          kon het logboek niet laden — draait de backend?
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="bb-app">
@@ -234,6 +291,19 @@ export default function LogboekScreen() {
         </div>
 
         <div style={{ padding: "10px 16px 40px" }}>
+          {statsUnavailable && (
+            <div
+              style={{
+                fontFamily: FONT_MONO,
+                fontSize: 11,
+                color: C.sepia,
+                textAlign: "center",
+                marginBottom: 10,
+              }}
+            >
+              statistieken niet beschikbaar — de cijfers kunnen onvolledig zijn
+            </div>
+          )}
           {/* hero km */}
           <div
             style={{

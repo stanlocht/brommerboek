@@ -1,27 +1,54 @@
-import { expect, test } from "@playwright/test"
-import { firstSuperuser, firstSuperuserPassword } from "./config.ts"
+// E2E spec for the /settings route, which renders the Dutch vintage
+// AccountScreen (src/brommerboek/AccountScreen.tsx): profile card
+// ("GEGEVENS"), password card ("WACHTWOORD"), logout ("SESSIE") and account
+// deletion ("GEVAARZONE").
+//
+// NOTE: like every spec in this directory, this requires the full stack
+// (backend API + Vite frontend) to be running — it does not run in
+// backend-less environments. Destructive tests (rename, password change,
+// delete) only ever touch throwaway users created via the private API,
+// never the seeded superuser.
+
+import { expect, type Page, test } from "@playwright/test"
 import { createUser } from "./utils/privateApi.ts"
 import { randomEmail, randomPassword } from "./utils/random"
-import { logInUser, logOutUser } from "./utils/user"
 
-const tabs = ["My profile", "Password", "Danger zone"]
+// Local login helper: the shared tests/utils/user.ts helper still asserts
+// the template's "Welcome back" toast, which the Brommerboek UI no longer
+// shows. The login route itself is unchanged (testids + "Log In" button).
+async function logIn(page: Page, email: string, password: string) {
+  await page.goto("/login")
+  await page.getByTestId("email-input").fill(email)
+  await page.getByTestId("password-input").fill(password)
+  await page.getByRole("button", { name: "Log In" }).click()
+  await page.waitForURL("/")
+}
 
-test("My profile tab is active by default", async ({ page }) => {
+test("Account screen shows all cards", async ({ page }) => {
+  // Runs with the default (superuser) storage state from auth.setup.ts.
   await page.goto("/settings")
-  await expect(page.getByRole("tab", { name: "My profile" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  )
-})
-
-test("All tabs are visible", async ({ page }) => {
-  await page.goto("/settings")
-  for (const tab of tabs) {
-    await expect(page.getByRole("tab", { name: tab })).toBeVisible()
+  await expect(page.getByText("BROMMERBOEK · ACCOUNT")).toBeVisible()
+  await expect(page.getByText("Jouw hoekje")).toBeVisible()
+  for (const card of ["GEGEVENS", "WACHTWOORD", "SESSIE", "GEVAARZONE"]) {
+    await expect(page.getByText(card, { exact: true })).toBeVisible()
   }
+  await expect(
+    page.getByRole("link", { name: "Terug naar de kaart" }),
+  ).toBeVisible()
 })
 
-test.describe("Edit user profile", () => {
+test.describe("Anonymous access", () => {
+  test.use({ storageState: { cookies: [], origins: [] } })
+
+  test("Visiting /settings while logged out redirects to /login", async ({
+    page,
+  }) => {
+    await page.goto("/settings")
+    await page.waitForURL(/\/login/)
+  })
+})
+
+test.describe("Edit profile", () => {
   test.use({ storageState: { cookies: [], origins: [] } })
   let email: string
   let password: string
@@ -29,123 +56,101 @@ test.describe("Edit user profile", () => {
   test.beforeAll(async () => {
     email = randomEmail()
     password = randomPassword()
-    await createUser({ email, password })
+    await createUser({ email, password }) // full_name: "Test User"
   })
 
   test.beforeEach(async ({ page }) => {
-    await logInUser(page, email, password)
+    await logIn(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "My profile" }).click()
   })
 
-  test("Edit user name with a valid name", async ({ page }) => {
-    const updatedName = "Test User 2"
+  test("Edit name with a valid name", async ({ page }) => {
+    const updatedName = "Test Rijder"
 
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Full name").fill(updatedName)
-    await page.getByRole("button", { name: "Save" }).click()
+    await page.getByRole("button", { name: "✎ bewerk" }).click()
+    await page.getByLabel("NAAM").fill(updatedName)
+    await page.getByRole("button", { name: "✓ opslaan" }).click()
 
-    await expect(page.getByText("User updated successfully")).toBeVisible()
-    await expect(
-      page.locator("form").getByText(updatedName, { exact: true }),
-    ).toBeVisible()
+    await expect(page.getByText("gegevens bijgewerkt")).toBeVisible()
+    await expect(page.getByText(updatedName, { exact: true })).toBeVisible()
+    // Back in read-only mode.
+    await expect(page.getByRole("button", { name: "✎ bewerk" })).toBeVisible()
   })
 
-  test("Edit user email with an invalid email shows error", async ({
-    page,
-  }) => {
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Email").fill("")
-    await page.locator("body").click()
+  test("Saving without changes just closes the editor", async ({ page }) => {
+    await page.getByRole("button", { name: "✎ bewerk" }).click()
+    await page.getByRole("button", { name: "✓ opslaan" }).click()
+    await expect(page.getByRole("button", { name: "✎ bewerk" })).toBeVisible()
+    await expect(page.getByText("gegevens bijgewerkt")).not.toBeVisible()
+  })
 
-    await expect(page.getByText("Invalid email address")).toBeVisible()
+  test("Cancel restores the original values", async ({ page }) => {
+    await page.getByRole("button", { name: "✎ bewerk" }).click()
+    await page.getByLabel("NAAM").fill("Weggegooid")
+    await page.getByRole("button", { name: "annuleer" }).click()
+
+    await expect(page.getByText("Weggegooid")).not.toBeVisible()
+    await expect(page.getByText(email, { exact: true })).toBeVisible()
   })
 })
 
-test.describe("Edit user email", () => {
+test.describe("Edit email", () => {
   test.use({ storageState: { cookies: [], origins: [] } })
 
-  test("Edit user email with a valid email", async ({ page }) => {
+  test("Edit email with a valid email", async ({ page }) => {
     const email = randomEmail()
     const password = randomPassword()
     const updatedEmail = randomEmail()
-
     await createUser({ email, password })
-    await logInUser(page, email, password)
+    await logIn(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "My profile" }).click()
 
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Email").fill(updatedEmail)
-    await page.getByRole("button", { name: "Save" }).click()
+    await page.getByRole("button", { name: "✎ bewerk" }).click()
+    await page.getByLabel("E-MAIL").fill(updatedEmail)
+    await page.getByRole("button", { name: "✓ opslaan" }).click()
 
-    await expect(page.getByText("User updated successfully")).toBeVisible()
-    await expect(
-      page.locator("form").getByText(updatedEmail, { exact: true }),
-    ).toBeVisible()
-  })
-})
-
-test.describe("Cancel edit actions", () => {
-  test.use({ storageState: { cookies: [], origins: [] } })
-
-  test("Cancel edit action restores original name", async ({ page }) => {
-    const email = randomEmail()
-    const password = randomPassword()
-    const user = await createUser({ email, password })
-
-    await logInUser(page, email, password)
-    await page.goto("/settings")
-    await page.getByRole("tab", { name: "My profile" }).click()
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Full name").fill("Test User")
-    await page.getByRole("button", { name: "Cancel" }).first().click()
-
-    await expect(
-      page.locator("form").getByText(user.full_name as string, { exact: true }),
-    ).toBeVisible()
+    await expect(page.getByText("gegevens bijgewerkt")).toBeVisible()
+    await expect(page.getByText(updatedEmail, { exact: true })).toBeVisible()
   })
 
-  test("Cancel edit action restores original email", async ({ page }) => {
+  test("Taken email shows the error note", async ({ page }) => {
     const email = randomEmail()
     const password = randomPassword()
+    const otherEmail = randomEmail()
     await createUser({ email, password })
-
-    await logInUser(page, email, password)
+    await createUser({ email: otherEmail, password: randomPassword() })
+    await logIn(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "My profile" }).click()
-    await page.getByRole("button", { name: "Edit" }).click()
-    await page.getByLabel("Email").fill(randomEmail())
-    await page.getByRole("button", { name: "Cancel" }).first().click()
 
-    await expect(
-      page.locator("form").getByText(email, { exact: true }),
-    ).toBeVisible()
+    await page.getByRole("button", { name: "✎ bewerk" }).click()
+    await page.getByLabel("E-MAIL").fill(otherEmail) // already registered
+    await page.getByRole("button", { name: "✓ opslaan" }).click()
+
+    await expect(page.getByText("kon gegevens niet opslaan")).toBeVisible()
   })
 })
 
 test.describe("Change password", () => {
   test.use({ storageState: { cookies: [], origins: [] } })
 
-  test("Update password successfully", async ({ page }) => {
+  test("Update password successfully and log back in", async ({ page }) => {
     const email = randomEmail()
     const password = randomPassword()
     const newPassword = randomPassword()
-
     await createUser({ email, password })
-    await logInUser(page, email, password)
-
+    await logIn(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "Password" }).click()
-    await page.getByTestId("current-password-input").fill(password)
-    await page.getByTestId("new-password-input").fill(newPassword)
-    await page.getByTestId("confirm-password-input").fill(newPassword)
-    await page.getByRole("button", { name: "Update Password" }).click()
 
-    await expect(page.getByText("Password updated successfully")).toBeVisible()
+    await page.getByLabel("HUIDIG WACHTWOORD").fill(password)
+    await page.getByLabel("NIEUW WACHTWOORD").fill(newPassword)
+    await page.getByLabel("BEVESTIG WACHTWOORD").fill(newPassword)
+    await page.getByRole("button", { name: "✓ wachtwoord opslaan" }).click()
 
-    await logOutUser(page)
-    await logInUser(page, email, newPassword)
+    await expect(page.getByText("wachtwoord bijgewerkt")).toBeVisible()
+
+    // Log out through the SESSIE card and back in with the new password.
+    await page.getByRole("button", { name: "⎋ uitloggen" }).click()
+    await logIn(page, email, newPassword)
   })
 })
 
@@ -161,96 +166,103 @@ test.describe("Change password validation", () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    await logInUser(page, email, password)
+    await logIn(page, email, password)
     await page.goto("/settings")
-    await page.getByRole("tab", { name: "Password" }).click()
   })
 
-  test("Update password with weak passwords", async ({ page }) => {
-    const weakPassword = "weak"
+  test("New password shorter than 8 characters", async ({ page }) => {
+    await page.getByLabel("HUIDIG WACHTWOORD").fill(password)
+    await page.getByLabel("NIEUW WACHTWOORD").fill("kort")
+    await page.getByLabel("BEVESTIG WACHTWOORD").fill("kort")
+    await page.getByRole("button", { name: "✓ wachtwoord opslaan" }).click()
 
-    await page.getByTestId("current-password-input").fill(password)
-    await page.getByTestId("new-password-input").fill(weakPassword)
-    await page.getByTestId("confirm-password-input").fill(weakPassword)
-    await page.getByRole("button", { name: "Update Password" }).click()
-
-    await expect(
-      page.getByText("Password must be at least 8 characters"),
-    ).toBeVisible()
+    await expect(page.getByText("minimaal 8 tekens")).toBeVisible()
   })
 
-  test("New password and confirmation password do not match", async ({
+  test("New password and confirmation do not match", async ({ page }) => {
+    await page.getByLabel("HUIDIG WACHTWOORD").fill(password)
+    await page.getByLabel("NIEUW WACHTWOORD").fill(randomPassword())
+    await page.getByLabel("BEVESTIG WACHTWOORD").fill(randomPassword())
+    await page.getByRole("button", { name: "✓ wachtwoord opslaan" }).click()
+
+    await expect(page.getByText("de wachtwoorden verschillen")).toBeVisible()
+  })
+
+  test("Same password as the current one is rejected by the API", async ({
     page,
   }) => {
-    await page.getByTestId("current-password-input").fill(password)
-    await page.getByTestId("new-password-input").fill(randomPassword())
-    await page.getByTestId("confirm-password-input").fill(randomPassword())
-    await page.getByRole("button", { name: "Update Password" }).click()
+    await page.getByLabel("HUIDIG WACHTWOORD").fill(password)
+    await page.getByLabel("NIEUW WACHTWOORD").fill(password)
+    await page.getByLabel("BEVESTIG WACHTWOORD").fill(password)
+    await page.getByRole("button", { name: "✓ wachtwoord opslaan" }).click()
 
-    await expect(page.getByText("The passwords don't match")).toBeVisible()
+    await expect(page.getByText("kon wachtwoord niet opslaan")).toBeVisible()
   })
+})
 
-  test("Current password and new password are the same", async ({ page }) => {
-    await page.getByTestId("current-password-input").fill(password)
-    await page.getByTestId("new-password-input").fill(password)
-    await page.getByTestId("confirm-password-input").fill(password)
-    await page.getByRole("button", { name: "Update Password" }).click()
+test.describe("Log out", () => {
+  test.use({ storageState: { cookies: [], origins: [] } })
 
+  test("Logout clears the session and returns to the map", async ({ page }) => {
+    const email = randomEmail()
+    const password = randomPassword()
+    await createUser({ email, password })
+    await logIn(page, email, password)
+    await page.goto("/settings")
+
+    await page.getByRole("button", { name: "⎋ uitloggen" }).click()
+    await page.waitForURL("/")
+    const token = await page.evaluate(() =>
+      localStorage.getItem("access_token"),
+    )
+    expect(token).toBeNull()
+  })
+})
+
+test.describe("Delete account", () => {
+  test.use({ storageState: { cookies: [], origins: [] } })
+
+  test("Cancel keeps the account", async ({ page }) => {
+    const email = randomEmail()
+    const password = randomPassword()
+    await createUser({ email, password })
+    await logIn(page, email, password)
+    await page.goto("/settings")
+
+    await page.getByRole("button", { name: "✕ verwijder account" }).click()
     await expect(
-      page.getByText("New password cannot be the same as the current one"),
+      page.getByText("zeker weten? dit kan niet ongedaan worden gemaakt."),
+    ).toBeVisible()
+    await page.getByRole("button", { name: "annuleer" }).click()
+    await expect(
+      page.getByRole("button", { name: "✕ verwijder account" }),
     ).toBeVisible()
   })
-})
 
-test("Appearance button is visible in sidebar", async ({ page }) => {
-  await page.goto("/settings")
-  await expect(page.getByTestId("theme-button")).toBeVisible()
-})
+  test("Deleting the account logs out and invalidates the credentials", async ({
+    page,
+  }) => {
+    // Guardrail: only ever delete a user created for this very test.
+    const email = randomEmail()
+    const password = randomPassword()
+    await createUser({ email, password })
+    await logIn(page, email, password)
+    await page.goto("/settings")
 
-test("User can switch between theme modes", async ({ page }) => {
-  await page.goto("/settings")
+    await page.getByRole("button", { name: "✕ verwijder account" }).click()
+    await page.getByRole("button", { name: "✕ ja, verwijder" }).click()
 
-  await page.getByTestId("theme-button").click()
-  await page.getByTestId("dark-mode").click()
-  await expect(page.locator("html")).toHaveClass(/dark/)
-
-  await expect(page.getByTestId("dark-mode")).not.toBeVisible()
-
-  await page.getByTestId("theme-button").click()
-  await page.getByTestId("light-mode").click()
-  await expect(page.locator("html")).toHaveClass(/light/)
-})
-
-test("Selected mode is preserved across sessions", async ({ page }) => {
-  await page.goto("/settings")
-
-  await page.getByTestId("theme-button").click()
-  if (
-    await page.evaluate(() =>
-      document.documentElement.classList.contains("dark"),
+    await page.waitForURL("/")
+    const token = await page.evaluate(() =>
+      localStorage.getItem("access_token"),
     )
-  ) {
-    await page.getByTestId("light-mode").click()
-    await page.getByTestId("theme-button").click()
-  }
+    expect(token).toBeNull()
 
-  const isLightMode = await page.evaluate(() =>
-    document.documentElement.classList.contains("light"),
-  )
-  expect(isLightMode).toBe(true)
-
-  await page.getByTestId("theme-button").click()
-  await page.getByTestId("dark-mode").click()
-  let isDarkMode = await page.evaluate(() =>
-    document.documentElement.classList.contains("dark"),
-  )
-  expect(isDarkMode).toBe(true)
-
-  await logOutUser(page)
-  await logInUser(page, firstSuperuser, firstSuperuserPassword)
-
-  isDarkMode = await page.evaluate(() =>
-    document.documentElement.classList.contains("dark"),
-  )
-  expect(isDarkMode).toBe(true)
+    // The deleted credentials no longer work: login stays on /login.
+    await page.goto("/login")
+    await page.getByTestId("email-input").fill(email)
+    await page.getByTestId("password-input").fill(password)
+    await page.getByRole("button", { name: "Log In" }).click()
+    await expect(page).toHaveURL(/\/login/)
+  })
 })

@@ -180,6 +180,25 @@ export default function AddFlow({
   // onDelete. Confirmation resets whenever the user navigates a step.
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
+  // Local-preview blob: URLs must be revoked to avoid leaking. On unmount we
+  // revoke whatever is still pending — unless the media was handed off via
+  // onCreate, in which case BrommerboekApp still needs the blobs for the
+  // deferred upload and revokes them itself once that upload settles.
+  const mediaRef = useRef(media)
+  useEffect(() => {
+    mediaRef.current = media
+  }, [media])
+  const handedOffRef = useRef(false)
+  useEffect(
+    () => () => {
+      if (handedOffRef.current) return
+      for (const item of mediaRef.current) {
+        if (item.url?.startsWith("blob:")) URL.revokeObjectURL(item.url)
+      }
+    },
+    [],
+  )
+
   // Debounced search: fires 400ms after the last keystroke, cancels the
   // in-flight request when the user keeps typing.
   useEffect(() => {
@@ -247,6 +266,7 @@ export default function AddFlow({
     if (isEdit && initialStop && onPatch) {
       onPatch(initialStop.id, payload)
     } else if (onCreate) {
+      handedOffRef.current = true
       onCreate(payload)
     }
   }
@@ -315,6 +335,8 @@ export default function AddFlow({
       }
       return
     }
+    const url = media[index]?.url
+    if (url?.startsWith("blob:")) URL.revokeObjectURL(url)
     setMedia((m) => m.filter((_, i) => i !== index))
   }
 

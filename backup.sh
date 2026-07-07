@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Nightly backup: pg_dump + media tarball → local dir → rclone off-box.
-# Run from cron on the box (see runbook Section 6.6). Requires rclone
+# Run from cron on the box (see docs/RUNBOOK.md, "Backups"). Requires rclone
 # configured with a remote called "remote".
 set -euo pipefail
 

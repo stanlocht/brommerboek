@@ -1,0 +1,182 @@
+import base64
+import io
+import uuid
+from collections.abc import Generator
+from pathlib import Path
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from sqlmodel import Session
+
+from app.api.routes import stops as stops_module
+from app.core.config import settings
+from app.models import Stop
+from tests.utils.stop import create_test_stop, delete_test_stop
+
+STOPS_URL = f"{settings.API_V1_STR}/stops/"
+
+# A real, valid 1x1 transparent PNG (67 bytes).
+PNG_1PX = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+    "AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+@pytest.fixture
+def media_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # The route module binds MEDIA_ROOT at import time
+    # (`from app.core.media import MEDIA_ROOT`), so patch the route module's
+    # reference — patching app.core.media would not reach the handlers.
+    monkeypatch.setattr(stops_module, "MEDIA_ROOT", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture
+def stop(db: Session) -> Generator[Stop]:
+    stop = create_test_stop(db)
+    yield stop
+    delete_test_stop(db, stop)
+
+
+def _upload(
+    client: TestClient,
+    headers: dict[str, str],
+    stop_id: object,
+    *,
+    content: bytes = PNG_1PX,
+    content_type: str = "image/png",
+    caption: str = "",
+) -> httpx.Response:
+    response: httpx.Response = client.post(
+        f"{STOPS_URL}{stop_id}/media",
+        headers=headers,
+        params={"caption": caption} if caption else None,
+        files={"file": ("foto.png", io.BytesIO(content), content_type)},
+    )
+    return response
+
+
+def test_upload_media_happy_path(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    r = _upload(client, superuser_token_headers, stop.id, caption="De Cub")
+    assert r.status_code == 200
+    media = r.json()["media"]
+    assert len(media) == 1
+    item = media[0]
+    assert item["kind"] == "image"
+    assert item["cap"] == "De Cub"
+    assert item["url"].startswith(f"/media/{stop.id}/")
+    assert item["url"].endswith(".png")
+    # The bytes actually landed on disk under the stop's directory.
+    filename = item["url"].rsplit("/", 1)[-1]
+    assert (media_root / str(stop.id) / filename).read_bytes() == PNG_1PX
+
+
+@pytest.mark.usefixtures("media_root")
+def test_upload_media_requires_superuser(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    r = _upload(client, {}, stop.id)
+    assert r.status_code == 401
+    r = _upload(client, normal_user_token_headers, stop.id)
+    assert r.status_code == 403
+
+
+def test_upload_media_rejects_wrong_content_type(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    r = _upload(
+        client,
+        superuser_token_headers,
+        stop.id,
+        content=b"#!/bin/sh\necho boo",
+        content_type="text/x-shellscript",
+    )
+    assert r.status_code == 415
+    assert "Unsupported media type" in r.json()["detail"]
+    assert not list(media_root.glob("**/*.png"))
+
+
+def test_upload_media_rejects_oversized_file(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Shrink the cap instead of streaming 25 MiB through the test client.
+    monkeypatch.setattr(stops_module, "MAX_UPLOAD_BYTES", 1024)
+    r = _upload(client, superuser_token_headers, stop.id, content=b"x" * 2048)
+    assert r.status_code == 413
+    assert "too large" in r.json()["detail"].lower()
+    # The partial file was cleaned up.
+    stop_dir = media_root / str(stop.id)
+    assert not stop_dir.exists() or not any(stop_dir.iterdir())
+
+
+@pytest.mark.usefixtures("media_root")
+def test_upload_media_stop_not_found(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    r = _upload(client, superuser_token_headers, uuid.uuid4())
+    assert r.status_code == 404
+
+
+def test_delete_media_by_index_removes_file(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    first = _upload(client, superuser_token_headers, stop.id, caption="een").json()
+    second = _upload(client, superuser_token_headers, stop.id, caption="twee").json()
+    assert len(second["media"]) == 2
+    first_file = media_root / str(stop.id) / first["media"][0]["url"].rsplit("/", 1)[-1]
+    assert first_file.exists()
+
+    r = client.delete(f"{STOPS_URL}{stop.id}/media/0", headers=superuser_token_headers)
+    assert r.status_code == 200
+    media = r.json()["media"]
+    assert len(media) == 1
+    assert media[0]["cap"] == "twee"
+    assert not first_file.exists()
+
+
+@pytest.mark.usefixtures("media_root")
+def test_delete_media_index_out_of_range(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    for bad_index in (0, 5, -1):
+        r = client.delete(
+            f"{STOPS_URL}{stop.id}/media/{bad_index}",
+            headers=superuser_token_headers,
+        )
+        assert r.status_code == 404
+        assert r.json()["detail"] == "Media index out of range"
+
+
+def test_delete_stop_removes_media_directory(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    _upload(client, superuser_token_headers, stop.id)
+    stop_dir = media_root / str(stop.id)
+    assert stop_dir.exists()
+
+    r = client.delete(f"{STOPS_URL}{stop.id}", headers=superuser_token_headers)
+    assert r.status_code == 200
+    assert not stop_dir.exists()
