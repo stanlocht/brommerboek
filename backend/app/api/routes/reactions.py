@@ -1,11 +1,12 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, OptionalUser, SessionDep
+from app.core.ratelimit import rate_limit
 from app.models import (
     Comment,
     CommentCreate,
@@ -20,6 +21,11 @@ from app.models import (
 )
 
 router = APIRouter(tags=["reactions"])
+
+COMMENT_RATE_LIMIT = 10
+COMMENT_RATE_WINDOW_SECONDS = 60
+HONK_RATE_LIMIT = 30
+HONK_RATE_WINDOW_SECONDS = 60
 
 
 def _display_name(user: User) -> str:
@@ -64,7 +70,13 @@ def read_comments(session: SessionDep, me: OptionalUser, stop_id: uuid.UUID) -> 
     return CommentsPublic(data=data, count=len(data))
 
 
-@router.post("/stops/{stop_id}/comments", response_model=CommentPublic)
+@router.post(
+    "/stops/{stop_id}/comments",
+    response_model=CommentPublic,
+    dependencies=[
+        Depends(rate_limit("comments", COMMENT_RATE_LIMIT, COMMENT_RATE_WINDOW_SECONDS))
+    ],
+)
 def create_comment(
     *,
     session: SessionDep,
@@ -164,7 +176,13 @@ def read_honks(session: SessionDep, me: OptionalUser, stop_id: uuid.UUID) -> Any
     return _honk_state(session, me, stop_id)
 
 
-@router.post("/stops/{stop_id}/honks", response_model=HonkPublic)
+@router.post(
+    "/stops/{stop_id}/honks",
+    response_model=HonkPublic,
+    dependencies=[
+        Depends(rate_limit("honks", HONK_RATE_LIMIT, HONK_RATE_WINDOW_SECONDS))
+    ],
+)
 def toggle_honk(session: SessionDep, me: CurrentUser, stop_id: uuid.UUID) -> Any:
     """
     Toggle the caller's horn honk on a stop.

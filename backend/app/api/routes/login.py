@@ -9,6 +9,7 @@ from app import crud
 from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
 from app.core import security
 from app.core.config import settings
+from app.core.ratelimit import rate_limit
 from app.models import Message, NewPassword, Token, UserPublic, UserUpdate
 from app.utils import (
     generate_password_reset_token,
@@ -19,8 +20,16 @@ from app.utils import (
 
 router = APIRouter(tags=["login"])
 
+LOGIN_RATE_LIMIT = 10
+LOGIN_RATE_WINDOW_SECONDS = 60
 
-@router.post("/login/access-token")
+
+@router.post(
+    "/login/access-token",
+    dependencies=[
+        Depends(rate_limit("login", LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_SECONDS))
+    ],
+)
 def login_access_token(
     session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Token:
