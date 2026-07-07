@@ -42,8 +42,10 @@ function GalleryTile({
         />
       ) : src ? (
         <img
-          src={src}
+          src={mediaSrc(item.thumb ?? item.url)}
           alt={item.cap || ""}
+          loading="lazy"
+          decoding="async"
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
       ) : (

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.api.routes import stops as stops_module
+from app.backfill_thumbs import backfill_thumbs
 from app.core.config import settings
 from app.models import Stop
 from tests.utils.stop import create_test_stop, delete_test_stop
@@ -75,6 +76,60 @@ def test_upload_media_happy_path(
     # The bytes actually landed on disk under the stop's directory.
     filename = item["url"].rsplit("/", 1)[-1]
     assert (media_root / str(stop.id) / filename).read_bytes() == PNG_1PX
+
+
+def test_upload_image_generates_thumbnail(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    r = _upload(client, superuser_token_headers, stop.id)
+    assert r.status_code == 200
+    item = r.json()["media"][0]
+    stem = item["url"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    assert item["thumb"] == f"/media/{stop.id}/thumb_{stem}.webp"
+    thumb_file = media_root / str(stop.id) / f"thumb_{stem}.webp"
+    header = thumb_file.read_bytes()
+    # A real WebP landed on disk (RIFF container with a WEBP chunk).
+    assert header[:4] == b"RIFF" and header[8:12] == b"WEBP"
+
+
+def test_upload_video_gets_no_thumbnail(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    r = _upload(
+        client,
+        superuser_token_headers,
+        stop.id,
+        content=b"\x00\x00\x00\x18ftypmp42not-a-real-clip",
+        content_type="video/mp4",
+    )
+    assert r.status_code == 200
+    item = r.json()["media"][0]
+    assert item["kind"] == "video"
+    assert item["thumb"] is None
+    assert not list(media_root.glob("**/thumb_*.webp"))
+
+
+def test_upload_survives_thumbnail_failure(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    # Declared image/png but not decodable — the thumbnail step must log and
+    # move on, never fail the upload.
+    r = _upload(client, superuser_token_headers, stop.id, content=b"not a png")
+    assert r.status_code == 200
+    item = r.json()["media"][0]
+    assert item["thumb"] is None
+    assert not list(media_root.glob("**/thumb_*.webp"))
+    filename = item["url"].rsplit("/", 1)[-1]
+    assert (media_root / str(stop.id) / filename).exists()
 
 
 @pytest.mark.usefixtures("media_root")
@@ -150,6 +205,24 @@ def test_delete_media_by_index_removes_file(
     assert len(media) == 1
     assert media[0]["cap"] == "twee"
     assert not first_file.exists()
+
+
+def test_delete_media_removes_thumbnail_file(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    item = _upload(client, superuser_token_headers, stop.id).json()["media"][0]
+    stop_dir = media_root / str(stop.id)
+    original = stop_dir / item["url"].rsplit("/", 1)[-1]
+    thumb = stop_dir / item["thumb"].rsplit("/", 1)[-1]
+    assert original.exists() and thumb.exists()
+
+    r = client.delete(f"{STOPS_URL}{stop.id}/media/0", headers=superuser_token_headers)
+    assert r.status_code == 200
+    assert not original.exists()
+    assert not thumb.exists()
 
 
 @pytest.mark.usefixtures("media_root")
@@ -263,3 +336,33 @@ def test_delete_stop_removes_media_directory(
     r = client.delete(f"{STOPS_URL}{stop.id}", headers=superuser_token_headers)
     assert r.status_code == 200
     assert not stop_dir.exists()
+
+
+def test_backfill_thumbs_fills_missing_and_is_idempotent(
+    db: Session,
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    stop_dir = media_root / str(stop.id)
+    stop_dir.mkdir(parents=True)
+    (stop_dir / "foto.png").write_bytes(PNG_1PX)
+    stop.media = [
+        {"tone": "", "cap": "", "kind": "image", "url": f"/media/{stop.id}/foto.png"},
+        {"tone": "", "cap": "", "kind": "video", "url": f"/media/{stop.id}/clip.mp4"},
+        {"tone": "#c9a24e", "cap": "", "kind": "image", "url": None},
+    ]
+    db.add(stop)
+    db.commit()
+
+    created = backfill_thumbs(db, media_root=media_root)
+    assert created == 1
+    db.expire_all()
+    refreshed = db.get(Stop, stop.id)
+    assert refreshed is not None
+    assert refreshed.media[0]["thumb"] == f"/media/{stop.id}/thumb_foto.webp"
+    assert (stop_dir / "thumb_foto.webp").exists()
+    # Video and URL-less placeholder stay untouched.
+    assert refreshed.media[1].get("thumb") is None
+    assert refreshed.media[2].get("thumb") is None
+    # Second run finds nothing left to do.
+    assert backfill_thumbs(db, media_root=media_root) == 0
