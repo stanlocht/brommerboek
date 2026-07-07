@@ -25,6 +25,8 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   // on successful login we replay the action so the click "just worked".
   const [pending, setPending] = useState<PendingAction>(null)
   const [showAllHonkers, setShowAllHonkers] = useState(false)
+  // Inline error line for failed writes; cleared when a new attempt starts.
+  const [actionError, setActionError] = useState("")
 
   const commentsQ = useQuery({
     queryKey: ["stops", stopId, "comments"],
@@ -47,14 +49,18 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   const deleteComment = useMutation({
     mutationFn: (commentId: string) =>
       ReactionsService.deleteComment({ commentId }),
+    onMutate: () => setActionError(""),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["stops", stopId, "comments"] }),
+    onError: () => setActionError("kon de reactie niet verwijderen"),
   })
 
   const toggleHonk = useMutation({
     mutationFn: () => toggleHonkApi(stopId),
+    onMutate: () => setActionError(""),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["stops", stopId, "honks"] }),
+    onError: () => setActionError("toeteren lukte niet — probeer het opnieuw"),
   })
 
   const submitComment = (e: React.FormEvent) => {
@@ -153,6 +159,19 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
           </span>
         )}
       </div>
+
+      {actionError && (
+        <div
+          style={{
+            fontFamily: FONT_MONO,
+            fontSize: 11,
+            color: C.red,
+            marginBottom: 14,
+          }}
+        >
+          {actionError}
+        </div>
+      )}
 
       {honkCount > 0 && (
         <div

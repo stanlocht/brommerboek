@@ -53,10 +53,12 @@ export default function BrommerboekApp() {
     queryKey: ["stops"],
     queryFn: fetchStops,
   })
-  const { data: statsData } = useQuery({
+  const { data: statsData, isError: statsUnavailable } = useQuery({
     queryKey: ["stops", "stats"],
     queryFn: fetchStats,
   })
+  // Fall back to zeros so the map keeps working when /stats fails; the flag
+  // lets stat displays show a hint instead of confident zeros.
   const stats = statsData ?? EMPTY_STATS
   // Everyone sees the same trip; only superusers get the add/edit affordances.
   // Query only fires when a token is present so a signed-out viewer never
@@ -121,6 +123,7 @@ export default function BrommerboekApp() {
       // AddFlow made from the picked File. Create the stop first, then
       // re-fetch each blob and upload it against the fresh stop id.
       const created = await createStop({ ...s, media: [] })
+      let failed = 0
       for (const item of s.media) {
         if (item.url?.startsWith("blob:")) {
           try {
@@ -131,17 +134,28 @@ export default function BrommerboekApp() {
           } catch {
             // Individual upload failures don't roll back the stop — the
             // user can retry the file from the edit flow.
+            failed += 1
+          } finally {
+            // AddFlow made this blob: URL for the preview; it's ours to
+            // release once the upload has settled either way.
+            URL.revokeObjectURL(item.url)
           }
         }
       }
-      return created
+      return { created, failed }
     },
-    onSuccess: async () => {
+    onSuccess: async ({ failed }) => {
       jumpLast.current = true
       // Prefix match — invalidates both ["stops"] and ["stops", "stats"].
       await qc.invalidateQueries({ queryKey: ["stops"] })
       setAddOpen(false)
-      flash("✓ Stop toegevoegd aan de route")
+      flash(
+        failed > 0
+          ? failed === 1
+            ? "Stop toegevoegd, maar 1 bestand kon niet worden geüpload"
+            : `Stop toegevoegd, maar ${failed} bestanden konden niet worden geüpload`
+          : "✓ Stop toegevoegd aan de route",
+      )
     },
     onError: () => flash("Kon de stop niet opslaan"),
   })
@@ -188,8 +202,10 @@ export default function BrommerboekApp() {
   )
 
   if (isLoading) return <CenterState text="de kaart wordt geladen…" />
-  if (isError || !stops || stops.length === 0)
+  if (isError || !stops)
     return <CenterState text="kon de reis niet laden — draait de backend?" />
+  if (stops.length === 0)
+    return <CenterState text="nog geen stops — voeg de eerste toe" />
 
   const cur = stops[activeIndex] ?? stops[0]
 
@@ -252,6 +268,7 @@ export default function BrommerboekApp() {
         stops={stops}
         route={route}
         stats={stats}
+        statsUnavailable={statsUnavailable}
         cur={cur}
         progress={progress}
         dragging={dragging}
