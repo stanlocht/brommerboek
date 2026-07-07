@@ -1,9 +1,10 @@
 import uuid
 from datetime import UTC, date, datetime
+from typing import Literal
 
-from pydantic import EmailStr
+from pydantic import EmailStr, field_validator
 from sqlalchemy import JSON, DateTime, Text, UniqueConstraint
-from sqlmodel import Column, Field, Relationship, SQLModel
+from sqlmodel import Column, Field, SQLModel
 
 
 def get_datetime_utc() -> datetime:
@@ -56,7 +57,6 @@ class User(UserBase, table=True):
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
-    items: list[Item] = Relationship(back_populates="owner", cascade_delete=True)
 
 
 # Properties to return via API, id is always required
@@ -67,48 +67,6 @@ class UserPublic(UserBase):
 
 class UsersPublic(SQLModel):
     data: list[UserPublic]
-    count: int
-
-
-# Shared properties
-class ItemBase(SQLModel):
-    title: str = Field(min_length=1, max_length=255)
-    description: str | None = Field(default=None, max_length=255)
-
-
-# Properties to receive on item creation
-class ItemCreate(ItemBase):
-    pass
-
-
-# Properties to receive on item update
-class ItemUpdate(SQLModel):
-    title: str | None = Field(default=None, min_length=1, max_length=255)
-    description: str | None = Field(default=None, max_length=255)
-
-
-# Database model, database table inferred from class name
-class Item(ItemBase, table=True):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    created_at: datetime | None = Field(
-        default_factory=get_datetime_utc,
-        sa_type=DateTime(timezone=True),  # type: ignore
-    )
-    owner_id: uuid.UUID = Field(
-        foreign_key="user.id", nullable=False, ondelete="CASCADE"
-    )
-    owner: User | None = Relationship(back_populates="items")
-
-
-# Properties to return via API, id is always required
-class ItemPublic(ItemBase):
-    id: uuid.UUID
-    owner_id: uuid.UUID
-    created_at: datetime | None = None
-
-
-class ItemsPublic(SQLModel):
-    data: list[ItemPublic]
     count: int
 
 
@@ -129,7 +87,7 @@ class MediaItem(SQLModel):
     # `kind` distinguishes photo from clip.
     tone: str = Field(default="", max_length=32)
     cap: str = Field(default="", max_length=255)
-    kind: str = Field(default="image", max_length=8)  # "image" | "video"
+    kind: Literal["image", "video"] = "image"
     url: str | None = Field(default=None, max_length=512)
 
 
@@ -146,6 +104,23 @@ WEATHER_CONDITIONS = {
     "fog",
 }
 
+STOP_TYPES = {"stop", "repair"}
+
+
+def check_weather_condition(v: str | None) -> str | None:
+    # Empty string means "unspecified"; None only occurs on partial updates.
+    if v and v not in WEATHER_CONDITIONS:
+        raise ValueError(
+            f"weather_condition must be one of: {', '.join(sorted(WEATHER_CONDITIONS))}"
+        )
+    return v
+
+
+def check_stop_type(v: str | None) -> str | None:
+    if v is not None and v not in STOP_TYPES:
+        raise ValueError(f"type must be one of: {', '.join(sorted(STOP_TYPES))}")
+    return v
+
 
 # Shared properties
 class StopBase(SQLModel):
@@ -153,8 +128,8 @@ class StopBase(SQLModel):
     country: str = Field(min_length=1, max_length=255)
     flag: str = Field(default="", max_length=16)  # emoji flag
     code: str = Field(default="", max_length=8)  # ISO country code
-    lat: float
-    lng: float
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
     date: date
     title: str = Field(min_length=1, max_length=255)
     # `km` is the odometer reading at this stop. Optional — a rider who forgot
@@ -169,6 +144,16 @@ class StopBase(SQLModel):
     broke: str | None = Field(default=None, sa_type=Text)  # repair: what broke
     fixed: str | None = Field(default=None, sa_type=Text)  # repair: what fixed
 
+    @field_validator("weather_condition")
+    @classmethod
+    def validate_weather_condition(cls, v: str) -> str:
+        return check_weather_condition(v)
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        return check_stop_type(v)
+
 
 # Properties to receive on stop creation
 class StopCreate(StopBase):
@@ -182,8 +167,8 @@ class StopUpdate(SQLModel):
     place: str | None = Field(default=None, min_length=1, max_length=255)
     country: str | None = Field(default=None, min_length=1, max_length=255)
     code: str | None = Field(default=None, max_length=8)
-    lat: float | None = None
-    lng: float | None = None
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
     date: date | None = None
     title: str | None = Field(default=None, min_length=1, max_length=255)
     km: int | None = Field(default=None, ge=0)
@@ -194,6 +179,16 @@ class StopUpdate(SQLModel):
     broke: str | None = None
     fixed: str | None = None
     media: list[MediaItem] | None = None
+
+    @field_validator("weather_condition")
+    @classmethod
+    def validate_weather_condition(cls, v: str | None) -> str | None:
+        return check_weather_condition(v)
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: str | None) -> str | None:
+        return check_stop_type(v)
 
 
 # Database model, database table inferred from class name
@@ -251,7 +246,7 @@ class Comment(SQLModel, table=True):
         foreign_key="stop.id", nullable=False, ondelete="CASCADE", index=True
     )
     user_id: uuid.UUID = Field(
-        foreign_key="user.id", nullable=False, ondelete="CASCADE"
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
     )
     body: str = Field(sa_type=Text)
     created_at: datetime | None = Field(

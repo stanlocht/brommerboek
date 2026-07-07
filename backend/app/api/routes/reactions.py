@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, func, select
 
@@ -37,16 +37,28 @@ def _ensure_stop(session: SessionDep, stop_id: uuid.UUID) -> None:
 
 
 @router.get("/stops/{stop_id}/comments", response_model=CommentsPublic)
-def read_comments(session: SessionDep, me: OptionalUser, stop_id: uuid.UUID) -> Any:
+def read_comments(
+    session: SessionDep,
+    me: OptionalUser,
+    stop_id: uuid.UUID,
+    skip: int = 0,
+    limit: int = Query(default=50, le=100),
+) -> Any:
     """
-    Public list of comments on a stop, newest first.
+    Public list of comments on a stop, newest first. `count` is the total
+    number of comments so clients can detect further pages.
     """
     _ensure_stop(session, stop_id)
+    count = session.exec(
+        select(func.count()).select_from(Comment).where(Comment.stop_id == stop_id)
+    ).one()
     statement = (
         select(Comment, User)
         .join(User, col(Comment.user_id) == col(User.id))
         .where(Comment.stop_id == stop_id)
         .order_by(col(Comment.created_at).desc())
+        .offset(skip)
+        .limit(limit)
     )
     rows = session.exec(statement).all()
     data = [
@@ -61,7 +73,7 @@ def read_comments(session: SessionDep, me: OptionalUser, stop_id: uuid.UUID) -> 
         )
         for c, u in rows
     ]
-    return CommentsPublic(data=data, count=len(data))
+    return CommentsPublic(data=data, count=count)
 
 
 @router.post("/stops/{stop_id}/comments", response_model=CommentPublic)

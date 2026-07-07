@@ -227,131 +227,6 @@ export const HonkerPublicSchema = {
     title: 'HonkerPublic'
 } as const;
 
-export const ItemCreateSchema = {
-    properties: {
-        title: {
-            type: 'string',
-            maxLength: 255,
-            minLength: 1,
-            title: 'Title'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string',
-                    maxLength: 255
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        }
-    },
-    type: 'object',
-    required: ['title'],
-    title: 'ItemCreate'
-} as const;
-
-export const ItemPublicSchema = {
-    properties: {
-        title: {
-            type: 'string',
-            maxLength: 255,
-            minLength: 1,
-            title: 'Title'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string',
-                    maxLength: 255
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        },
-        id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Id'
-        },
-        owner_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Owner Id'
-        },
-        created_at: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'date-time'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Created At'
-        }
-    },
-    type: 'object',
-    required: ['title', 'id', 'owner_id'],
-    title: 'ItemPublic'
-} as const;
-
-export const ItemUpdateSchema = {
-    properties: {
-        title: {
-            anyOf: [
-                {
-                    type: 'string',
-                    maxLength: 255,
-                    minLength: 1
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Title'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string',
-                    maxLength: 255
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        }
-    },
-    type: 'object',
-    title: 'ItemUpdate'
-} as const;
-
-export const ItemsPublicSchema = {
-    properties: {
-        data: {
-            items: {
-                '$ref': '#/components/schemas/ItemPublic'
-            },
-            type: 'array',
-            title: 'Data'
-        },
-        count: {
-            type: 'integer',
-            title: 'Count'
-        }
-    },
-    type: 'object',
-    required: ['data', 'count'],
-    title: 'ItemsPublic'
-} as const;
-
 export const MediaItemSchema = {
     properties: {
         tone: {
@@ -368,7 +243,7 @@ export const MediaItemSchema = {
         },
         kind: {
             type: 'string',
-            maxLength: 8,
+            enum: ['image', 'video'],
             title: 'Kind',
             default: 'image'
         },
@@ -472,10 +347,14 @@ export const StopCreateSchema = {
         },
         lat: {
             type: 'number',
+            maximum: 90,
+            minimum: -90,
             title: 'Lat'
         },
         lng: {
             type: 'number',
+            maximum: 180,
+            minimum: -180,
             title: 'Lng'
         },
         date: {
@@ -592,10 +471,14 @@ export const StopPublicSchema = {
         },
         lat: {
             type: 'number',
+            maximum: 90,
+            minimum: -90,
             title: 'Lat'
         },
         lng: {
             type: 'number',
+            maximum: 180,
+            minimum: -180,
             title: 'Lng'
         },
         date: {
@@ -736,7 +619,9 @@ export const StopUpdateSchema = {
         lat: {
             anyOf: [
                 {
-                    type: 'number'
+                    type: 'number',
+                    maximum: 90,
+                    minimum: -90
                 },
                 {
                     type: 'null'
@@ -747,7 +632,9 @@ export const StopUpdateSchema = {
         lng: {
             anyOf: [
                 {
-                    type: 'number'
+                    type: 'number',
+                    maximum: 180,
+                    minimum: -180
                 },
                 {
                     type: 'null'
