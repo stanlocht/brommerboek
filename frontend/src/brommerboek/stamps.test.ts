@@ -25,6 +25,8 @@ function makeStop(partial: Partial<Stop>): Stop {
     broke: null,
     fixed: null,
     media: [],
+    honk_count: 0,
+    comment_count: 0,
     ...partial,
   }
 }
