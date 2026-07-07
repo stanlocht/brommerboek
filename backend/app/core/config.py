@@ -94,6 +94,25 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
+    # Web Push (VAPID). Empty private key = push disabled: the subscribe
+    # endpoints answer 503 and the send helpers no-op. Key generation is
+    # documented in docs/RUNBOOK.md. The claims email is the operator contact
+    # the browsers' push relays may use about misbehaving traffic; it falls
+    # back to the outbound-mail address or the superuser account.
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_CLAIMS_EMAIL: EmailStr | None = None
+
+    @model_validator(mode="after")
+    def _set_default_vapid_claims_email(self) -> Self:
+        if not self.VAPID_CLAIMS_EMAIL:
+            self.VAPID_CLAIMS_EMAIL = self.EMAILS_FROM_EMAIL or self.FIRST_SUPERUSER
+        return self
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def push_enabled(self) -> bool:
+        return bool(self.VAPID_PRIVATE_KEY)
+
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
             message = (

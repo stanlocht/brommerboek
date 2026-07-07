@@ -100,14 +100,24 @@ export default function BrommerboekApp() {
     [stops],
   )
 
-  // On first load, park the cub at the latest stop.
+  // On first load, park the cub at the latest stop — unless a push
+  // notification deep-linked to a specific one (/?stop=<id>): then ride
+  // there and open its story.
   const initedRef = useRef(false)
   useEffect(() => {
     if (!stops || stops.length === 0 || initedRef.current) return
     initedRef.current = true
+    const wanted = new URLSearchParams(window.location.search).get("stop")
+    const idx = wanted ? stops.findIndex((s) => s.id === wanted) : -1
+    if (idx >= 0) {
+      setActiveIndex(idx)
+      setProgress(stopFraction(route, idx))
+      setSheetOpen(true)
+      return
+    }
     setActiveIndex(stops.length - 1)
     setProgress(1)
-  }, [stops])
+  }, [stops, route])
 
   // After adding a stop, jump to the new latest stop once data refetches.
   useEffect(() => {

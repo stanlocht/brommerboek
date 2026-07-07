@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router"
 import type { PointerEvent as ReactPointerEvent } from "react"
 import type { UserPublic } from "@/client"
 import { mediaSrc } from "./api"
+import FollowBell from "./FollowBell"
 import type { RouteGeometry } from "./geo"
 import { nearestStop, stopFraction } from "./geo"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
@@ -216,6 +217,7 @@ export default function MapScreen({
             }}
           >
             <AuthLink me={me} onLogin={onLogin} />
+            <FollowBell />
           </div>
         </div>
       </div>

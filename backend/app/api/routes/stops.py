@@ -2,11 +2,12 @@ import shutil
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlmodel import col, func, select
 
 from app import crud
 from app.api.deps import SessionDep, get_current_active_superuser
+from app.core import push
 from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX
 from app.geo import haversine_km
 from app.models import (
@@ -106,12 +107,21 @@ def read_stop(session: SessionDep, id: uuid.UUID) -> Any:
     response_model=StopPublic,
     dependencies=[Depends(get_current_active_superuser)],
 )
-def create_stop(*, session: SessionDep, stop_in: StopCreate) -> Any:
+def create_stop(
+    *, session: SessionDep, stop_in: StopCreate, background_tasks: BackgroundTasks
+) -> Any:
     """
     Add a new stop to the end of the route. Superusers only — this is a
     single-rider journal.
     """
-    return crud.create_stop(session=session, stop_in=stop_in)
+    stop = crud.create_stop(session=session, stop_in=stop_in)
+    background_tasks.add_task(
+        push.send_to_followers,
+        title=f"nieuwe stop: {stop.place} 🛵",
+        body=stop.title,
+        url=f"/?stop={stop.id}",
+    )
+    return stop
 
 
 @router.patch(

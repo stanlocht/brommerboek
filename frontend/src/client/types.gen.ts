@@ -75,6 +75,25 @@ export type PrivateUserCreate = {
     is_verified?: boolean;
 };
 
+export type PushPublicKey = {
+    public_key: string;
+};
+
+export type PushSubscribeIn = {
+    endpoint: string;
+    keys: PushSubscriptionKeys;
+    wants_reactions?: boolean;
+};
+
+export type PushSubscriptionKeys = {
+    p256dh: string;
+    auth: string;
+};
+
+export type PushUnsubscribeIn = {
+    endpoint: string;
+};
+
 export type StopCreate = {
     place: string;
     country: string;
@@ -240,6 +259,20 @@ export type PrivateCreateUserData = {
 };
 
 export type PrivateCreateUserResponse = (UserPublic);
+
+export type PushReadPublicKeyResponse = (PushPublicKey);
+
+export type PushSubscribeData = {
+    requestBody: PushSubscribeIn;
+};
+
+export type PushSubscribeResponse = (Message);
+
+export type PushUnsubscribeData = {
+    requestBody: PushUnsubscribeIn;
+};
+
+export type PushUnsubscribeResponse = (Message);
 
 export type ReactionsReadCommentsData = {
     limit?: number;
