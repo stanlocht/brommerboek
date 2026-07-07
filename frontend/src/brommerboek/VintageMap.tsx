@@ -128,6 +128,11 @@ export default function VintageMap({
                 : `<svg width="22" height="22" viewBox="-11 -11 22 22"><circle cx="0" cy="0" r="9" fill="${C.red}" stroke="${C.cream}" stroke-width="2.5"></circle><circle cx="0" cy="0" r="3" fill="${C.cream}"></circle></svg>`
             }
           </div>
+          ${
+            s.honk_count > 0
+              ? `<span class="bb-pin-badge" aria-hidden="true">📯 ${s.honk_count}</span>`
+              : ""
+          }
           <span class="bb-pin-label">${s.place}</span>`
         el.addEventListener("click", (ev) => {
           ev.stopPropagation()

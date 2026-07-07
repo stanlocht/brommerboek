@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.core.config import settings
+from app.models import Comment, HornHonk
 from tests.utils.stop import create_test_stop, delete_test_stop, stop_payload
 
 STOPS_URL = f"{settings.API_V1_STR}/stops/"
@@ -37,6 +38,47 @@ def test_read_stop_not_found(client: TestClient) -> None:
     r = client.get(f"{STOPS_URL}{uuid.uuid4()}")
     assert r.status_code == 404
     assert r.json()["detail"] == "Stop not found"
+
+
+def test_read_stops_zero_reaction_counts(client: TestClient) -> None:
+    # Untouched stops carry explicit zero counts so the map never sees nulls.
+    for s in client.get(STOPS_URL).json()["data"]:
+        assert s["honk_count"] == 0
+        assert s["comment_count"] == 0
+
+
+def test_read_stops_includes_reaction_counts(
+    client: TestClient, normal_user_token_headers: dict[str, str], db: Session
+) -> None:
+    stop = create_test_stop(db)
+    try:
+        me = client.get(
+            f"{settings.API_V1_STR}/users/me", headers=normal_user_token_headers
+        ).json()
+        user_id = uuid.UUID(me["id"])
+        db.add(HornHonk(stop_id=stop.id, user_id=user_id))
+        db.add(Comment(stop_id=stop.id, user_id=user_id, body="toet"))
+        db.add(Comment(stop_id=stop.id, user_id=user_id, body="nog een toet"))
+        db.commit()
+
+        listed = client.get(STOPS_URL).json()["data"]
+        by_id = {s["id"]: s for s in listed}
+        mine = by_id[str(stop.id)]
+        assert mine["honk_count"] == 1
+        assert mine["comment_count"] == 2
+        # The other stops stay at zero — counts land on the right stop only.
+        for s in listed:
+            if s["id"] != str(stop.id):
+                assert s["honk_count"] == 0
+                assert s["comment_count"] == 0
+
+        # The single-stop endpoint reports the same counts.
+        single = client.get(f"{STOPS_URL}{stop.id}").json()
+        assert single["honk_count"] == 1
+        assert single["comment_count"] == 2
+    finally:
+        # Cascades away the honk and comments too (FK ON DELETE CASCADE).
+        delete_test_stop(db, stop)
 
 
 def test_stats_match_seed_trip(client: TestClient) -> None:

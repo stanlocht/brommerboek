@@ -245,7 +245,8 @@ export class StopsService {
     /**
      * Read Stops
      * Retrieve all stops of the trip, in route order. Public — this is a
-     * personal, single-trip showcase.
+     * personal, single-trip showcase. Each stop carries its honk and comment
+     * counts so the map can badge pins without extra requests.
      * @returns StopsPublic Successful Response
      * @throws ApiError
      */
