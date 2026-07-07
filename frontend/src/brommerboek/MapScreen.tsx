@@ -58,6 +58,7 @@ export default function MapScreen({
   stops,
   route,
   stats,
+  statsUnavailable,
   cur,
   progress,
   dragging,
@@ -74,6 +75,9 @@ export default function MapScreen({
   stops: Stop[]
   route: RouteGeometry
   stats: TripStats
+  // True when the stats query failed and `stats` is just the zeroed
+  // fallback — show a hint instead of confident zeros.
+  statsUnavailable: boolean
   cur: Stop
   progress: number
   dragging: boolean
@@ -178,10 +182,18 @@ export default function MapScreen({
               >
                 LOGBOEK
               </span>
-              <span style={{ color: C.red, fontSize: 13 }}>
-                {kmLabel(stats.km)}
-              </span>
-              <span>km · dag {stats.days}</span>
+              {statsUnavailable ? (
+                <span style={{ opacity: 0.8 }}>
+                  statistieken niet beschikbaar
+                </span>
+              ) : (
+                <>
+                  <span style={{ color: C.red, fontSize: 13 }}>
+                    {kmLabel(stats.km)}
+                  </span>
+                  <span>km · dag {stats.days}</span>
+                </>
+              )}
               <span
                 aria-hidden="true"
                 style={{
