@@ -55,6 +55,7 @@ export type MediaItem = {
     cap?: string;
     kind?: 'image' | 'video';
     url?: (string | null);
+    thumb?: (string | null);
 };
 
 export type kind = 'image' | 'video';

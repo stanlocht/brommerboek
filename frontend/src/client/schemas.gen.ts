@@ -258,6 +258,18 @@ export const MediaItemSchema = {
                 }
             ],
             title: 'Url'
+        },
+        thumb: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 512
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Thumb'
         }
     },
     type: 'object',
