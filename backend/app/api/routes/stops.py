@@ -7,7 +7,7 @@ from sqlmodel import col, func, select
 
 from app import crud
 from app.api.deps import SessionDep, get_current_active_superuser
-from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX
+from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
 from app.geo import haversine_km
 from app.models import (
     Comment,
@@ -207,8 +207,17 @@ def upload_stop_media(
     finally:
         file.file.close()
     url = f"{MEDIA_URL_PREFIX}/{id}/{filename}"
+    # Pre-generate a small WebP for gallery tiles; videos keep thumb None
+    # (no ffmpeg on board) and a failed thumbnail never fails the upload.
+    thumb_url: str | None = None
+    if kind == "image":
+        thumb_path = generate_thumbnail(dest)
+        if thumb_path is not None:
+            thumb_url = f"{MEDIA_URL_PREFIX}/{id}/{thumb_path.name}"
     media_items = list(db_stop.media or [])
-    media_items.append({"tone": "", "cap": caption[:255], "kind": kind, "url": url})
+    media_items.append(
+        {"tone": "", "cap": caption[:255], "kind": kind, "url": url, "thumb": thumb_url}
+    )
     db_stop.media = media_items
     session.add(db_stop)
     session.commit()
@@ -233,14 +242,15 @@ def delete_stop_media(*, session: SessionDep, id: uuid.UUID, index: int) -> Any:
     if not 0 <= index < len(media_items):
         raise HTTPException(status_code=404, detail="Media index out of range")
     item = media_items.pop(index)
-    url = item.get("url") if isinstance(item, dict) else None
-    if url and url.startswith(f"{MEDIA_URL_PREFIX}/"):
-        rel = url[len(MEDIA_URL_PREFIX) + 1 :]
-        path = MEDIA_ROOT / rel
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            pass
+    for key in ("url", "thumb"):
+        url = item.get(key) if isinstance(item, dict) else None
+        if url and url.startswith(f"{MEDIA_URL_PREFIX}/"):
+            rel = url[len(MEDIA_URL_PREFIX) + 1 :]
+            path = MEDIA_ROOT / rel
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
     db_stop.media = media_items
     session.add(db_stop)
     session.commit()

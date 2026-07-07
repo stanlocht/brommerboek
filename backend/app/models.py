@@ -89,6 +89,9 @@ class MediaItem(SQLModel):
     cap: str = Field(default="", max_length=255)
     kind: Literal["image", "video"] = "image"
     url: str | None = Field(default=None, max_length=512)
+    # Pre-generated WebP thumbnail next to the original (`thumb_<name>.webp`);
+    # None for videos and for uploads that predate thumbnails.
+    thumb: str | None = Field(default=None, max_length=512)
 
 
 # Short-code weather conditions the picker offers. Kept as a plain str field
