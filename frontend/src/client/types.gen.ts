@@ -80,6 +80,25 @@ export type PrivateUserCreate = {
     is_verified?: boolean;
 };
 
+export type PushPublicKey = {
+    public_key: string;
+};
+
+export type PushSubscribeIn = {
+    endpoint: string;
+    keys: PushSubscriptionKeys;
+    wants_reactions?: boolean;
+};
+
+export type PushSubscriptionKeys = {
+    p256dh: string;
+    auth: string;
+};
+
+export type PushUnsubscribeIn = {
+    endpoint: string;
+};
+
 export type StopCreate = {
     place: string;
     country: string;
@@ -216,6 +235,11 @@ export type ValidationError = {
     };
 };
 
+export type WeatherSuggestion = {
+    temp: (number | null);
+    condition: (string | null);
+};
+
 export type LoginLoginAccessTokenData = {
     formData: Body_login_login_access_token;
 };
@@ -247,6 +271,20 @@ export type PrivateCreateUserData = {
 };
 
 export type PrivateCreateUserResponse = (UserPublic);
+
+export type PushReadPublicKeyResponse = (PushPublicKey);
+
+export type PushSubscribeData = {
+    requestBody: PushSubscribeIn;
+};
+
+export type PushSubscribeResponse = (Message);
+
+export type PushUnsubscribeData = {
+    requestBody: PushUnsubscribeIn;
+};
+
+export type PushUnsubscribeResponse = (Message);
 
 export type ReactionsReadCommentsData = {
     limit?: number;
@@ -394,3 +432,11 @@ export type UtilsTestEmailData = {
 export type UtilsTestEmailResponse = (Message);
 
 export type UtilsHealthCheckResponse = (boolean);
+
+export type WeatherSuggestWeatherData = {
+    date: string;
+    lat: number;
+    lng: number;
+};
+
+export type WeatherSuggestWeatherResponse = (WeatherSuggestion);

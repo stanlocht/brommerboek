@@ -7,7 +7,15 @@ import { Link, useNavigate } from "@tanstack/react-router"
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react"
 import { type UpdatePassword, UsersService, type UserUpdateMe } from "@/client"
 import useAuth from "@/hooks/useAuth"
+import IosInstallSheet from "./IosInstallSheet"
 import { CubIcon } from "./icons"
+import {
+  currentSubscription,
+  isPushSupported,
+  needsIosInstall,
+  readIosEnv,
+  subscribe,
+} from "./push"
 import { C, FONT_MONO, FONT_SERIF } from "./theme"
 
 const labelStyle: CSSProperties = {
@@ -343,6 +351,130 @@ function PasswordCard() {
   )
 }
 
+// Superuser-only: push notifications for new comments and honks. The flag
+// lives on the push subscription server-side; we mirror the choice locally
+// because the API has no read-back endpoint.
+const REACTIONS_FLAG = "bb_push_reactions"
+
+function NotificationsCard() {
+  const supported = isPushSupported()
+  const [enabled, setEnabled] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(
+    null,
+  )
+
+  useEffect(() => {
+    if (!supported) return
+    let cancelled = false
+    currentSubscription().then((sub) => {
+      if (!cancelled) {
+        setEnabled(sub !== null && localStorage.getItem(REACTIONS_FLAG) === "1")
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [supported])
+
+  const toggle = async () => {
+    if (busy) return
+    if (!enabled && needsIosInstall(readIosEnv())) {
+      setSheetOpen(true)
+      return
+    }
+    setBusy(true)
+    setMsg(null)
+    try {
+      if (enabled) {
+        // Re-POST with the flag off — keeps the browser subscribed for
+        // new-stop pushes, just drops the reaction notifications.
+        await subscribe(false)
+        localStorage.removeItem(REACTIONS_FLAG)
+        setEnabled(false)
+        setMsg({ tone: "ok", text: "meldingen bij reacties uitgezet" })
+      } else {
+        const result = await subscribe(true)
+        if (result === "subscribed") {
+          localStorage.setItem(REACTIONS_FLAG, "1")
+          setEnabled(true)
+          setMsg({ tone: "ok", text: "meldingen bij reacties aan 📯" })
+        } else if (result === "denied") {
+          setMsg({
+            tone: "err",
+            text: "meldingen geblokkeerd — zet ze aan in je browserinstellingen",
+          })
+        }
+      }
+    } catch (err) {
+      setMsg({
+        tone: "err",
+        text:
+          err instanceof Error && err.message.includes("503")
+            ? "meldingen staan nog niet aan op de server"
+            : "dat lukte niet — probeer het straks nog eens",
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card title="MELDINGEN" rot=".2deg">
+      {supported ? (
+        <>
+          <div
+            style={{
+              fontFamily: FONT_MONO,
+              fontSize: 12,
+              color: C.sepia,
+              marginBottom: 10,
+            }}
+          >
+            krijg een push zodra iemand reageert of toetert op de route.
+          </div>
+          <button
+            type="button"
+            onClick={toggle}
+            disabled={busy}
+            aria-pressed={enabled}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "9px 14px",
+              borderRadius: 20,
+              border: `1.5px solid ${enabled ? C.red : C.ochre}`,
+              background: enabled ? C.red : "none",
+              color: enabled ? C.wrappedInk : C.sepia,
+              fontFamily: FONT_MONO,
+              fontSize: 12,
+              cursor: "pointer",
+              opacity: busy ? 0.6 : 1,
+            }}
+          >
+            <span aria-hidden style={{ fontSize: 14 }}>
+              📯
+            </span>
+            {busy
+              ? "…"
+              : enabled
+                ? "meldingen bij reacties: aan"
+                : "meldingen bij reacties: uit"}
+          </button>
+          {msg && (
+            <Note color={msg.tone === "ok" ? C.teal : C.red}>{msg.text}</Note>
+          )}
+        </>
+      ) : (
+        <Note>meldingen worden niet ondersteund in deze browser.</Note>
+      )}
+      {sheetOpen && <IosInstallSheet onClose={() => setSheetOpen(false)} />}
+    </Card>
+  )
+}
+
 function LogoutCard() {
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -551,6 +683,7 @@ export default function AccountScreen() {
         <div style={{ padding: "0 16px 40px" }}>
           <ProfileCard />
           <PasswordCard />
+          {user?.is_superuser && <NotificationsCard />}
           <LogoutCard />
           <DangerCard />
         </div>

@@ -4,6 +4,7 @@ import { type ReactNode, useMemo } from "react"
 import { fetchStats, fetchStops } from "./api"
 import { haversine } from "./geo"
 import { CubIcon } from "./icons"
+import { buildTempChart, TEMP_CHART_PAD, type TempChart } from "./tempChart"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import { EMPTY_STATS } from "./trip"
 import type { Stop } from "./types"
@@ -129,6 +130,116 @@ function StatTile({
   )
 }
 
+// Hand-drawn temperature line over the trip: x = stops in route order,
+// y = °C, gaps where a stop has no temperature. Data prep lives in
+// tempChart.ts; this only draws it.
+function TempChartCard({ chart }: { chart: TempChart }) {
+  const left = TEMP_CHART_PAD.left
+  const right = chart.width - TEMP_CHART_PAD.right
+  const top = TEMP_CHART_PAD.top
+  const bottom = chart.height - TEMP_CHART_PAD.bottom
+  // Edge labels hug their axis end so they don't clip out of the viewBox.
+  const anchor = (x: number) =>
+    x <= left ? "start" : x >= right ? "end" : "middle"
+  return (
+    <div
+      style={{
+        background: C.paperCard,
+        border: `1.5px solid ${C.border}`,
+        borderRadius: 10,
+        padding: "10px 8px 4px",
+        boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+        transform: "rotate(.3deg)",
+      }}
+    >
+      <svg
+        viewBox={`0 0 ${chart.width} ${chart.height}`}
+        role="img"
+        aria-label="Temperatuur per stop onderweg"
+        style={{ width: "100%", minHeight: 120, display: "block" }}
+      >
+        {chart.ticks.map((t) => (
+          <g key={t.label}>
+            <line
+              x1={left}
+              x2={right}
+              y1={t.y}
+              y2={t.y}
+              stroke={C.borderSoft}
+              strokeWidth={0.8}
+              strokeDasharray="2 5"
+            />
+            <text
+              x={left - 5}
+              y={t.y + 3}
+              textAnchor="end"
+              fontSize={9}
+              fontFamily={FONT_MONO}
+              fill={C.sepia}
+            >
+              {t.label}
+            </text>
+          </g>
+        ))}
+        <line
+          x1={left}
+          x2={left}
+          y1={top - 6}
+          y2={bottom}
+          stroke={C.border}
+          strokeWidth={1}
+        />
+        <line
+          x1={left}
+          x2={right}
+          y1={bottom}
+          y2={bottom}
+          stroke={C.border}
+          strokeWidth={1}
+        />
+        <path
+          d={chart.path}
+          fill="none"
+          stroke={C.ochreDeep}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {chart.segments.flat().map((p) => (
+          <g key={`${p.x}-${p.y}`}>
+            {p.icon && (
+              <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize={10}>
+                {p.icon}
+              </text>
+            )}
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={3}
+              fill={C.red}
+              stroke={C.paperCard}
+              strokeWidth={1.2}
+            />
+          </g>
+        ))}
+        {chart.labels.map((l) => (
+          <text
+            key={`${l.x}-${l.text}`}
+            x={l.x}
+            y={chart.height - 7}
+            textAnchor={anchor(l.x)}
+            fontSize={9}
+            fontFamily={FONT_MONO}
+            fill={C.sepia}
+          >
+            {l.text}
+          </text>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
 function SectionTitle({ children }: { children: ReactNode }) {
   return (
     <div
@@ -164,6 +275,9 @@ export default function LogboekScreen() {
     () => derive(stops, stats.km, stats.days),
     [stops, stats.km, stats.days],
   )
+  // Null when fewer than 2 stops carry a temperature — then the plain
+  // weather list below is shown instead.
+  const tempChart = useMemo(() => buildTempChart(stops), [stops])
 
   if (isLoading) {
     return (
@@ -538,35 +652,39 @@ export default function LogboekScreen() {
             </>
           )}
 
-          {d.weathers.length > 0 && (
+          {(tempChart || d.weathers.length > 0) && (
             <>
               <SectionTitle>WEER ONDERWEG</SectionTitle>
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                }}
-              >
-                {d.weathers.map((w) => (
-                  <div
-                    key={w.label}
-                    style={{
-                      background: C.paperCard,
-                      border: `1.5px solid ${C.border}`,
-                      borderRadius: 20,
-                      padding: "5px 11px",
-                      fontFamily: FONT_MONO,
-                      fontSize: 11,
-                      color: C.sepia,
-                      boxShadow: "1px 2px 0 rgba(120,90,40,.15)",
-                    }}
-                  >
-                    {w.label}{" "}
-                    <span style={{ color: C.ochreDeep }}>×{w.count}</span>
-                  </div>
-                ))}
-              </div>
+              {tempChart ? (
+                <TempChartCard chart={tempChart} />
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 6,
+                  }}
+                >
+                  {d.weathers.map((w) => (
+                    <div
+                      key={w.label}
+                      style={{
+                        background: C.paperCard,
+                        border: `1.5px solid ${C.border}`,
+                        borderRadius: 20,
+                        padding: "5px 11px",
+                        fontFamily: FONT_MONO,
+                        fontSize: 11,
+                        color: C.sepia,
+                        boxShadow: "1px 2px 0 rgba(120,90,40,.15)",
+                      }}
+                    >
+                      {w.label}{" "}
+                      <span style={{ color: C.ochreDeep }}>×{w.count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>

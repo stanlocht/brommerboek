@@ -227,6 +227,14 @@ class StopsPublic(SQLModel):
     count: int
 
 
+# Weather auto-fill suggestion looked up at Open-Meteo. Either field may be
+# None when the upstream data is incomplete for the requested day; the client
+# treats that as "no suggestion" and leaves the field manual.
+class WeatherSuggestion(SQLModel):
+    temp: int | None
+    condition: str | None
+
+
 # Aggregate trip statistics for the "Wrapped" recap screen. `km` uses each
 # leg's odometer delta when both endpoints have a km value, and falls back
 # to great-circle distance otherwise. `suggested_km` is the last known
@@ -319,6 +327,57 @@ class HonkPublic(SQLModel):
     # popular stop shipping a giant payload; when longer, `count` is still
     # the true total.
     honkers: list[HonkerPublic] = Field(default_factory=list)
+
+
+# ----------------------------------------------------------------------------
+# Web Push subscriptions ("volg de reis").
+#
+# Anyone — logged in or not — can subscribe their browser to new-stop
+# notifications. When the subscriber is a signed-in superuser they can also
+# opt into reaction notifications (comments + honks). One row per browser
+# push endpoint; re-subscribing upserts.
+# ----------------------------------------------------------------------------
+
+
+class PushSubscription(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    # The browser-vendor push URL; globally unique per subscription.
+    endpoint: str = Field(unique=True, index=True, max_length=1024)
+    p256dh: str = Field(max_length=255)
+    auth: str = Field(max_length=255)
+    # None = anonymous follower; set = the account that subscribed.
+    user_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", nullable=True, ondelete="CASCADE"
+    )
+    # Only honored for superusers — reaction pushes are an admin feature.
+    wants_reactions: bool = False
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class PushSubscriptionKeys(SQLModel):
+    p256dh: str = Field(min_length=1, max_length=255)
+    auth: str = Field(min_length=1, max_length=255)
+
+
+# Mirrors the JSON of a browser PushSubscription (endpoint + keys), plus the
+# admin-only wants_reactions flag.
+class PushSubscribeIn(SQLModel):
+    endpoint: str = Field(min_length=1, max_length=1024)
+    keys: PushSubscriptionKeys
+    wants_reactions: bool = False
+
+
+class PushUnsubscribeIn(SQLModel):
+    endpoint: str = Field(min_length=1, max_length=1024)
+
+
+class PushPublicKey(SQLModel):
+    # base64url, uncompressed P-256 point — feeds pushManager.subscribe's
+    # applicationServerKey directly.
+    public_key: str
 
 
 # Generic message

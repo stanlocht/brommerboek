@@ -16,10 +16,13 @@ import { buildRoute, nearestStop, stopFraction } from "./geo"
 import { CubIcon } from "./icons"
 import LoginPrompt from "./LoginPrompt"
 import MapScreen from "./MapScreen"
+import ReplayOverlay from "./ReplayOverlay"
 import StopSheet from "./StopSheet"
+import { shareUrl, stopIdFromSearch, withoutStopParam } from "./share"
 import { C, FONT_MONO } from "./theme"
 import { EMPTY_STATS } from "./trip"
 import type { NewStop, Stop } from "./types"
+import useReplay from "./useReplay"
 
 function CenterState({ text }: { text: string }) {
   return (
@@ -100,14 +103,41 @@ export default function BrommerboekApp() {
     [stops],
   )
 
-  // On first load, park the cub at the latest stop.
+  const replay = useReplay({
+    stops: stops ?? [],
+    route,
+    setProgress,
+    setActiveIndex,
+  })
+  const replaying = replay.phase !== "idle"
+
+  // On first load, park the cub at the latest stop — unless the URL carries
+  // a ?stop=<id> deep link (from a share link — /s/<id> bounces humans here —
+  // or from a push notification), in which case ride to that stop and open
+  // its sheet. The param is scrubbed from the address bar either way so a
+  // refresh doesn't replay it; an unknown id is ignored silently.
   const initedRef = useRef(false)
   useEffect(() => {
     if (!stops || stops.length === 0 || initedRef.current) return
     initedRef.current = true
+    const sharedId = stopIdFromSearch(window.location.search)
+    if (sharedId) {
+      window.history.replaceState(
+        null,
+        "",
+        withoutStopParam(window.location.href),
+      )
+      const idx = stops.findIndex((s) => s.id === sharedId)
+      if (idx >= 0) {
+        setActiveIndex(idx)
+        setProgress(stopFraction(route, idx))
+        setSheetOpen(true)
+        return
+      }
+    }
     setActiveIndex(stops.length - 1)
     setProgress(1)
-  }, [stops])
+  }, [stops, route])
 
   // After adding a stop, jump to the new latest stop once data refetches.
   useEffect(() => {
@@ -189,6 +219,26 @@ export default function BrommerboekApp() {
     qc.invalidateQueries({ queryKey: ["stops"] })
   }
 
+  // Native share sheet when the browser has one (mobile), else copy the
+  // link and confirm with a toast.
+  const shareCurrentStop = async (stop: Stop) => {
+    const url = shareUrl(window.location.origin, stop.id)
+    if (navigator.share) {
+      try {
+        await navigator.share({ url })
+      } catch {
+        // Dismissing the share sheet rejects — nothing to report.
+      }
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(url)
+      flash("link gekopieerd")
+    } catch {
+      flash("kon de link niet kopiëren")
+    }
+  }
+
   function flash(msg: string) {
     setToast(msg)
     if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -262,6 +312,17 @@ export default function BrommerboekApp() {
     animRef.current = requestAnimationFrame(step)
   }
 
+  // Starting a replay closes the sheet and add/edit flows first so the stage
+  // is clean; exit restores the exact progress/activeIndex saved here.
+  const startReplay = () => {
+    cancelAnim()
+    setDragging(false)
+    setSheetOpen(false)
+    setAddOpen(false)
+    setEditStop(null)
+    replay.start({ progress: progressRef.current, activeIndex })
+  }
+
   return (
     <div className="bb-app">
       <MapScreen
@@ -279,12 +340,28 @@ export default function BrommerboekApp() {
         onStep={onStep}
         onOpenSheet={() => setSheetOpen(true)}
         onPinClick={(i) => {
+          if (replaying) return
           setActiveIndex(i)
           setSheetOpen(true)
         }}
         onAdd={canEdit ? () => setAddOpen(true) : undefined}
         onLogin={() => setLoginOpen(true)}
+        replaying={replaying}
+        replayFollow={replay.following}
+        replayReduced={replay.reduced}
+        onReplay={stops.length >= 2 ? startReplay : undefined}
+        onReplayGesture={replay.pauseFollow}
       />
+
+      {replaying && (
+        <ReplayOverlay
+          replay={replay}
+          stops={stops}
+          route={route}
+          stats={stats}
+          progress={progress}
+        />
+      )}
 
       {/* paper textures over everything but chrome */}
       <div className="bb-grain" />
@@ -295,6 +372,7 @@ export default function BrommerboekApp() {
           cur={cur}
           canEdit={canEdit}
           onClose={() => setSheetOpen(false)}
+          onShare={() => shareCurrentStop(cur)}
           onEdit={() => {
             setEditStop(cur)
             setSheetOpen(false)

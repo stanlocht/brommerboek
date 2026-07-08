@@ -11,10 +11,17 @@ import type { RouteGeometry } from "./geo"
 import { pointAt } from "./geo"
 import { cubSvgString, WRENCH_INNER } from "./icons"
 import { vintageStyle } from "./mapStyle"
+import { bearingDelta, dampenBearing, INTRO_MS } from "./replayMath"
 import { C, PIN_ROTS } from "./theme"
 import type { Stop } from "./types"
 
 const FOLLOW_ZOOM = 6.3
+// Cinematic replay camera: slightly closer than the scrub follow, pitched for
+// depth, and rotated (dampened) toward the travel bearing. Per-frame bearing
+// eases toward the target so leg changes swing gently instead of snapping.
+const CINE_ZOOM = 7
+const CINE_PITCH = 40
+const CINE_BEARING_EASE = 0.06
 
 // CSS transform that points the (right-facing) Cub along the travel bearing
 // while keeping it wheels-down — mirrors horizontally for westbound legs
@@ -52,6 +59,16 @@ interface Props {
   progress: number
   dragging: boolean
   onPinClick: (index: number) => void
+  // Cinematic replay mode: while true the camera follows the cub with pitch,
+  // closer zoom and dampened rotation toward the travel bearing.
+  replaying?: boolean
+  // False while the user has taken the map over mid-replay — the timeline
+  // keeps running but the camera stays hands-off.
+  replayFollow?: boolean
+  // Reduced motion: step the camera stop-to-stop without swoops or rotation.
+  replayReduced?: boolean
+  // A user gesture hit the map during a replay; the app pauses camera follow.
+  onReplayGesture?: () => void
 }
 
 export default function VintageMap({
@@ -60,6 +77,10 @@ export default function VintageMap({
   progress,
   dragging,
   onPinClick,
+  replaying = false,
+  replayFollow = true,
+  replayReduced = false,
+  onReplayGesture,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -70,6 +91,18 @@ export default function VintageMap({
   const interactedRef = useRef(false)
   const onPinClickRef = useRef(onPinClick)
   onPinClickRef.current = onPinClick
+  const replayingRef = useRef(replaying)
+  replayingRef.current = replaying
+  const replayFollowRef = useRef(replayFollow)
+  replayFollowRef.current = replayFollow
+  const replayReducedRef = useRef(replayReduced)
+  replayReducedRef.current = replayReduced
+  const onReplayGestureRef = useRef(onReplayGesture)
+  onReplayGestureRef.current = onReplayGesture
+  const camBearingRef = useRef(0)
+  // Set on replay exit so the next progress sync skips the camera — the exit
+  // easeTo below owns the restore and must not be cancelled.
+  const skipFollowRef = useRef(false)
 
   // --- init map + layers (once) ---------------------------------------------
   // biome-ignore lint/correctness/useExhaustiveDependencies: init runs once
@@ -90,6 +123,15 @@ export default function VintageMap({
       "top-right",
     )
     mapRef.current = map
+
+    // Any real user gesture during a replay hands the camera back to the
+    // user — originalEvent distinguishes input from our own easeTo/jumpTo.
+    const gesture = (e: { originalEvent?: unknown }) => {
+      if (e.originalEvent && replayingRef.current)
+        onReplayGestureRef.current?.()
+    }
+    map.on("dragstart", gesture)
+    map.on("zoomstart", gesture)
 
     map.on("load", () => {
       // route line: cream casing + red dashed line
@@ -187,6 +229,7 @@ export default function VintageMap({
   }, [stops])
 
   // --- move cub + follow camera on progress/drag ----------------------------
+  // ALL camera math lives here (plus the replay enter/exit effect below).
   const syncCub = useCallback(
     (t: number, follow: boolean) => {
       const map = mapRef.current
@@ -196,26 +239,92 @@ export default function VintageMap({
       cub.setLngLat([pt.lng, pt.lat])
       if (cubRotRef.current)
         cubRotRef.current.style.transform = cubTransform(pt.bearing)
-      if (follow) {
-        if (dragging) {
-          map.jumpTo({ center: [pt.lng, pt.lat] })
-        } else if (interactedRef.current) {
-          map.easeTo({
+      if (!follow) return
+      if (replayingRef.current) {
+        // The user owns the camera after a gesture; the intro flyTo (which
+        // keeps the map moving) also finishes undisturbed.
+        if (!replayFollowRef.current || map.isMoving()) return
+        if (replayReducedRef.current) {
+          map.jumpTo({ center: [pt.lng, pt.lat], zoom: CINE_ZOOM })
+        } else {
+          const target = dampenBearing(pt.bearing)
+          camBearingRef.current +=
+            bearingDelta(camBearingRef.current, target) * CINE_BEARING_EASE
+          map.jumpTo({
             center: [pt.lng, pt.lat],
-            zoom: FOLLOW_ZOOM,
-            duration: 650,
-            easing: (x) => 1 - (1 - x) ** 3,
+            zoom: CINE_ZOOM,
+            pitch: CINE_PITCH,
+            bearing: camBearingRef.current,
           })
         }
+        return
+      }
+      if (dragging) {
+        map.jumpTo({ center: [pt.lng, pt.lat], pitch: 0, bearing: 0 })
+      } else if (interactedRef.current) {
+        map.easeTo({
+          center: [pt.lng, pt.lat],
+          zoom: FOLLOW_ZOOM,
+          pitch: 0,
+          bearing: 0,
+          duration: 650,
+          easing: (x) => 1 - (1 - x) ** 3,
+        })
       }
     },
     [route, dragging],
   )
 
+  // Replay enter/exit transitions: an initial swoop down to the first stop,
+  // and a smooth north-up pitch-0 restore on the way out. Declared before the
+  // progress sync so the flyTo is already running (and wins) when the first
+  // replay progress lands.
+  const prevReplayingRef = useRef(false)
+  useEffect(() => {
+    const map = mapRef.current
+    const was = prevReplayingRef.current
+    prevReplayingRef.current = replaying
+    if (!map || !readyRef.current || was === replaying) return
+    if (replaying) {
+      camBearingRef.current = 0
+      const pt = pointAt(route, 0)
+      if (replayReduced) {
+        map.jumpTo({
+          center: [pt.lng, pt.lat],
+          zoom: CINE_ZOOM,
+          pitch: 0,
+          bearing: 0,
+        })
+      } else {
+        map.flyTo({
+          center: [pt.lng, pt.lat],
+          zoom: CINE_ZOOM,
+          pitch: CINE_PITCH,
+          bearing: 0,
+          duration: INTRO_MS,
+        })
+      }
+    } else {
+      skipFollowRef.current = true
+      const pt = pointAt(route, progress)
+      map.easeTo({
+        center: [pt.lng, pt.lat],
+        zoom: FOLLOW_ZOOM,
+        pitch: 0,
+        bearing: 0,
+        duration: 650,
+        easing: (x) => 1 - (1 - x) ** 3,
+      })
+    }
+  }, [replaying, replayReduced, route, progress])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: replayFollow re-frames the camera when follow resumes
   useEffect(() => {
     if (dragging) interactedRef.current = true
-    syncCub(progress, true)
-  }, [progress, dragging, syncCub])
+    const skip = skipFollowRef.current
+    skipFollowRef.current = false
+    syncCub(progress, !skip)
+  }, [progress, dragging, replayFollow, syncCub])
 
   return <div ref={containerRef} className="bb-map-canvas" />
 }

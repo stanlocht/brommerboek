@@ -1,11 +1,12 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, OptionalUser, SessionDep
+from app.core import push
 from app.core.ratelimit import rate_limit
 from app.models import (
     Comment,
@@ -34,9 +35,20 @@ def _display_name(user: User) -> str:
     return user.email.split("@", 1)[0]
 
 
-def _ensure_stop(session: SessionDep, stop_id: uuid.UUID) -> None:
-    if not session.get(Stop, stop_id):
+def _ensure_stop(session: SessionDep, stop_id: uuid.UUID) -> Stop:
+    stop = session.get(Stop, stop_id)
+    if not stop:
         raise HTTPException(status_code=404, detail="Stop not found")
+    return stop
+
+
+COMMENT_EXCERPT_LENGTH = 80
+
+
+def _excerpt(body: str) -> str:
+    if len(body) <= COMMENT_EXCERPT_LENGTH:
+        return body
+    return body[: COMMENT_EXCERPT_LENGTH - 1].rstrip() + "…"
 
 
 # ----- Comments --------------------------------------------------------------
@@ -95,11 +107,12 @@ def create_comment(
     me: CurrentUser,
     stop_id: uuid.UUID,
     comment_in: CommentCreate,
+    background_tasks: BackgroundTasks,
 ) -> Any:
     """
     Leave a comment on a stop. Any active user may comment.
     """
-    _ensure_stop(session, stop_id)
+    stop = _ensure_stop(session, stop_id)
     body = comment_in.body.strip()
     if not body:
         raise HTTPException(status_code=422, detail="Comment cannot be empty")
@@ -107,6 +120,12 @@ def create_comment(
     session.add(comment)
     session.commit()
     session.refresh(comment)
+    background_tasks.add_task(
+        push.send_to_admins,
+        title=f"nieuwe reactie van {_display_name(me)}",
+        body=f"op {stop.place}: '{_excerpt(body)}'",
+        url=f"/?stop={stop_id}",
+    )
     return CommentPublic(
         id=comment.id,
         stop_id=comment.stop_id,
@@ -195,11 +214,16 @@ def read_honks(session: SessionDep, me: OptionalUser, stop_id: uuid.UUID) -> Any
         Depends(rate_limit("honks", HONK_RATE_LIMIT, HONK_RATE_WINDOW_SECONDS))
     ],
 )
-def toggle_honk(session: SessionDep, me: CurrentUser, stop_id: uuid.UUID) -> Any:
+def toggle_honk(
+    session: SessionDep,
+    me: CurrentUser,
+    stop_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+) -> Any:
     """
     Toggle the caller's horn honk on a stop.
     """
-    _ensure_stop(session, stop_id)
+    stop = _ensure_stop(session, stop_id)
     existing = session.exec(
         select(HornHonk).where(HornHonk.stop_id == stop_id, HornHonk.user_id == me.id)
     ).first()
@@ -211,6 +235,13 @@ def toggle_honk(session: SessionDep, me: CurrentUser, stop_id: uuid.UUID) -> Any
         session.add(honk)
         try:
             session.commit()
+            # Only a freshly created honk notifies — removals stay silent.
+            background_tasks.add_task(
+                push.send_to_admins,
+                title=f"{_display_name(me)} toetert bij {stop.place} 📯",
+                body="",
+                url=f"/?stop={stop_id}",
+            )
         except IntegrityError:
             # Lost a race with another concurrent honk from the same user —
             # the unique constraint already guarantees the desired state.
