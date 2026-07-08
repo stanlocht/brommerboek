@@ -163,3 +163,19 @@ dc logs --tail=100 backend
 dc logs --tail=100 prestart
 docker inspect -f '{{.State.ExitCode}}' "$(dc ps -aq prestart)"
 ```
+
+## 6. External services
+
+- **Weather auto-fill: Open-Meteo** (https://open-meteo.com). The backend's
+  `GET /api/v1/weather/suggest` endpoint asks `api.open-meteo.com` (recent
+  days) or `archive-api.open-meteo.com` (older dates) for the daily mean
+  temperature and weather code at a stop. Open-Meteo is free for
+  non-commercial use without an API key; its data is licensed
+  [CC BY 4.0](https://open-meteo.com/en/license), so keep the
+  "weer · Open-Meteo" attribution in the add-stop flow. The service is
+  open-source (AGPL, https://github.com/open-meteo/open-meteo) and can be
+  self-hosted via Docker — if it ever changes terms or goes down, run your
+  own instance and point `FORECAST_URL`/`ARCHIVE_URL` in
+  `backend/app/api/routes/weather.py` at it. Upstream failures degrade
+  gracefully: the endpoint returns 503 and the app simply leaves the weather
+  fields manual.

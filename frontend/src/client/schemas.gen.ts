@@ -1181,3 +1181,33 @@ export const ValidationErrorSchema = {
     required: ['loc', 'msg', 'type'],
     title: 'ValidationError'
 } as const;
+
+export const WeatherSuggestionSchema = {
+    properties: {
+        temp: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Temp'
+        },
+        condition: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Condition'
+        }
+    },
+    type: 'object',
+    required: ['temp', 'condition'],
+    title: 'WeatherSuggestion'
+} as const;

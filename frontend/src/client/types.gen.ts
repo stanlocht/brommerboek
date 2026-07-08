@@ -216,6 +216,11 @@ export type ValidationError = {
     };
 };
 
+export type WeatherSuggestion = {
+    temp: (number | null);
+    condition: (string | null);
+};
+
 export type LoginLoginAccessTokenData = {
     formData: Body_login_login_access_token;
 };
@@ -394,3 +399,11 @@ export type UtilsTestEmailData = {
 export type UtilsTestEmailResponse = (Message);
 
 export type UtilsHealthCheckResponse = (boolean);
+
+export type WeatherSuggestWeatherData = {
+    date: string;
+    lat: number;
+    lng: number;
+};
+
+export type WeatherSuggestWeatherResponse = (WeatherSuggestion);

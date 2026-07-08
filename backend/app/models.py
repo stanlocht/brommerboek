@@ -227,6 +227,14 @@ class StopsPublic(SQLModel):
     count: int
 
 
+# Weather auto-fill suggestion looked up at Open-Meteo. Either field may be
+# None when the upstream data is incomplete for the requested day; the client
+# treats that as "no suggestion" and leaves the field manual.
+class WeatherSuggestion(SQLModel):
+    temp: int | None
+    condition: str | None
+
+
 # Aggregate trip statistics for the "Wrapped" recap screen. `km` uses each
 # leg's odometer delta when both endpoints have a km value, and falls back
 # to great-circle distance otherwise. `suggested_km` is the last known
