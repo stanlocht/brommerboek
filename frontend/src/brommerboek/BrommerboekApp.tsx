@@ -16,11 +16,13 @@ import { buildRoute, nearestStop, stopFraction } from "./geo"
 import { CubIcon } from "./icons"
 import LoginPrompt from "./LoginPrompt"
 import MapScreen from "./MapScreen"
+import ReplayOverlay from "./ReplayOverlay"
 import StopSheet from "./StopSheet"
 import { shareUrl, stopIdFromSearch, withoutStopParam } from "./share"
 import { C, FONT_MONO } from "./theme"
 import { EMPTY_STATS } from "./trip"
 import type { NewStop, Stop } from "./types"
+import useReplay from "./useReplay"
 
 function CenterState({ text }: { text: string }) {
   return (
@@ -100,6 +102,14 @@ export default function BrommerboekApp() {
       buildRoute((stops ?? []).map((s) => [s.lng, s.lat] as [number, number])),
     [stops],
   )
+
+  const replay = useReplay({
+    stops: stops ?? [],
+    route,
+    setProgress,
+    setActiveIndex,
+  })
+  const replaying = replay.phase !== "idle"
 
   // On first load, park the cub at the latest stop — unless the URL carries
   // a ?stop=<id> deep link (from a share link — /s/<id> bounces humans here —
@@ -302,6 +312,17 @@ export default function BrommerboekApp() {
     animRef.current = requestAnimationFrame(step)
   }
 
+  // Starting a replay closes the sheet and add/edit flows first so the stage
+  // is clean; exit restores the exact progress/activeIndex saved here.
+  const startReplay = () => {
+    cancelAnim()
+    setDragging(false)
+    setSheetOpen(false)
+    setAddOpen(false)
+    setEditStop(null)
+    replay.start({ progress: progressRef.current, activeIndex })
+  }
+
   return (
     <div className="bb-app">
       <MapScreen
@@ -319,12 +340,28 @@ export default function BrommerboekApp() {
         onStep={onStep}
         onOpenSheet={() => setSheetOpen(true)}
         onPinClick={(i) => {
+          if (replaying) return
           setActiveIndex(i)
           setSheetOpen(true)
         }}
         onAdd={canEdit ? () => setAddOpen(true) : undefined}
         onLogin={() => setLoginOpen(true)}
+        replaying={replaying}
+        replayFollow={replay.following}
+        replayReduced={replay.reduced}
+        onReplay={stops.length >= 2 ? startReplay : undefined}
+        onReplayGesture={replay.pauseFollow}
       />
+
+      {replaying && (
+        <ReplayOverlay
+          replay={replay}
+          stops={stops}
+          route={route}
+          stats={stats}
+          progress={progress}
+        />
+      )}
 
       {/* paper textures over everything but chrome */}
       <div className="bb-grain" />

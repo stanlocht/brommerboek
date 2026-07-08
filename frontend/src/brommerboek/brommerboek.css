@@ -46,6 +46,11 @@
     transform: scale(1) rotate(var(--r, 0deg));
   }
 }
+@keyframes bb-fadeOut {
+  to {
+    opacity: 0;
+  }
+}
 @keyframes bb-toastIn {
   from {
     opacity: 0;
@@ -90,6 +95,13 @@
 }
 .bb-stampin {
   animation: bb-stampIn 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+/* Passport stamp during the replay: slams in, lingers, fades out. */
+.bb-replay-stamp {
+  pointer-events: none;
+  animation:
+    bb-stampIn 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both,
+    bb-fadeOut 0.4s ease 1.5s forwards;
 }
 .bb-toast {
   animation: bb-toastIn 0.25s ease both;
