@@ -50,6 +50,10 @@ export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
 
+export type MediaCaptionUpdate = {
+    cap: string;
+};
+
 export type MediaItem = {
     tone?: string;
     cap?: string;
@@ -313,6 +317,14 @@ export type StopsUploadStopMediaData = {
 };
 
 export type StopsUploadStopMediaResponse = (StopPublic);
+
+export type StopsUpdateStopMediaCaptionData = {
+    id: string;
+    index: number;
+    requestBody: MediaCaptionUpdate;
+};
+
+export type StopsUpdateStopMediaCaptionResponse = (StopPublic);
 
 export type StopsDeleteStopMediaData = {
     id: string;

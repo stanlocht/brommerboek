@@ -194,6 +194,12 @@ class StopUpdate(SQLModel):
         return check_stop_type(v)
 
 
+# Caption edit for one media item — the only mutable field after upload; the
+# file itself is replaced by delete + re-upload.
+class MediaCaptionUpdate(SQLModel):
+    cap: str = Field(max_length=255)
+
+
 # Database model, database table inferred from class name
 class Stop(StopBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)

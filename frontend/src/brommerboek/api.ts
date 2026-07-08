@@ -86,13 +86,33 @@ export async function uploadStopMedia(
 ): Promise<Stop> {
   const form = new FormData()
   form.append("file", file)
-  form.append("caption", caption)
-  const res = await fetch(mediaUrl(id), {
+  // The backend reads `caption` as a query parameter, not a form field.
+  const url = caption
+    ? `${mediaUrl(id)}?caption=${encodeURIComponent(caption)}`
+    : mediaUrl(id)
+  const res = await fetch(url, {
     method: "POST",
     headers: authHeaders(),
     body: form,
   })
   if (!res.ok) throw new Error(`Failed to upload media (${res.status})`)
+  return (await res.json()) as Stop
+}
+
+export async function updateStopMediaCaption(
+  id: string,
+  index: number,
+  cap: string,
+): Promise<Stop> {
+  const res = await fetch(mediaIndexUrl(id, index), {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ cap }),
+  })
+  if (!res.ok) throw new Error(`Failed to update caption (${res.status})`)
   return (await res.json()) as Stop
 }
 
