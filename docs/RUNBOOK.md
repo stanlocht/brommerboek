@@ -130,7 +130,76 @@ tar xzf /home/deploy/backups/media-<STAMP>.tar.gz -C ~/brommerboek
 docker compose -f docker-compose.yml --env-file .env --env-file .env.deploy up -d
 ```
 
-## 5. Maintenance
+## 5. Web Push notificaties ("volg de reis")
+
+Fully self-hosted: subscribers' browsers hand us a push endpoint that lives at
+their browser vendor's relay (Mozilla autopush, Google FCM's webpush front,
+Apple's push servers, …). The backend POSTs encrypted payloads straight to
+those endpoints, signed with our VAPID key — no accounts or third-party
+services, the relays are built into the Web Push standard. Nobody but the
+subscribed browser can read a payload (it is encrypted against the
+subscription's own keys).
+
+### Enable it
+
+1. Generate a VAPID keypair (any machine with the backend venv; nothing is
+   registered anywhere, it is just an EC P-256 key):
+
+```bash
+cd backend
+uv run python -c "
+from cryptography.hazmat.primitives import serialization
+from py_vapid import Vapid02, b64urlencode
+v = Vapid02(); v.generate_keys()
+print('VAPID_PRIVATE_KEY=' + b64urlencode(v.private_key.private_numbers().private_value.to_bytes(32, 'big')))
+print('# public key (served to clients automatically):')
+print(b64urlencode(v.public_key.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)))
+"
+```
+
+   On the production box the same one-liner works inside the backend
+   container: `dc exec -T backend python -c "…"`. (py_vapid also ships a
+   `vapid --gen` CLI, but that writes PEM files; the env var wants the raw
+   base64url string the one-liner prints.)
+
+2. Put the private key in `~/brommerboek/.env`:
+
+```bash
+VAPID_PRIVATE_KEY=<the base64url string>
+# optional; falls back to EMAILS_FROM_EMAIL or FIRST_SUPERUSER
+VAPID_CLAIMS_EMAIL=you@example.com
+```
+
+3. `dc up -d backend`. That's all — the **public** key is derived from the
+   private key at runtime and served at `GET /api/v1/push/public-key`, so it
+   never needs configuring separately.
+
+With `VAPID_PRIVATE_KEY` empty, push is off: subscribe endpoints answer
+`503 push niet geconfigureerd` and the send helpers no-op.
+
+**Don't rotate the key casually** — existing subscriptions are bound to the
+public key they subscribed with; a new key means every follower has to
+re-subscribe (old rows get pruned automatically when the relays answer
+404/410).
+
+### Behaviour
+
+- Anyone (also anonymous visitors) can tap "🔔 volg de reis" → push on every
+  new stop.
+- Superusers get an extra "meldingen" card on /settings → push on new
+  comments and honks (`wants_reactions`, only honored for superusers).
+- Sending happens in FastAPI background tasks; a relay outage can never fail
+  the API request. Dead subscriptions (404/410 from the relay) are deleted on
+  the spot.
+
+### iOS caveat
+
+iPhone/iPad Safari only allows Web Push from a web app that has been added to
+the home screen ("zet op beginscherm") — a plain Safari tab has no push
+support. The frontend detects this and shows install instructions instead of
+the permission prompt. Once opened from the home screen icon, the normal
+subscribe flow works (iOS 16.4+).
+## 6. Maintenance
 
 ### Backfill media thumbnails
 
@@ -145,7 +214,7 @@ docker compose exec backend python app/backfill_thumbs.py
 
 (or `dc exec backend python app/backfill_thumbs.py` with the alias above).
 
-## 6. Health & monitoring
+## 7. Health & monitoring
 
 - Health endpoint: `GET /api/v1/utils/health-check/` (returns `true`), defined
   in `backend/app/api/routes/utils.py`. Publicly reachable at
@@ -164,7 +233,7 @@ dc logs --tail=100 prestart
 docker inspect -f '{{.State.ExitCode}}' "$(dc ps -aq prestart)"
 ```
 
-## 6. External services
+## 8. External services
 
 - **Weather auto-fill: Open-Meteo** (https://open-meteo.com). The backend's
   `GET /api/v1/weather/suggest` endpoint asks `api.open-meteo.com` (recent

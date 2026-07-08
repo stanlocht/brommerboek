@@ -102,10 +102,10 @@ export default function BrommerboekApp() {
   )
 
   // On first load, park the cub at the latest stop — unless the URL carries
-  // a ?stop=<id> from a share link (/s/<id> bounces humans here), in which
-  // case ride to that stop and open its sheet. The param is scrubbed from
-  // the address bar either way so a refresh doesn't replay it; an unknown
-  // id is ignored silently.
+  // a ?stop=<id> deep link (from a share link — /s/<id> bounces humans here —
+  // or from a push notification), in which case ride to that stop and open
+  // its sheet. The param is scrubbed from the address bar either way so a
+  // refresh doesn't replay it; an unknown id is ignored silently.
   const initedRef = useRef(false)
   useEffect(() => {
     if (!stops || stops.length === 0 || initedRef.current) return
