@@ -63,6 +63,14 @@
 }
 
 /* ---- app shell ----------------------------------------------------------- */
+/* The admin ThemeProvider puts a .dark class on <html>, which turns the
+   Tailwind body background near-black. Mobile browsers sample that colour
+   for the status-bar / toolbar tint, so behind this app the body must be
+   paper. Unlayered, so it beats Tailwind's @layer base body rule. */
+body:has(.bb-app) {
+  background-color: #e9dcbf;
+}
+
 /* Mobile-first, but the app fills the whole viewport on any screen size —
    no phone-frame column on desktop. */
 .bb-app {
