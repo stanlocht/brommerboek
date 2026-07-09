@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import anyio.to_thread
 import sentry_sdk
 from fastapi import FastAPI, Request
@@ -20,10 +23,18 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 if settings.SENTRY_DSN and settings.ENVIRONMENT != "local":
     sentry_sdk.init(dsn=str(settings.SENTRY_DSN), enable_tracing=True)
 
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    yield
+    # Persist whatever this worker counted since its last usage flush.
+    usage.flush_now()
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     generate_unique_id_function=custom_generate_unique_id,
+    lifespan=lifespan,
 )
 
 
@@ -41,9 +52,6 @@ async def track_usage(request: Request, call_next):  # type: ignore[no-untyped-d
             await anyio.to_thread.run_sync(usage.flush, pending)
     return response
 
-
-# Persist whatever this worker counted since its last flush.
-app.add_event_handler("shutdown", usage.flush_now)
 
 # Set all CORS enabled origins
 if settings.all_cors_origins:
