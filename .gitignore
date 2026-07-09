@@ -11,6 +11,9 @@ node_modules/
 .DS_Store
 # Uploaded stop media (bind-mounted into the dev backend container).
 /media/
+# PR-preview state (only ever exists on the box, written by preview.yml).
+/previews/
+/caddy-previews/
 # Dedicated CI SSH key (private half in a GitHub secret; never committed).
 deploy_ci
 deploy_ci.pub

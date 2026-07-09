@@ -20,3 +20,9 @@ brommerboek.nl {
         reverse_proxy frontend:80
     }
 }
+
+# Per-PR preview sites (pr-<N>.brommerboek.nl), one snippet per open PR,
+# written/removed by .github/workflows/preview.yml. Needs the wildcard DNS
+# record *.brommerboek.nl -> this box; Caddy gets a normal per-hostname
+# certificate for each preview via the HTTP challenge.
+import /etc/caddy/previews/*.caddy
