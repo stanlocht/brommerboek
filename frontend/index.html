@@ -8,7 +8,19 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>Brommerboek — De Grote Tocht</title>
+    <!-- Tint the browser chrome (status bar / address bar) in the site's
+         paper tone instead of the browser default. -->
+    <meta name="theme-color" content="#e9dcbf" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/x-icon" href="/assets/images/favicon.png" />
+    <style>
+      /* Paper tone behind everything so the notch / overscroll areas and the
+         first paint match the app instead of flashing white or black. */
+      html {
+        background-color: #e9dcbf;
+      }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
