@@ -18,6 +18,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as LogboekRouteImport } from './routes/logboek'
 import { Route as LayoutRouteImport } from './routes/_layout'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LayoutStatusRouteImport } from './routes/_layout/status'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
 
 const StempelsRoute = StempelsRouteImport.update({
@@ -64,6 +65,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LayoutStatusRoute = LayoutStatusRouteImport.update({
+  id: '/status',
+  path: '/status',
+  getParentRoute: () => LayoutRoute,
+} as any)
 const LayoutAdminRoute = LayoutAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -80,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/stempels': typeof StempelsRoute
   '/admin': typeof LayoutAdminRoute
+  '/status': typeof LayoutStatusRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -91,6 +98,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/stempels': typeof StempelsRoute
   '/admin': typeof LayoutAdminRoute
+  '/status': typeof LayoutStatusRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -104,6 +112,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/stempels': typeof StempelsRoute
   '/_layout/admin': typeof LayoutAdminRoute
+  '/_layout/status': typeof LayoutStatusRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -117,6 +126,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/stempels'
     | '/admin'
+    | '/status'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/stempels'
     | '/admin'
+    | '/status'
   id:
     | '__root__'
     | '/'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/stempels'
     | '/_layout/admin'
+    | '/_layout/status'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -219,6 +231,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_layout/status': {
+      id: '/_layout/status'
+      path: '/status'
+      fullPath: '/status'
+      preLoaderRoute: typeof LayoutStatusRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/admin': {
       id: '/_layout/admin'
       path: '/admin'
@@ -231,10 +250,12 @@ declare module '@tanstack/react-router' {
 
 interface LayoutRouteChildren {
   LayoutAdminRoute: typeof LayoutAdminRoute
+  LayoutStatusRoute: typeof LayoutStatusRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminRoute: LayoutAdminRoute,
+  LayoutStatusRoute: LayoutStatusRoute,
 }
 
 const LayoutRouteWithChildren =
