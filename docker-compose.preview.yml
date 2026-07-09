@@ -46,6 +46,9 @@ services:
   backend:
     image: ghcr.io/stanlocht/brommerboek-backend:${TAG:?}
     restart: unless-stopped
+    # The image CMD runs 4 uvicorn workers, sized for production; they OOM
+    # against the preview mem_limit and a preview doesn't need them anyway.
+    command: fastapi run --workers 1
     mem_limit: 512m
     env_file:
       - previews/${PR_SLUG:?}/.env
