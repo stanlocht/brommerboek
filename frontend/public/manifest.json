@@ -1,0 +1,22 @@
+{
+  "name": "Brommerboek — De Grote Tocht",
+  "short_name": "Brommerboek",
+  "description": "Reisdagboek van de grote brommertocht",
+  "lang": "nl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#e9dcbf",
+  "theme_color": "#e9dcbf",
+  "icons": [
+    {
+      "src": "/assets/images/favicon.png",
+      "sizes": "144x144",
+      "type": "image/png"
+    },
+    {
+      "src": "/cub50.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
