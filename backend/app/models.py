@@ -380,6 +380,74 @@ class PushPublicKey(SQLModel):
     public_key: str
 
 
+# ----------------------------------------------------------------------------
+# Usage tracking + server status (superuser-only dashboard).
+#
+# Requests are counted in memory per worker (see core/usage.py) and flushed
+# additively into `usagestat` — one row per (UTC day, bucket), so the table
+# stays tiny (a handful of rows per day) no matter the traffic.
+# ----------------------------------------------------------------------------
+
+
+class UsageStat(SQLModel, table=True):
+    day: date = Field(primary_key=True)
+    # e.g. "stops:read", "media:read", "login:write" — see usage.bucket_for().
+    bucket: str = Field(primary_key=True, max_length=48)
+    count: int = 0
+
+
+class UsageDayPublic(SQLModel):
+    day: date
+    buckets: dict[str, int]
+
+
+class StatusMemory(SQLModel):
+    # None on platforms without /proc (e.g. macOS dev machines).
+    total_bytes: int | None = None
+    available_bytes: int | None = None
+
+
+class StatusDisk(SQLModel):
+    total_bytes: int
+    free_bytes: int
+
+
+class StatusServer(SQLModel):
+    # Load averages are host-wide (containers share the kernel).
+    load_avg: list[float]
+    cpu_count: int | None
+    memory: StatusMemory
+    disk: StatusDisk
+    host_uptime_seconds: float | None
+    worker_started_at: datetime
+
+
+class StatusMedia(SQLModel):
+    file_count: int
+    total_bytes: int
+
+
+class StatusDatabase(SQLModel):
+    size_bytes: int
+    users: int
+    stops: int
+    comments: int
+    honks: int
+    push_subscriptions: int
+
+
+class AdminStatus(SQLModel):
+    environment: str
+    # Image tag the box is running (TAG env; None if not passed through).
+    release_tag: str | None
+    server: StatusServer
+    media: StatusMedia
+    database: StatusDatabase
+    # Last 30 days, newest first. Counters from other workers can lag by up
+    # to a minute (each of the 4 workers flushes its own tally).
+    usage: list[UsageDayPublic]
+
+
 # Generic message
 class Message(SQLModel):
     message: str

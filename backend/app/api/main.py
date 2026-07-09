@@ -5,6 +5,7 @@ from app.api.routes import (
     private,
     push,
     reactions,
+    status,
     stops,
     users,
     utils,
@@ -20,6 +21,7 @@ api_router.include_router(stops.router)
 api_router.include_router(reactions.router)
 api_router.include_router(push.router)
 api_router.include_router(weather.router)
+api_router.include_router(status.router)
 
 
 if settings.ENVIRONMENT == "local":
