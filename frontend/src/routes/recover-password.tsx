@@ -8,24 +8,23 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import AuthScreen, {
+  AuthCard,
+  AuthField,
+  AuthFootnote,
+  AuthNote,
+  authFieldStyle,
+  authLinkStyle,
+  authPrimaryBtn,
+} from "@/brommerboek/AuthScreen"
+import { C } from "@/brommerboek/theme"
 import { LoginService } from "@/client"
-import { AuthLayout } from "@/components/Common/AuthLayout"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import { LoadingButton } from "@/components/ui/loading-button"
 import { isLoggedIn } from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
 import { handleError } from "@/utils"
 
 const formSchema = z.object({
-  email: z.email(),
+  email: z.email("dat lijkt geen e-mailadres"),
 })
 
 type FormData = z.infer<typeof formSchema>
@@ -40,11 +39,7 @@ export const Route = createFileRoute("/recover-password")({
     }
   },
   head: () => ({
-    meta: [
-      {
-        title: "Recover Password - FastAPI Template",
-      },
-    ],
+    meta: [{ title: "Brommerboek — Wachtwoord vergeten" }],
   }),
 })
 
@@ -55,7 +50,8 @@ function RecoverPassword() {
       email: "",
     },
   })
-  const { showSuccessToast, showErrorToast } = useCustomToast()
+  const { errors } = form.formState
+  const { showErrorToast } = useCustomToast()
 
   const recoverPassword = async (data: FormData) => {
     await LoginService.recoverPassword({
@@ -66,7 +62,6 @@ function RecoverPassword() {
   const mutation = useMutation({
     mutationFn: recoverPassword,
     onSuccess: () => {
-      showSuccessToast("Password recovery email sent successfully")
       form.reset()
     },
     onError: handleError.bind(showErrorToast),
@@ -78,53 +73,48 @@ function RecoverPassword() {
   }
 
   return (
-    <AuthLayout>
-      <Form {...form}>
-        <form
-          onSubmit={form.handleSubmit(onSubmit)}
-          className="flex flex-col gap-6"
-        >
-          <div className="flex flex-col items-center gap-2 text-center">
-            <h1 className="text-2xl font-bold">Password Recovery</h1>
-          </div>
-
-          <div className="grid gap-4">
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      data-testid="email-input"
-                      placeholder="user@example.com"
-                      type="email"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+    <AuthScreen
+      kicker="BROMMERBOEK · WACHTWOORD"
+      title="Wachtwoord vergeten"
+      intro="vul je e-mail in, dan sturen we je een herstel-link."
+    >
+      <AuthCard>
+        <form noValidate onSubmit={form.handleSubmit(onSubmit)}>
+          <AuthField label="E-MAIL" error={errors.email?.message}>
+            <input
+              data-testid="email-input"
+              type="email"
+              autoComplete="email"
+              style={authFieldStyle}
+              {...form.register("email")}
             />
+          </AuthField>
 
-            <LoadingButton
-              type="submit"
-              className="w-full"
-              loading={mutation.isPending}
-            >
-              Continue
-            </LoadingButton>
-          </div>
+          <button
+            type="submit"
+            disabled={mutation.isPending}
+            style={{
+              ...authPrimaryBtn,
+              opacity: mutation.isPending ? 0.6 : 1,
+            }}
+          >
+            {mutation.isPending ? "…" : "stuur herstel-link"}
+          </button>
 
-          <div className="text-center text-sm">
-            Remember your password?{" "}
-            <RouterLink to="/login" className="underline underline-offset-4">
-              Log in
-            </RouterLink>
-          </div>
+          {mutation.isSuccess && (
+            <AuthNote color={C.teal}>
+              herstel-link verstuurd — check je mail.
+            </AuthNote>
+          )}
         </form>
-      </Form>
-    </AuthLayout>
+      </AuthCard>
+
+      <AuthFootnote>
+        toch weer te binnen geschoten?{" "}
+        <RouterLink to="/login" style={authLinkStyle}>
+          log in
+        </RouterLink>
+      </AuthFootnote>
+    </AuthScreen>
   )
 }

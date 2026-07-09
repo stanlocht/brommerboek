@@ -6,34 +6,28 @@ import {
 } from "@tanstack/react-router"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { AuthLayout } from "@/components/Common/AuthLayout"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import { LoadingButton } from "@/components/ui/loading-button"
-import { PasswordInput } from "@/components/ui/password-input"
+import AuthScreen, {
+  AuthCard,
+  AuthField,
+  AuthFootnote,
+  authFieldStyle,
+  authLinkStyle,
+  authPrimaryBtn,
+} from "@/brommerboek/AuthScreen"
 import useAuth, { isLoggedIn } from "@/hooks/useAuth"
 
 const formSchema = z
   .object({
-    email: z.email(),
-    full_name: z.string().min(1, { message: "Full Name is required" }),
+    email: z.email("dat lijkt geen e-mailadres"),
+    full_name: z.string().min(1, "vul je naam in"),
     password: z
       .string()
-      .min(1, { message: "Password is required" })
-      .min(8, { message: "Password must be at least 8 characters" }),
-    confirm_password: z
-      .string()
-      .min(1, { message: "Password confirmation is required" }),
+      .min(1, "vul een wachtwoord in")
+      .min(8, "minimaal 8 tekens"),
+    confirm_password: z.string().min(1, "bevestig je wachtwoord"),
   })
   .refine((data) => data.password === data.confirm_password, {
-    message: "The passwords don't match",
+    message: "de wachtwoorden verschillen",
     path: ["confirm_password"],
   })
 
@@ -49,11 +43,7 @@ export const Route = createFileRoute("/signup")({
     }
   },
   head: () => ({
-    meta: [
-      {
-        title: "Sign Up - FastAPI Template",
-      },
-    ],
+    meta: [{ title: "Brommerboek — Aanmelden" }],
   }),
 })
 
@@ -70,6 +60,7 @@ function SignUp() {
       confirm_password: "",
     },
   })
+  const { errors } = form.formState
 
   const onSubmit = (data: FormData) => {
     if (signUpMutation.isPending) return
@@ -80,109 +71,76 @@ function SignUp() {
   }
 
   return (
-    <AuthLayout>
-      <Form {...form}>
-        <form
-          onSubmit={form.handleSubmit(onSubmit)}
-          className="flex flex-col gap-6"
-        >
-          <div className="flex flex-col items-center gap-2 text-center">
-            <h1 className="text-2xl font-bold">Create an account</h1>
-          </div>
-
-          <div className="grid gap-4">
-            <FormField
-              control={form.control}
-              name="full_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Full Name</FormLabel>
-                  <FormControl>
-                    <Input
-                      data-testid="full-name-input"
-                      placeholder="User"
-                      type="text"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+    <AuthScreen
+      kicker="BROMMERBOEK · AANMELDEN"
+      title="Rij je mee?"
+      intro="maak een account om te toeteren en reacties achter te laten."
+    >
+      <AuthCard>
+        <form noValidate onSubmit={form.handleSubmit(onSubmit)}>
+          <AuthField label="NAAM" error={errors.full_name?.message}>
+            <input
+              data-testid="full-name-input"
+              type="text"
+              autoComplete="name"
+              style={authFieldStyle}
+              {...form.register("full_name")}
             />
+          </AuthField>
 
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      data-testid="email-input"
-                      placeholder="user@example.com"
-                      type="email"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+          <AuthField label="E-MAIL" error={errors.email?.message}>
+            <input
+              data-testid="email-input"
+              type="email"
+              autoComplete="email"
+              style={authFieldStyle}
+              {...form.register("email")}
             />
+          </AuthField>
 
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Password</FormLabel>
-                  <FormControl>
-                    <PasswordInput
-                      data-testid="password-input"
-                      placeholder="Password"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+          <AuthField label="WACHTWOORD" error={errors.password?.message}>
+            <input
+              data-testid="password-input"
+              type="password"
+              autoComplete="new-password"
+              style={authFieldStyle}
+              {...form.register("password")}
             />
+          </AuthField>
 
-            <FormField
-              control={form.control}
-              name="confirm_password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Confirm Password</FormLabel>
-                  <FormControl>
-                    <PasswordInput
-                      data-testid="confirm-password-input"
-                      placeholder="Confirm Password"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+          <AuthField
+            label="BEVESTIG WACHTWOORD"
+            error={errors.confirm_password?.message}
+          >
+            <input
+              data-testid="confirm-password-input"
+              type="password"
+              autoComplete="new-password"
+              style={authFieldStyle}
+              {...form.register("confirm_password")}
             />
+          </AuthField>
 
-            <LoadingButton
-              type="submit"
-              className="w-full"
-              loading={signUpMutation.isPending}
-            >
-              Sign Up
-            </LoadingButton>
-          </div>
-
-          <div className="text-center text-sm">
-            Already have an account?{" "}
-            <RouterLink to="/login" className="underline underline-offset-4">
-              Log in
-            </RouterLink>
-          </div>
+          <button
+            type="submit"
+            disabled={signUpMutation.isPending}
+            style={{
+              ...authPrimaryBtn,
+              opacity: signUpMutation.isPending ? 0.6 : 1,
+            }}
+          >
+            {signUpMutation.isPending ? "…" : "aanmelden"}
+          </button>
         </form>
-      </Form>
-    </AuthLayout>
+      </AuthCard>
+
+      <AuthFootnote>
+        al een account?{" "}
+        <RouterLink to="/login" style={authLinkStyle}>
+          log in
+        </RouterLink>
+      </AuthFootnote>
+    </AuthScreen>
   )
 }
 

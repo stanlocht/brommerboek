@@ -11,6 +11,10 @@ import { ApiError, OpenAPI } from "./client"
 import { ThemeProvider } from "./components/theme-provider"
 import { Toaster } from "./components/ui/sonner"
 import "./index.css"
+// Load the vintage stylesheet globally: route-based code splitting would
+// otherwise only ship it with the "/" chunk, leaving screens like /login or
+// a directly-visited /settings without their .bb-app styles.
+import "./brommerboek/brommerboek.css"
 import { routeTree } from "./routeTree.gen"
 
 OpenAPI.BASE = import.meta.env.VITE_API_URL

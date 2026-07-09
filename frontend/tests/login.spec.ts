@@ -23,17 +23,17 @@ test("Inputs are visible, empty and editable", async ({ page }) => {
   await verifyInput(page, "password-input")
 })
 
-test("Log In button is visible", async ({ page }) => {
+test("Log in button is visible", async ({ page }) => {
   await page.goto("/login")
 
-  await expect(page.getByRole("button", { name: "Log In" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "log in" })).toBeVisible()
 })
 
-test("Forgot Password link is visible", async ({ page }) => {
+test("Wachtwoord vergeten link is visible", async ({ page }) => {
   await page.goto("/login")
 
   await expect(
-    page.getByRole("link", { name: "Forgot your password?" }),
+    page.getByRole("link", { name: "wachtwoord vergeten?" }),
   ).toBeVisible()
 })
 
@@ -41,22 +41,18 @@ test("Log in with valid email and password ", async ({ page }) => {
   await page.goto("/login")
 
   await fillForm(page, firstSuperuser, firstSuperuserPassword)
-  await page.getByRole("button", { name: "Log In" }).click()
+  await page.getByRole("button", { name: "log in" }).click()
 
   await page.waitForURL("/")
-
-  await expect(
-    page.getByText("Welcome back, nice to see you again!"),
-  ).toBeVisible()
 })
 
 test("Log in with invalid email", async ({ page }) => {
   await page.goto("/login")
 
   await fillForm(page, "invalidemail", firstSuperuserPassword)
-  await page.getByRole("button", { name: "Log In" }).click()
+  await page.getByRole("button", { name: "log in" }).click()
 
-  await expect(page.getByText("Invalid email address")).toBeVisible()
+  await expect(page.getByText("dat lijkt geen e-mailadres")).toBeVisible()
 })
 
 test("Log in with invalid password", async ({ page }) => {
@@ -64,7 +60,7 @@ test("Log in with invalid password", async ({ page }) => {
 
   await page.goto("/login")
   await fillForm(page, firstSuperuser, password)
-  await page.getByRole("button", { name: "Log In" }).click()
+  await page.getByRole("button", { name: "log in" }).click()
 
   await expect(page.getByText("Incorrect email or password")).toBeVisible()
 })
@@ -73,34 +69,27 @@ test("Successful log out", async ({ page }) => {
   await page.goto("/login")
 
   await fillForm(page, firstSuperuser, firstSuperuserPassword)
-  await page.getByRole("button", { name: "Log In" }).click()
+  await page.getByRole("button", { name: "log in" }).click()
 
   await page.waitForURL("/")
 
-  await expect(
-    page.getByText("Welcome back, nice to see you again!"),
-  ).toBeVisible()
-
-  await page.getByTestId("user-menu").click()
-  await page.getByRole("menuitem", { name: "Log out" }).click()
-  await page.waitForURL("/login")
+  // Logging out lives on the vintage account screen.
+  await page.goto("/settings")
+  await page.getByRole("button", { name: "⎋ uitloggen" }).click()
+  await page.waitForURL("/")
 })
 
 test("Logged-out user cannot access protected routes", async ({ page }) => {
   await page.goto("/login")
 
   await fillForm(page, firstSuperuser, firstSuperuserPassword)
-  await page.getByRole("button", { name: "Log In" }).click()
+  await page.getByRole("button", { name: "log in" }).click()
 
   await page.waitForURL("/")
 
-  await expect(
-    page.getByText("Welcome back, nice to see you again!"),
-  ).toBeVisible()
-
-  await page.getByTestId("user-menu").click()
-  await page.getByRole("menuitem", { name: "Log out" }).click()
-  await page.waitForURL("/login")
+  await page.goto("/settings")
+  await page.getByRole("button", { name: "⎋ uitloggen" }).click()
+  await page.waitForURL("/")
 
   await page.goto("/settings")
   await page.waitForURL("/login")

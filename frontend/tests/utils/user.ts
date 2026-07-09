@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
 
 export async function signUpNewUser(
   page: Page,
@@ -12,7 +12,7 @@ export async function signUpNewUser(
   await page.getByTestId("email-input").fill(email)
   await page.getByTestId("password-input").fill(password)
   await page.getByTestId("confirm-password-input").fill(password)
-  await page.getByRole("button", { name: "Sign Up" }).click()
+  await page.getByRole("button", { name: "aanmelden" }).click()
   await page.goto("/login")
 }
 
@@ -21,15 +21,14 @@ export async function logInUser(page: Page, email: string, password: string) {
 
   await page.getByTestId("email-input").fill(email)
   await page.getByTestId("password-input").fill(password)
-  await page.getByRole("button", { name: "Log In" }).click()
+  await page.getByRole("button", { name: "log in" }).click()
   await page.waitForURL("/")
-  await expect(
-    page.getByText("Welcome back, nice to see you again!"),
-  ).toBeVisible()
 }
 
+// Logging out lives on the vintage account screen (/settings) since the
+// template's sidebar user menu was replaced.
 export async function logOutUser(page: Page) {
-  await page.getByTestId("user-menu").click()
-  await page.getByRole("menuitem", { name: "Log out" }).click()
-  await page.goto("/login")
+  await page.goto("/settings")
+  await page.getByRole("button", { name: "⎋ uitloggen" }).click()
+  await page.waitForURL("/")
 }

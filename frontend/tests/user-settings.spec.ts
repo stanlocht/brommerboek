@@ -13,14 +13,11 @@ import { expect, type Page, test } from "@playwright/test"
 import { createUser } from "./utils/privateApi.ts"
 import { randomEmail, randomPassword } from "./utils/random"
 
-// Local login helper: the shared tests/utils/user.ts helper still asserts
-// the template's "Welcome back" toast, which the Brommerboek UI no longer
-// shows. The login route itself is unchanged (testids + "Log In" button).
 async function logIn(page: Page, email: string, password: string) {
   await page.goto("/login")
   await page.getByTestId("email-input").fill(email)
   await page.getByTestId("password-input").fill(password)
-  await page.getByRole("button", { name: "Log In" }).click()
+  await page.getByRole("button", { name: "log in" }).click()
   await page.waitForURL("/")
 }
 
@@ -262,7 +259,7 @@ test.describe("Delete account", () => {
     await page.goto("/login")
     await page.getByTestId("email-input").fill(email)
     await page.getByTestId("password-input").fill(password)
-    await page.getByRole("button", { name: "Log In" }).click()
+    await page.getByRole("button", { name: "log in" }).click()
     await expect(page).toHaveURL(/\/login/)
   })
 })
