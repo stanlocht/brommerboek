@@ -263,10 +263,11 @@ Every pull request gets its own staging deployment at
    mkdir -p caddy-previews previews
    ```
 
-3. Copy the updated `docker-compose.yml` and `Caddyfile` from the repo to
-   `~/brommerboek/` (they add the previews network, the
-   `/etc/caddy/previews` mount and the `import previews/*.caddy` line), then
-   recreate Caddy:
+3. Get the updated `docker-compose.yml` and `Caddyfile` onto the box — they
+   add the previews network, the `/etc/caddy/previews` mount and the
+   `import previews/*.caddy` line. `git pull` in `~/brommerboek` (after the
+   changes are merged to `main`) or `scp` just the two files; verify with
+   `grep -n previews docker-compose.yml Caddyfile`. Then recreate Caddy:
 
    ```bash
    docker compose -f docker-compose.yml --env-file .env --env-file .env.deploy up -d caddy
