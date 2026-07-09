@@ -30,6 +30,19 @@ SSH'd into the box as `deploy` with the app at `~/brommerboek`.
   (`service_completed_successfully`).
 - Uploaded media is a bind mount: `~/brommerboek/media` → `/app/media`.
 
+> **⚠️ `.env` is tracked in git with dev values.** The `.gitignore` entry does
+> not untrack it, so on the box a `git stash`, `git checkout .` or
+> `git reset --hard` (e.g. to get a `git pull` through) silently replaces the
+> production `.env` with dev credentials — this took the API down on
+> 2026-07-08 (Postgres auth failures; the data volume itself was fine).
+> After cloning on the box, always run:
+>
+> ```bash
+> git update-index --skip-worktree .env
+> ```
+>
+> and keep a copy of the production `.env` somewhere safe off-box.
+
 Handy alias for everything below:
 
 ```bash

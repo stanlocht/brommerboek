@@ -9,6 +9,14 @@ permissions:
   contents: read
   packages: write
 
+# Deploys must never run concurrently: on 2026-07-08 three back-to-back
+# dependabot merges deployed in parallel and recreated each other's
+# containers mid-flight on the box. Queue instead (no cancel-in-progress:
+# a deploy that already started must run to completion).
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
