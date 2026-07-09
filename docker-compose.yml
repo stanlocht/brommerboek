@@ -58,6 +58,8 @@ services:
     environment:
       - POSTGRES_SERVER=db
       - POSTGRES_PORT=5432
+      # Surfaced as release_tag by the superuser /api/v1/status/ endpoint.
+      - TAG=${TAG:-}
     volumes:
       - ./media:/app/media
     depends_on:
