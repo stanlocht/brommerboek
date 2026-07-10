@@ -1,20 +1,48 @@
-import { expect, test } from "@playwright/test"
+// E2E spec for the /admin route, which renders the Dutch vintage
+// AdminScreen (src/brommerboek/AdminScreen.tsx): one paper card per user
+// with inline edit/delete, and an inline "+ nieuwe rijder" form.
+//
+// NOTE: like every spec in this directory, this requires the full stack
+// (backend API + Vite frontend) to be running.
+
+import { expect, type Page, test } from "@playwright/test"
 import { firstSuperuser, firstSuperuserPassword } from "./config.ts"
 import { createUser } from "./utils/privateApi"
 import { randomEmail, randomPassword } from "./utils/random"
 import { logInUser } from "./utils/user"
 
+const userCard = (page: Page, email: string) =>
+  page.getByTestId("user-card").filter({ hasText: email })
+
+async function addUser(
+  page: Page,
+  email: string,
+  password: string,
+  fullName?: string,
+) {
+  await page.getByRole("button", { name: "+ nieuwe rijder" }).click()
+  await page.getByTestId("user-email-input").fill(email)
+  if (fullName) {
+    await page.getByTestId("user-name-input").fill(fullName)
+  }
+  await page.getByTestId("user-password-input").fill(password)
+  await page.getByTestId("user-confirm-password-input").fill(password)
+  await page.getByRole("button", { name: "✓ voeg toe" }).click()
+}
+
 test("Admin page is accessible and shows correct title", async ({ page }) => {
   await page.goto("/admin")
-  await expect(page.getByRole("heading", { name: "Users" })).toBeVisible()
   await expect(
-    page.getByText("Manage user accounts and permissions"),
+    page.getByRole("heading", { name: "Rijdersregister" }),
   ).toBeVisible()
+  await expect(page.getByText("beheer accounts en rechten")).toBeVisible()
 })
 
-test("Add User button is visible", async ({ page }) => {
+test("Add user button is visible", async ({ page }) => {
   await page.goto("/admin")
-  await expect(page.getByRole("button", { name: "Add User" })).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "+ nieuwe rijder" }),
+  ).toBeVisible()
 })
 
 test.describe("Admin user management", () => {
@@ -23,23 +51,11 @@ test.describe("Admin user management", () => {
 
     const email = randomEmail()
     const password = randomPassword()
-    const fullName = "Test User Admin"
 
-    await page.getByRole("button", { name: "Add User" }).click()
+    await addUser(page, email, password, "Test User Admin")
 
-    await page.getByPlaceholder("Email").fill(email)
-    await page.getByPlaceholder("Full name").fill(fullName)
-    await page.getByPlaceholder("Password").first().fill(password)
-    await page.getByPlaceholder("Password").last().fill(password)
-
-    await page.getByRole("button", { name: "Save" }).click()
-
-    await expect(page.getByText("User created successfully")).toBeVisible()
-
-    await expect(page.getByRole("dialog")).not.toBeVisible()
-
-    const userRow = page.getByRole("row").filter({ hasText: email })
-    await expect(userRow).toBeVisible()
+    await expect(page.getByText("rijder toegevoegd")).toBeVisible()
+    await expect(userCard(page, email)).toBeVisible()
   })
 
   test("Create a superuser", async ({ page }) => {
@@ -48,22 +64,16 @@ test.describe("Admin user management", () => {
     const email = randomEmail()
     const password = randomPassword()
 
-    await page.getByRole("button", { name: "Add User" }).click()
+    await page.getByRole("button", { name: "+ nieuwe rijder" }).click()
+    await page.getByTestId("user-email-input").fill(email)
+    await page.getByTestId("user-password-input").fill(password)
+    await page.getByTestId("user-confirm-password-input").fill(password)
+    await page.getByLabel("superuser").check()
+    await page.getByLabel("actief").check()
+    await page.getByRole("button", { name: "✓ voeg toe" }).click()
 
-    await page.getByPlaceholder("Email").fill(email)
-    await page.getByPlaceholder("Password").first().fill(password)
-    await page.getByPlaceholder("Password").last().fill(password)
-    await page.getByLabel("Is superuser?").check()
-    await page.getByLabel("Is active?").check()
-
-    await page.getByRole("button", { name: "Save" }).click()
-
-    await expect(page.getByText("User created successfully")).toBeVisible()
-
-    await expect(page.getByRole("dialog")).not.toBeVisible()
-
-    const userRow = page.getByRole("row").filter({ hasText: email })
-    await expect(userRow.getByText("Superuser")).toBeVisible()
+    await expect(page.getByText("rijder toegevoegd")).toBeVisible()
+    await expect(userCard(page, email).getByText("superuser")).toBeVisible()
   })
 
   test("Edit a user successfully", async ({ page }) => {
@@ -71,28 +81,17 @@ test.describe("Admin user management", () => {
 
     const email = randomEmail()
     const password = randomPassword()
-    const originalName = "Original Name"
     const updatedName = "Updated Name"
 
-    await page.getByRole("button", { name: "Add User" }).click()
-    await page.getByPlaceholder("Email").fill(email)
-    await page.getByPlaceholder("Full name").fill(originalName)
-    await page.getByPlaceholder("Password").first().fill(password)
-    await page.getByPlaceholder("Password").last().fill(password)
-    await page.getByRole("button", { name: "Save" }).click()
+    await addUser(page, email, password, "Original Name")
+    await expect(page.getByText("rijder toegevoegd")).toBeVisible()
 
-    await expect(page.getByText("User created successfully")).toBeVisible()
-    await expect(page.getByRole("dialog")).not.toBeVisible()
+    const card = userCard(page, email)
+    await card.getByRole("button", { name: "✎ bewerk" }).click()
+    await card.getByTestId("user-name-input").fill(updatedName)
+    await card.getByRole("button", { name: "✓ opslaan" }).click()
 
-    const userRow = page.getByRole("row").filter({ hasText: email })
-    await userRow.getByRole("button").click()
-
-    await page.getByRole("menuitem", { name: "Edit User" }).click()
-
-    await page.getByPlaceholder("Full name").fill(updatedName)
-    await page.getByRole("button", { name: "Save" }).click()
-
-    await expect(page.getByText("User updated successfully")).toBeVisible()
+    await expect(page.getByText("rijder bijgewerkt")).toBeVisible()
     await expect(page.getByText(updatedName)).toBeVisible()
   })
 
@@ -102,80 +101,63 @@ test.describe("Admin user management", () => {
     const email = randomEmail()
     const password = randomPassword()
 
-    await page.getByRole("button", { name: "Add User" }).click()
-    await page.getByPlaceholder("Email").fill(email)
-    await page.getByPlaceholder("Password").first().fill(password)
-    await page.getByPlaceholder("Password").last().fill(password)
-    await page.getByRole("button", { name: "Save" }).click()
+    await addUser(page, email, password)
+    await expect(page.getByText("rijder toegevoegd")).toBeVisible()
 
-    await expect(page.getByText("User created successfully")).toBeVisible()
+    const card = userCard(page, email)
+    await card.getByRole("button", { name: "✕ verwijder" }).click()
+    await card.getByRole("button", { name: "✕ ja, verwijder" }).click()
 
-    await expect(page.getByRole("dialog")).not.toBeVisible()
-
-    const userRow = page.getByRole("row").filter({ hasText: email })
-    await userRow.getByRole("button").click()
-
-    await page.getByRole("menuitem", { name: "Delete User" }).click()
-
-    await page.getByRole("button", { name: "Delete" }).click()
-
-    await expect(
-      page.getByText("The user was deleted successfully"),
-    ).toBeVisible()
-
-    await expect(
-      page.getByRole("row").filter({ hasText: email }),
-    ).not.toBeVisible()
+    await expect(page.getByText("rijder verwijderd")).toBeVisible()
+    await expect(userCard(page, email)).not.toBeVisible()
   })
 
   test("Cancel user creation", async ({ page }) => {
     await page.goto("/admin")
 
-    await page.getByRole("button", { name: "Add User" }).click()
-    await page.getByPlaceholder("Email").fill("test@example.com")
+    await page.getByRole("button", { name: "+ nieuwe rijder" }).click()
+    await page.getByTestId("user-email-input").fill("test@example.com")
 
-    await page.getByRole("button", { name: "Cancel" }).click()
+    await page.getByRole("button", { name: "annuleer" }).click()
 
-    await expect(page.getByRole("dialog")).not.toBeVisible()
+    await expect(page.getByTestId("user-email-input")).not.toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "+ nieuwe rijder" }),
+    ).toBeVisible()
   })
 
-  test("Email is required and must be valid", async ({ page }) => {
+  test("Email must be valid", async ({ page }) => {
     await page.goto("/admin")
 
-    await page.getByRole("button", { name: "Add User" }).click()
+    await page.getByRole("button", { name: "+ nieuwe rijder" }).click()
+    await page.getByTestId("user-email-input").fill("invalid-email")
+    await page.getByRole("button", { name: "✓ voeg toe" }).click()
 
-    await page.getByPlaceholder("Email").fill("invalid-email")
-    await page.getByPlaceholder("Email").blur()
-
-    await expect(page.getByText("Invalid email address")).toBeVisible()
+    await expect(page.getByText("dat lijkt geen e-mailadres")).toBeVisible()
   })
 
   test("Password must be at least 8 characters", async ({ page }) => {
     await page.goto("/admin")
 
-    await page.getByRole("button", { name: "Add User" }).click()
+    await page.getByRole("button", { name: "+ nieuwe rijder" }).click()
+    await page.getByTestId("user-email-input").fill(randomEmail())
+    await page.getByTestId("user-password-input").fill("short")
+    await page.getByTestId("user-confirm-password-input").fill("short")
+    await page.getByRole("button", { name: "✓ voeg toe" }).click()
 
-    await page.getByPlaceholder("Email").fill(randomEmail())
-    await page.getByPlaceholder("Password").first().fill("short")
-    await page.getByPlaceholder("Password").last().fill("short")
-    await page.getByRole("button", { name: "Save" }).click()
-
-    await expect(
-      page.getByText("Password must be at least 8 characters"),
-    ).toBeVisible()
+    await expect(page.getByText("wachtwoord: minimaal 8 tekens")).toBeVisible()
   })
 
   test("Passwords must match", async ({ page }) => {
     await page.goto("/admin")
 
-    await page.getByRole("button", { name: "Add User" }).click()
+    await page.getByRole("button", { name: "+ nieuwe rijder" }).click()
+    await page.getByTestId("user-email-input").fill(randomEmail())
+    await page.getByTestId("user-password-input").fill(randomPassword())
+    await page.getByTestId("user-confirm-password-input").fill("different12345")
+    await page.getByRole("button", { name: "✓ voeg toe" }).click()
 
-    await page.getByPlaceholder("Email").fill(randomEmail())
-    await page.getByPlaceholder("Password").first().fill(randomPassword())
-    await page.getByPlaceholder("Password").last().fill("different12345")
-    await page.getByPlaceholder("Password").last().blur()
-
-    await expect(page.getByText("The passwords don't match")).toBeVisible()
+    await expect(page.getByText("de wachtwoorden verschillen")).toBeVisible()
   })
 })
 
@@ -191,7 +173,9 @@ test.describe("Admin page access control", () => {
 
     await page.goto("/admin")
 
-    await expect(page.getByRole("heading", { name: "Users" })).not.toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Rijdersregister" }),
+    ).not.toBeVisible()
     await expect(page).not.toHaveURL(/\/admin/)
   })
 
@@ -200,6 +184,8 @@ test.describe("Admin page access control", () => {
 
     await page.goto("/admin")
 
-    await expect(page.getByRole("heading", { name: "Users" })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Rijdersregister" }),
+    ).toBeVisible()
   })
 })

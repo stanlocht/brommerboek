@@ -7,27 +7,24 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import AuthScreen, {
+  AuthCard,
+  AuthField,
+  AuthFootnote,
+  authFieldStyle,
+  authLinkStyle,
+  authPrimaryBtn,
+} from "@/brommerboek/AuthScreen"
+import { FONT_MONO } from "@/brommerboek/theme"
 import type { Body_login_login_access_token as AccessToken } from "@/client"
-import { AuthLayout } from "@/components/Common/AuthLayout"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import { LoadingButton } from "@/components/ui/loading-button"
-import { PasswordInput } from "@/components/ui/password-input"
 import useAuth, { isLoggedIn } from "@/hooks/useAuth"
 
 const formSchema = z.object({
-  username: z.email(),
+  username: z.email("dat lijkt geen e-mailadres"),
   password: z
     .string()
-    .min(1, { message: "Password is required" })
-    .min(8, { message: "Password must be at least 8 characters" }),
+    .min(1, "vul je wachtwoord in")
+    .min(8, "minimaal 8 tekens"),
 }) satisfies z.ZodType<AccessToken>
 
 type FormData = z.infer<typeof formSchema>
@@ -42,11 +39,7 @@ export const Route = createFileRoute("/login")({
     }
   },
   head: () => ({
-    meta: [
-      {
-        title: "Log In - FastAPI Template",
-      },
-    ],
+    meta: [{ title: "Brommerboek — Inloggen" }],
   }),
 })
 
@@ -61,6 +54,7 @@ function Login() {
       password: "",
     },
   })
+  const { errors } = form.formState
 
   const onSubmit = (data: FormData) => {
     if (loginMutation.isPending) return
@@ -68,75 +62,62 @@ function Login() {
   }
 
   return (
-    <AuthLayout>
-      <Form {...form}>
-        <form
-          onSubmit={form.handleSubmit(onSubmit)}
-          className="flex flex-col gap-6"
-        >
-          <div className="flex flex-col items-center gap-2 text-center">
-            <h1 className="text-2xl font-bold">Login to your account</h1>
-          </div>
-
-          <div className="grid gap-4">
-            <FormField
-              control={form.control}
-              name="username"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      data-testid="email-input"
-                      placeholder="user@example.com"
-                      type="email"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage className="text-xs" />
-                </FormItem>
-              )}
+    <AuthScreen kicker="BROMMERBOEK · INLOGGEN" title="Welkom terug">
+      <AuthCard>
+        <form noValidate onSubmit={form.handleSubmit(onSubmit)}>
+          <AuthField label="E-MAIL" error={errors.username?.message}>
+            <input
+              data-testid="email-input"
+              type="email"
+              autoComplete="email"
+              style={authFieldStyle}
+              {...form.register("username")}
             />
+          </AuthField>
 
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <div className="flex items-center">
-                    <FormLabel>Password</FormLabel>
-                    <RouterLink
-                      to="/recover-password"
-                      className="ml-auto text-sm underline-offset-4 hover:underline"
-                    >
-                      Forgot your password?
-                    </RouterLink>
-                  </div>
-                  <FormControl>
-                    <PasswordInput
-                      data-testid="password-input"
-                      placeholder="Password"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage className="text-xs" />
-                </FormItem>
-              )}
+          <AuthField label="WACHTWOORD" error={errors.password?.message}>
+            <input
+              data-testid="password-input"
+              type="password"
+              autoComplete="current-password"
+              style={authFieldStyle}
+              {...form.register("password")}
             />
+          </AuthField>
 
-            <LoadingButton type="submit" loading={loginMutation.isPending}>
-              Log In
-            </LoadingButton>
-          </div>
-
-          <div className="text-center text-sm">
-            Don't have an account yet?{" "}
-            <RouterLink to="/signup" className="underline underline-offset-4">
-              Sign up
+          <div
+            style={{
+              textAlign: "right",
+              marginTop: -6,
+              marginBottom: 12,
+              fontFamily: FONT_MONO,
+              fontSize: 11,
+            }}
+          >
+            <RouterLink to="/recover-password" style={authLinkStyle}>
+              wachtwoord vergeten?
             </RouterLink>
           </div>
+
+          <button
+            type="submit"
+            disabled={loginMutation.isPending}
+            style={{
+              ...authPrimaryBtn,
+              opacity: loginMutation.isPending ? 0.6 : 1,
+            }}
+          >
+            {loginMutation.isPending ? "…" : "log in"}
+          </button>
         </form>
-      </Form>
-    </AuthLayout>
+      </AuthCard>
+
+      <AuthFootnote>
+        nog geen account?{" "}
+        <RouterLink to="/signup" style={authLinkStyle}>
+          aanmelden
+        </RouterLink>
+      </AuthFootnote>
+    </AuthScreen>
   )
 }
