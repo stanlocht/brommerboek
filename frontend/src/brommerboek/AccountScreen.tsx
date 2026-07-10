@@ -475,6 +475,43 @@ function NotificationsCard() {
   )
 }
 
+// Superuser-only entry points to the admin screens, now that the template's
+// sidebar navigation is gone.
+function AdminCard() {
+  const chip: CSSProperties = {
+    display: "inline-block",
+    padding: "9px 14px",
+    border: `1.5px solid ${C.ochre}`,
+    borderRadius: 20,
+    fontFamily: FONT_MONO,
+    fontSize: 12,
+    color: C.sepia,
+    textDecoration: "none",
+  }
+  return (
+    <Card title="BEHEER" rot=".2deg">
+      <div
+        style={{
+          fontFamily: FONT_MONO,
+          fontSize: 12,
+          color: C.sepia,
+          marginBottom: 10,
+        }}
+      >
+        superuser-gereedschap: accounts en meterstanden.
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Link to="/admin" style={chip}>
+          rijdersregister
+        </Link>
+        <Link to="/status" style={chip}>
+          machinekamer
+        </Link>
+      </div>
+    </Card>
+  )
+}
+
 function LogoutCard() {
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -684,6 +721,7 @@ export default function AccountScreen() {
           <ProfileCard />
           <PasswordCard />
           {user?.is_superuser && <NotificationsCard />}
+          {user?.is_superuser && <AdminCard />}
           <LogoutCard />
           <DangerCard />
         </div>

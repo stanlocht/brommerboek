@@ -10,20 +10,24 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as StempelsRouteImport } from './routes/stempels'
+import { Route as StatusRouteImport } from './routes/status'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RecoverPasswordRouteImport } from './routes/recover-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LogboekRouteImport } from './routes/logboek'
-import { Route as LayoutRouteImport } from './routes/_layout'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as LayoutStatusRouteImport } from './routes/_layout/status'
-import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
 
 const StempelsRoute = StempelsRouteImport.update({
   id: '/stempels',
   path: '/stempels',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StatusRoute = StatusRouteImport.update({
+  id: '/status',
+  path: '/status',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignupRoute = SignupRouteImport.update({
@@ -56,8 +60,9 @@ const LogboekRoute = LogboekRouteImport.update({
   path: '/logboek',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LayoutRoute = LayoutRouteImport.update({
-  id: '/_layout',
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -65,104 +70,93 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LayoutStatusRoute = LayoutStatusRouteImport.update({
-  id: '/status',
-  path: '/status',
-  getParentRoute: () => LayoutRoute,
-} as any)
-const LayoutAdminRoute = LayoutAdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => LayoutRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/logboek': typeof LogboekRoute
   '/login': typeof LoginRoute
   '/recover-password': typeof RecoverPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/status': typeof StatusRoute
   '/stempels': typeof StempelsRoute
-  '/admin': typeof LayoutAdminRoute
-  '/status': typeof LayoutStatusRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/logboek': typeof LogboekRoute
   '/login': typeof LoginRoute
   '/recover-password': typeof RecoverPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/status': typeof StatusRoute
   '/stempels': typeof StempelsRoute
-  '/admin': typeof LayoutAdminRoute
-  '/status': typeof LayoutStatusRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/_layout': typeof LayoutRouteWithChildren
+  '/admin': typeof AdminRoute
   '/logboek': typeof LogboekRoute
   '/login': typeof LoginRoute
   '/recover-password': typeof RecoverPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/status': typeof StatusRoute
   '/stempels': typeof StempelsRoute
-  '/_layout/admin': typeof LayoutAdminRoute
-  '/_layout/status': typeof LayoutStatusRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/logboek'
     | '/login'
     | '/recover-password'
     | '/reset-password'
     | '/settings'
     | '/signup'
-    | '/stempels'
-    | '/admin'
     | '/status'
+    | '/stempels'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/logboek'
     | '/login'
     | '/recover-password'
     | '/reset-password'
     | '/settings'
     | '/signup'
-    | '/stempels'
-    | '/admin'
     | '/status'
+    | '/stempels'
   id:
     | '__root__'
     | '/'
-    | '/_layout'
+    | '/admin'
     | '/logboek'
     | '/login'
     | '/recover-password'
     | '/reset-password'
     | '/settings'
     | '/signup'
+    | '/status'
     | '/stempels'
-    | '/_layout/admin'
-    | '/_layout/status'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  LayoutRoute: typeof LayoutRouteWithChildren
+  AdminRoute: typeof AdminRoute
   LogboekRoute: typeof LogboekRoute
   LoginRoute: typeof LoginRoute
   RecoverPasswordRoute: typeof RecoverPasswordRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   SettingsRoute: typeof SettingsRoute
   SignupRoute: typeof SignupRoute
+  StatusRoute: typeof StatusRoute
   StempelsRoute: typeof StempelsRoute
 }
 
@@ -173,6 +167,13 @@ declare module '@tanstack/react-router' {
       path: '/stempels'
       fullPath: '/stempels'
       preLoaderRoute: typeof StempelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/status': {
+      id: '/status'
+      path: '/status'
+      fullPath: '/status'
+      preLoaderRoute: typeof StatusRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/signup': {
@@ -217,11 +218,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LogboekRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_layout': {
-      id: '/_layout'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof LayoutRouteImport
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -231,45 +232,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_layout/status': {
-      id: '/_layout/status'
-      path: '/status'
-      fullPath: '/status'
-      preLoaderRoute: typeof LayoutStatusRouteImport
-      parentRoute: typeof LayoutRoute
-    }
-    '/_layout/admin': {
-      id: '/_layout/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof LayoutAdminRouteImport
-      parentRoute: typeof LayoutRoute
-    }
   }
 }
 
-interface LayoutRouteChildren {
-  LayoutAdminRoute: typeof LayoutAdminRoute
-  LayoutStatusRoute: typeof LayoutStatusRoute
-}
-
-const LayoutRouteChildren: LayoutRouteChildren = {
-  LayoutAdminRoute: LayoutAdminRoute,
-  LayoutStatusRoute: LayoutStatusRoute,
-}
-
-const LayoutRouteWithChildren =
-  LayoutRoute._addFileChildren(LayoutRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  LayoutRoute: LayoutRouteWithChildren,
+  AdminRoute: AdminRoute,
   LogboekRoute: LogboekRoute,
   LoginRoute: LoginRoute,
   RecoverPasswordRoute: RecoverPasswordRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   SettingsRoute: SettingsRoute,
   SignupRoute: SignupRoute,
+  StatusRoute: StatusRoute,
   StempelsRoute: StempelsRoute,
 }
 export const routeTree = rootRouteImport
