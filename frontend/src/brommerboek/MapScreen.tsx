@@ -73,6 +73,7 @@ export default function MapScreen({
   onPinClick,
   onAdd,
   onLogin,
+  onGame,
   replaying = false,
   replayFollow = true,
   replayReduced = false,
@@ -99,6 +100,8 @@ export default function MapScreen({
   onPinClick: (i: number) => void
   onAdd?: () => void
   onLogin: () => void
+  // Opens the Brommersprong minigame.
+  onGame: () => void
   // "Rij de reis" replay: while true the header/preview/scrubber/FAB chrome
   // hides for a clean stage and the map runs its cinematic camera.
   replaying?: boolean
@@ -579,6 +582,41 @@ export default function MapScreen({
           }}
         >
           ▶
+        </button>
+      )}
+
+      {/* Brommersprong minigame — small side button above the FAB */}
+      {!replaying && (
+        <button
+          type="button"
+          onClick={onGame}
+          aria-label="Speel Brommersprong"
+          title="Brommersprong"
+          style={{
+            position: "absolute",
+            right: 18,
+            bottom: onAdd ? 158 : 90,
+            zIndex: 25,
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            border: `3px solid ${C.paperLight}`,
+            background: C.ochreDeep,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            boxShadow: "0 4px 10px rgba(90,60,20,.4)",
+          }}
+        >
+          <img
+            src="/cub50.svg"
+            alt=""
+            draggable={false}
+            width={17}
+            height={23}
+            style={{ display: "block" }}
+          />
         </button>
       )}
 

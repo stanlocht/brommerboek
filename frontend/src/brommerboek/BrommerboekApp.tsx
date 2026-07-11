@@ -11,6 +11,7 @@ import {
   updateStop,
   uploadStopMedia,
 } from "./api"
+import BrommerGame from "./BrommerGame"
 import { buildRoute, nearestStop, stopFraction } from "./geo"
 import { CubIcon } from "./icons"
 import LoginPrompt from "./LoginPrompt"
@@ -81,6 +82,7 @@ export default function BrommerboekApp() {
   // creating a new one.
   const [editStop, setEditStop] = useState<Stop | null>(null)
   const [loginOpen, setLoginOpen] = useState(false)
+  const [gameOpen, setGameOpen] = useState(false)
   const [toast, setToast] = useState("")
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const jumpLast = useRef(false)
@@ -345,6 +347,7 @@ export default function BrommerboekApp() {
         }}
         onAdd={canEdit ? () => setAddOpen(true) : undefined}
         onLogin={() => setLoginOpen(true)}
+        onGame={() => setGameOpen(true)}
         replaying={replaying}
         replayFollow={replay.following}
         replayReduced={replay.reduced}
@@ -395,6 +398,8 @@ export default function BrommerboekApp() {
           onMediaChanged={applyMediaChange}
         />
       )}
+      {gameOpen && <BrommerGame onClose={() => setGameOpen(false)} />}
+
       {loginOpen && (
         <LoginPrompt
           intent="signin"
