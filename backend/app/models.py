@@ -386,6 +386,73 @@ class PushPublicKey(SQLModel):
 
 
 # ----------------------------------------------------------------------------
+# Feedback / bug reports ("storingsdienst").
+#
+# Signed-in users can report something broken on the site. Reports land in a
+# small queue: the reporter sees their own reports (and their status), a
+# superuser sees everything and flips a report to "resolved" once it is
+# fixed. New reports push-notify the admins so nothing sits unnoticed.
+# ----------------------------------------------------------------------------
+
+FEEDBACK_STATUSES = {"open", "resolved"}
+
+
+def check_feedback_status(v: str) -> str:
+    if v not in FEEDBACK_STATUSES:
+        raise ValueError(
+            f"status must be one of: {', '.join(sorted(FEEDBACK_STATUSES))}"
+        )
+    return v
+
+
+class FeedbackCreate(SQLModel):
+    body: str = Field(min_length=1, max_length=4000)
+    # Where it went wrong — free text or a path like "/logboek". Optional.
+    page: str = Field(default="", max_length=255)
+
+
+class FeedbackStatusUpdate(SQLModel):
+    status: str = Field(max_length=16)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        return check_feedback_status(v)
+
+
+class Feedback(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    body: str = Field(sa_type=Text)
+    page: str = Field(default="", max_length=255)
+    status: str = Field(default="open", max_length=16, index=True)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class FeedbackPublic(SQLModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    # Rendered display name — same rule as comments: full_name when present,
+    # otherwise the email local-part so the full address never leaks.
+    author_name: str
+    is_mine: bool = False
+    body: str
+    page: str
+    status: str
+    created_at: datetime | None = None
+
+
+class FeedbacksPublic(SQLModel):
+    data: list[FeedbackPublic]
+    count: int
+
+
+# ----------------------------------------------------------------------------
 # Usage tracking + server status (superuser-only dashboard).
 #
 # Requests are counted in memory per worker (see core/usage.py) and flushed

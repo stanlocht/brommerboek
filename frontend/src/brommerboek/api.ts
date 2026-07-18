@@ -15,6 +15,9 @@ const honksUrl = (id: string) => `${BASE}/api/v1/stops/${id}/honks`
 const PUSH_PUBLIC_KEY_URL = `${BASE}/api/v1/push/public-key`
 const PUSH_SUBSCRIBE_URL = `${BASE}/api/v1/push/subscribe`
 const WEATHER_SUGGEST_URL = `${BASE}/api/v1/weather/suggest`
+const FEEDBACK_URL = `${BASE}/api/v1/feedback/`
+const MY_FEEDBACK_URL = `${BASE}/api/v1/feedback/mine`
+const feedbackUrl = (id: string) => `${BASE}/api/v1/feedback/${id}`
 
 export interface Honker {
   user_id: string
@@ -162,6 +165,83 @@ export async function deleteStop(id: string): Promise<void> {
     headers: authHeaders(),
   })
   if (!res.ok) throw new Error(`Failed to delete stop (${res.status})`)
+}
+
+// ----- Feedback / bug reports ("storingsdienst") -----------------------------
+
+export type FeedbackStatus = "open" | "resolved"
+
+export interface FeedbackReport {
+  id: string
+  user_id: string
+  author_name: string
+  is_mine: boolean
+  body: string
+  page: string
+  status: FeedbackStatus
+  created_at: string | null
+}
+
+export interface FeedbackList {
+  data: FeedbackReport[]
+  count: number
+}
+
+export async function createFeedback(
+  body: string,
+  page = "",
+): Promise<FeedbackReport> {
+  const res = await fetch(FEEDBACK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ body, page }),
+  })
+  if (!res.ok) throw new Error(`Failed to send report (${res.status})`)
+  return (await res.json()) as FeedbackReport
+}
+
+export async function fetchMyFeedback(): Promise<FeedbackList> {
+  const res = await fetch(MY_FEEDBACK_URL, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Failed to load reports (${res.status})`)
+  return (await res.json()) as FeedbackList
+}
+
+// Superuser-only: the full queue, optionally filtered by status.
+export async function fetchAllFeedback(
+  status?: FeedbackStatus,
+): Promise<FeedbackList> {
+  const url = status ? `${FEEDBACK_URL}?status=${status}` : FEEDBACK_URL
+  const res = await fetch(url, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Failed to load reports (${res.status})`)
+  return (await res.json()) as FeedbackList
+}
+
+// Superuser-only: mark a report resolved, or reopen it.
+export async function updateFeedbackStatus(
+  id: string,
+  status: FeedbackStatus,
+): Promise<FeedbackReport> {
+  const res = await fetch(feedbackUrl(id), {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ status }),
+  })
+  if (!res.ok) throw new Error(`Failed to update report (${res.status})`)
+  return (await res.json()) as FeedbackReport
+}
+
+export async function deleteFeedback(id: string): Promise<void> {
+  const res = await fetch(feedbackUrl(id), {
+    method: "DELETE",
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Failed to delete report (${res.status})`)
 }
 
 // ----- Web Push ("volg de reis") ---------------------------------------------

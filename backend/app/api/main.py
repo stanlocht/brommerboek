@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    feedback,
     login,
     private,
     push,
@@ -21,6 +22,7 @@ api_router.include_router(stops.router)
 api_router.include_router(reactions.router)
 api_router.include_router(push.router)
 api_router.include_router(weather.router)
+api_router.include_router(feedback.router)
 api_router.include_router(status.router)
 
 
