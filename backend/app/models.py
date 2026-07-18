@@ -28,6 +28,11 @@ class UserRegister(SQLModel):
     email: EmailStr = Field(max_length=255)
     password: str = Field(min_length=8, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
+    # Moped-plate captcha (see app/core/captcha.py). Optional at the schema
+    # level so the check can sit behind SIGNUP_CAPTCHA_ENABLED; the route
+    # rejects missing values when the captcha is on.
+    captcha_token: str | None = Field(default=None, max_length=2048)
+    captcha_answer: str | None = Field(default=None, max_length=32)
 
 
 # Properties to receive via API on update, all are optional
@@ -451,6 +456,15 @@ class AdminStatus(SQLModel):
 # Generic message
 class Message(SQLModel):
     message: str
+
+
+# A signup captcha challenge: the plate image to read and the signed token
+# that commits to its answer. `answer` is only filled in on local
+# environments so the e2e suite can solve the plate without OCR.
+class CaptchaChallenge(SQLModel):
+    token: str
+    image: str
+    answer: str | None = None
 
 
 # JSON payload containing access token
