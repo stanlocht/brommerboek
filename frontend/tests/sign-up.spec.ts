@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test"
 
 import { randomEmail, randomPassword } from "./utils/random"
+import { gotoSignupWithCaptcha } from "./utils/user"
 
 test.use({ storageState: { cookies: [], origins: [] } })
 
@@ -31,6 +32,14 @@ test("Inputs are visible, empty and editable", async ({ page }) => {
   await verifyInput(page, "email-input")
   await verifyInput(page, "password-input")
   await verifyInput(page, "confirm-password-input")
+  await verifyInput(page, "captcha-input")
+})
+
+test("Captcha plate and refresh button are visible", async ({ page }) => {
+  await page.goto("/signup")
+
+  await expect(page.getByTestId("captcha-image")).toBeVisible()
+  await expect(page.getByTestId("captcha-refresh")).toBeVisible()
 })
 
 test("Aanmelden button is visible", async ({ page }) => {
@@ -50,9 +59,23 @@ test("Sign up with valid name, email, and password", async ({ page }) => {
   const email = randomEmail()
   const password = randomPassword()
 
-  await page.goto("/signup")
+  const captchaAnswer = await gotoSignupWithCaptcha(page)
   await fillForm(page, full_name, email, password, password)
+  await page.getByTestId("captcha-input").fill(captchaAnswer)
   await page.getByRole("button", { name: "aanmelden" }).click()
+
+  await page.waitForURL("/login")
+})
+
+test("Sign up with wrong captcha answer shows an error", async ({ page }) => {
+  await gotoSignupWithCaptcha(page)
+  await fillForm(page, "Test User", randomEmail(), "changethis", "changethis")
+  await page.getByTestId("captcha-input").fill("XX-00-XX")
+  await page.getByRole("button", { name: "aanmelden" }).click()
+
+  await expect(
+    page.getByText("dat kenteken klopt niet — probeer een nieuwe plaat"),
+  ).toBeVisible()
 })
 
 test("Sign up with invalid email", async ({ page }) => {
@@ -75,14 +98,17 @@ test("Sign up with existing email", async ({ page }) => {
   const email = randomEmail()
   const password = randomPassword()
 
-  await page.goto("/signup")
+  const firstAnswer = await gotoSignupWithCaptcha(page)
 
   await fillForm(page, fullName, email, password, password)
+  await page.getByTestId("captcha-input").fill(firstAnswer)
   await page.getByRole("button", { name: "aanmelden" }).click()
+  await page.waitForURL("/login")
 
-  await page.goto("/signup")
+  const secondAnswer = await gotoSignupWithCaptcha(page)
 
   await fillForm(page, fullName, email, password, password)
+  await page.getByTestId("captcha-input").fill(secondAnswer)
   await page.getByRole("button", { name: "aanmelden" }).click()
 
   await page

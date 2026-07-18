@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, PushReadPublicKeyResponse, PushSubscribeData, PushSubscribeResponse, PushUnsubscribeData, PushUnsubscribeResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, StopsUpdateStopData, StopsUpdateStopResponse, StopsDeleteStopData, StopsDeleteStopResponse, StopsUploadStopMediaData, StopsUploadStopMediaResponse, StopsUpdateStopMediaCaptionData, StopsUpdateStopMediaCaptionResponse, StopsDeleteStopMediaData, StopsDeleteStopMediaResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse, WeatherSuggestWeatherData, WeatherSuggestWeatherResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, PushReadPublicKeyResponse, PushSubscribeData, PushSubscribeResponse, PushUnsubscribeData, PushUnsubscribeResponse, ReactionsReadCommentsData, ReactionsReadCommentsResponse, ReactionsCreateCommentData, ReactionsCreateCommentResponse, ReactionsDeleteCommentData, ReactionsDeleteCommentResponse, ReactionsReadHonksData, ReactionsReadHonksResponse, ReactionsToggleHonkData, ReactionsToggleHonkResponse, StatusReadStatusResponse, StopsReadStopsResponse, StopsCreateStopData, StopsCreateStopResponse, StopsReadStatsResponse, StopsReadStopData, StopsReadStopResponse, StopsUpdateStopData, StopsUpdateStopResponse, StopsDeleteStopData, StopsDeleteStopResponse, StopsUploadStopMediaData, StopsUploadStopMediaResponse, StopsUpdateStopMediaCaptionData, StopsUpdateStopMediaCaptionResponse, StopsDeleteStopMediaData, StopsDeleteStopMediaResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersGetSignupCaptchaResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse, WeatherSuggestWeatherData, WeatherSuggestWeatherResponse } from './types.gen';
 
 export class LoginService {
     /**
@@ -297,6 +297,21 @@ export class ReactionsService {
             errors: {
                 422: 'Validation Error'
             }
+        });
+    }
+}
+
+export class StatusService {
+    /**
+     * Read Status
+     * Server health, storage and usage counters for the admin dashboard.
+     * @returns AdminStatus Successful Response
+     * @throws ApiError
+     */
+    public static readStatus(): CancelablePromise<StatusReadStatusResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/status/'
         });
     }
 }
@@ -605,6 +620,19 @@ export class UsersService {
             errors: {
                 422: 'Validation Error'
             }
+        });
+    }
+    
+    /**
+     * Get Signup Captcha
+     * Issue a moped-plate captcha challenge for the signup form.
+     * @returns CaptchaChallenge Successful Response
+     * @throws ApiError
+     */
+    public static getSignupCaptcha(): CancelablePromise<UsersGetSignupCaptchaResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/users/signup-captcha'
         });
     }
     

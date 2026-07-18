@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, delete
 
-from app.core import ratelimit
+from app.core import captcha, ratelimit
 from app.core.config import settings
 from app.core.db import engine, init_db
 from app.main import app
@@ -41,6 +41,17 @@ def _reset_rate_limits() -> Generator[None]:
     with ratelimit._lock:
         ratelimit._hits.clear()
         ratelimit._last_prune.clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _disable_signup_captcha(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    # The moped-plate captcha has its own tests (which re-enable it);
+    # everything else signs up without solving a plate. Burned nonces are
+    # cleared so captcha tests never depend on suite order.
+    monkeypatch.setattr(settings, "SIGNUP_CAPTCHA_ENABLED", False)
+    with captcha._lock:
+        captcha._used_nonces.clear()
     yield
 
 

@@ -10,10 +10,12 @@ from app.api.deps import (
     SessionDep,
     get_current_active_superuser,
 )
+from app.core import captcha
 from app.core.config import settings
 from app.core.ratelimit import rate_limit
 from app.core.security import get_password_hash, verify_password
 from app.models import (
+    CaptchaChallenge,
     Message,
     UpdatePassword,
     User,
@@ -30,6 +32,9 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 SIGNUP_RATE_LIMIT = 5
 SIGNUP_RATE_WINDOW_SECONDS = 60 * 60
+
+CAPTCHA_RATE_LIMIT = 30
+CAPTCHA_RATE_WINDOW_SECONDS = 60 * 60
 
 
 @router.get(
@@ -146,6 +151,31 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     return Message(message="User deleted successfully")
 
 
+@router.get(
+    "/signup-captcha",
+    response_model=CaptchaChallenge,
+    dependencies=[
+        Depends(
+            rate_limit(
+                "signup-captcha", CAPTCHA_RATE_LIMIT, CAPTCHA_RATE_WINDOW_SECONDS
+            )
+        )
+    ],
+)
+def get_signup_captcha() -> Any:
+    """
+    Issue a moped-plate captcha challenge for the signup form.
+    """
+    token, image, code = captcha.create_challenge()
+    return CaptchaChallenge(
+        token=token,
+        image=image,
+        # Local-only escape hatch so the Playwright suite can solve the
+        # plate; never populated on staging/production.
+        answer=code if settings.ENVIRONMENT == "local" else None,
+    )
+
+
 @router.post(
     "/signup",
     response_model=UserPublic,
@@ -162,6 +192,18 @@ def register_user(session: SessionDep, user_in: UserRegister) -> Any:
             status_code=403,
             detail="Open user registration is forbidden on this server",
         )
+    # Captcha before the duplicate-email lookup, so the plate has to be
+    # solved before the endpoint reveals whether an address is registered.
+    if settings.SIGNUP_CAPTCHA_ENABLED:
+        if not user_in.captcha_token or not user_in.captcha_answer:
+            raise HTTPException(
+                status_code=400,
+                detail="vul het kenteken van de plaat in",
+            )
+        try:
+            captcha.verify_and_consume(user_in.captcha_token, user_in.captcha_answer)
+        except captcha.CaptchaError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     user = crud.get_user_by_email(session=session, email=user_in.email)
     if user:
         raise HTTPException(
