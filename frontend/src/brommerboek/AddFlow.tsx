@@ -15,7 +15,13 @@ import {
 import { type PlaceHit, searchPlaces } from "./geocode"
 import { WrenchIcon } from "./icons"
 import { C, FONT_MONO } from "./theme"
-import type { MediaItem, NewStop, Stop, WeatherCondition } from "./types"
+import type {
+  MediaItem,
+  NewStop,
+  Stop,
+  StopType,
+  WeatherCondition,
+} from "./types"
 import { WEATHER_OPTIONS } from "./weather"
 
 const STEP_LABELS = ["LOCATIE", "MEDIA", "VERHAAL", "TYPE"]
@@ -140,9 +146,7 @@ export default function AddFlow({
 }) {
   const isEdit = !!initialStop
   const [step, setStep] = useState(0)
-  const [type, setType] = useState<"stop" | "repair">(
-    initialStop?.type ?? "stop",
-  )
+  const [type, setType] = useState<StopType>(initialStop?.type ?? "stop")
   const [picked, setPicked] = useState<PlaceHit | null>(
     initialStop
       ? {
@@ -1223,6 +1227,53 @@ export default function AddFlow({
                     }}
                   >
                     wat brak, wat je maakte
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setType("preparation")}
+                style={{
+                  textAlign: "left",
+                  border: `2px solid ${type === "preparation" ? C.ochre : C.border}`,
+                  borderRadius: 12,
+                  padding: 16,
+                  background: type === "preparation" ? "#f5edda" : C.paperCard,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                }}
+              >
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: "50%",
+                    background: C.ochre,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flex: "none",
+                    color: C.cream,
+                    fontSize: 17,
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓
+                </div>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 18 }}>
+                    Voorbereiding
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: 11,
+                      color: C.sepia,
+                    }}
+                  >
+                    vóór vertrek — telt niet mee
                   </div>
                 </div>
               </button>

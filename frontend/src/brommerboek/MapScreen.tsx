@@ -366,6 +366,9 @@ export default function MapScreen({
                 {cur.type === "repair" && (
                   <span style={{ color: C.teal }}>· REPARATIE</span>
                 )}
+                {cur.type === "preparation" && (
+                  <span style={{ color: C.ochre }}>· VOORBEREIDING</span>
+                )}
               </div>
               <div
                 style={{
@@ -517,7 +520,12 @@ export default function MapScreen({
                   borderRadius: "50%",
                   transform: "translateX(-50%)",
                   left: `${(stopFraction(route, i) * 100).toFixed(2)}%`,
-                  background: s.type === "repair" ? C.teal : C.red,
+                  background:
+                    s.type === "repair"
+                      ? C.teal
+                      : s.type === "preparation"
+                        ? C.ochre
+                        : C.red,
                   border: `2px solid ${C.paperLight}`,
                 }}
               />

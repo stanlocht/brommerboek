@@ -16,6 +16,9 @@ export function deriveStamps(stops: Stop[]): Stamp[] {
   const ordered = [...stops].sort((a, b) => a.order_index - b.order_index)
   const byCode = new Map<string, Stamp>()
   for (const s of ordered) {
+    // Preparation posts predate the trip — no stamp, and no claiming a
+    // country's "first arrival" date from the couch at home.
+    if (s.type === "preparation") continue
     if (!s.code) continue
     const cur = byCode.get(s.code)
     if (cur) cur.stops += 1

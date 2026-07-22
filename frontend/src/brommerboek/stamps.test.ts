@@ -117,4 +117,20 @@ describe("deriveStamps", () => {
     const stamps = deriveStamps([makeStop({ code: "", country: "" })])
     expect(stamps).toEqual([])
   })
+
+  it("ignores preparation posts entirely", () => {
+    const stamps = deriveStamps([
+      // Packing at home two weeks early must not claim NL's arrival date.
+      makeStop({ type: "preparation", date: "2024-04-20" }),
+      makeStop({ code: "NL", date: "2024-05-04" }),
+      makeStop({
+        code: "BE",
+        country: "België",
+        flag: "🇧🇪",
+        date: "2024-05-06",
+      }),
+    ])
+    expect(stamps.map((s) => s.code)).toEqual(["NL", "BE"])
+    expect(stamps[0]).toMatchObject({ date: "2024-05-04", stops: 1 })
+  })
 })

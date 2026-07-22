@@ -114,6 +114,9 @@ function ReplayStopCard({ stop }: { stop: Stop }) {
           {stop.type === "repair" && (
             <span style={{ color: C.teal }}>· REPARATIE</span>
           )}
+          {stop.type === "preparation" && (
+            <span style={{ color: C.ochre }}>· VOORBEREIDING</span>
+          )}
         </div>
         <div
           style={{
