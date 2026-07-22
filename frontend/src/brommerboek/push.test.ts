@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   type IosEnv,
   isPushSupported,
   needsIosInstall,
+  pushAvailability,
   urlBase64ToUint8Array,
 } from "./push"
 
@@ -90,5 +91,39 @@ describe("isPushSupported", () => {
     // vitest runs in a node environment: the guard must short-circuit
     // instead of throwing on the missing globals.
     expect(isPushSupported()).toBe(false)
+  })
+})
+
+describe("pushAvailability", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("is unsupported outside a browser", () => {
+    expect(pushAvailability()).toBe("unsupported")
+  })
+
+  it("asks an iPhone Safari tab (no PushManager) to install first", () => {
+    // iOS Safari in a plain tab: window exists but hides PushManager.
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("navigator", { userAgent: IPHONE_UA, maxTouchPoints: 5 })
+    expect(pushAvailability()).toBe("ios-needs-install")
+  })
+
+  it("stays unsupported on a non-iOS browser without push", () => {
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("navigator", { userAgent: ANDROID_UA, maxTouchPoints: 5 })
+    expect(pushAvailability()).toBe("unsupported")
+  })
+
+  it("stays unsupported in an installed iOS PWA that still lacks push", () => {
+    // Old iOS: already on the home screen, so install advice would be wrong.
+    vi.stubGlobal("window", {})
+    vi.stubGlobal("navigator", {
+      userAgent: IPHONE_UA,
+      maxTouchPoints: 5,
+      standalone: true,
+    })
+    expect(pushAvailability()).toBe("unsupported")
   })
 })
