@@ -145,8 +145,9 @@ def create_stop(
     *, session: SessionDep, stop_in: StopCreate, background_tasks: BackgroundTasks
 ) -> Any:
     """
-    Add a new stop to the end of the route. Superusers only — this is a
-    single-rider journal.
+    Add a new stop to the route, slotted in by its date (a backdated stop
+    lands earlier on the route, not at the end). Superusers only — this is
+    a single-rider journal.
     """
     stop = crud.create_stop(session=session, stop_in=stop_in)
     background_tasks.add_task(
