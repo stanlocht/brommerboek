@@ -512,6 +512,40 @@ function AdminCard() {
   )
 }
 
+// Entry point to the feedback screen — every signed-in rijder can report
+// something broken on the site from here.
+function FeedbackCard() {
+  return (
+    <Card title="STORINGSDIENST" rot="-.2deg">
+      <div
+        style={{
+          fontFamily: FONT_MONO,
+          fontSize: 12,
+          color: C.sepia,
+          marginBottom: 10,
+        }}
+      >
+        werkt er iets niet op de site? meld het, dan sleutelen wij eraan.
+      </div>
+      <Link
+        to="/feedback"
+        style={{
+          display: "inline-block",
+          padding: "9px 14px",
+          border: `1.5px solid ${C.ochre}`,
+          borderRadius: 20,
+          fontFamily: FONT_MONO,
+          fontSize: 12,
+          color: C.sepia,
+          textDecoration: "none",
+        }}
+      >
+        🔧 meld een storing
+      </Link>
+    </Card>
+  )
+}
+
 function LogoutCard() {
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -722,6 +756,7 @@ export default function AccountScreen() {
           <PasswordCard />
           {user?.is_superuser && <NotificationsCard />}
           {user?.is_superuser && <AdminCard />}
+          <FeedbackCard />
           <LogoutCard />
           <DangerCard />
         </div>

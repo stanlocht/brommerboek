@@ -8,7 +8,15 @@ from app.core import captcha, ratelimit
 from app.core.config import settings
 from app.core.db import engine, init_db
 from app.main import app
-from app.models import Comment, HornHonk, PushSubscription, Stop, UsageStat, User
+from app.models import (
+    Comment,
+    Feedback,
+    HornHonk,
+    PushSubscription,
+    Stop,
+    UsageStat,
+    User,
+)
 from tests.utils.user import authentication_token_from_email
 from tests.utils.utils import get_superuser_token_headers
 
@@ -26,7 +34,15 @@ def db() -> Generator[Session]:
         # the next session. Emptying everything here keeps runs
         # order-independent and deterministic, instead of preserving rows a
         # mid-suite test may have mutated.
-        for model in (Comment, HornHonk, PushSubscription, Stop, UsageStat, User):
+        for model in (
+            Comment,
+            Feedback,
+            HornHonk,
+            PushSubscription,
+            Stop,
+            UsageStat,
+            User,
+        ):
             session.execute(delete(model))
         session.commit()
 
