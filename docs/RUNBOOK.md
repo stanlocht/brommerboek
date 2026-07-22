@@ -356,6 +356,7 @@ destructive actions require.
 | `preview-list` | – | running preview stacks, env dirs, Caddy snippets |
 | `preview-logs` | PR number | preview stack `ps -a` + prestart/backend logs |
 | `backup-list` | – | local + off-box (rclone) backup listing |
+| `env-list` | – | `.env` **keys only** (never values), current TAG, `.env` backups |
 | `restart` | – | `dc up -d --force-recreate --no-deps <service>` (+ health wait for backend) |
 | `restart-all` | – | `dc up -d` + health wait |
 | `caddy-reload` | – | reload Caddy config |
@@ -366,8 +367,30 @@ destructive actions require.
 | `rollback` ⚠️ | git SHA | §3 rollback to a previous image tag (+ health wait) |
 | `alembic-downgrade` ⚠️ | revision | §3 migration downgrade |
 | `preview-teardown` ⚠️ | PR number | §7 manual preview teardown (incl. label-based leftover cleanup) |
+| `env-set` ⚠️ | `KEY=value` | set a **non-secret** `.env` var, recreate `<service>` |
+| `env-set-secret` ⚠️ | `KEY` | set a secret `.env` var; value comes from the `OPS_ENV_VALUE` repo secret |
+| `env-unset` ⚠️ | `KEY` | remove a `.env` var, recreate `<service>` |
 
 ⚠️ = requires the `confirm` checkbox.
+
+### Changing `.env` remotely
+
+Workflow-dispatch inputs are stored **in plain text** in the run metadata, so
+there are two paths:
+
+- **Non-secret values** (`ENVIRONMENT`, `SENTRY_DSN=` to clear it, …):
+  `env-set` with `args: KEY=value`.
+- **Secrets** (SMTP password, `VAPID_PRIVATE_KEY`, …): first store the value
+  in the repo secret **`OPS_ENV_VALUE`** (GitHub → Settings → Secrets and
+  variables → Actions — works from a phone browser), then dispatch
+  `env-set-secret` with `args: KEY`. GitHub masks the value everywhere; the
+  workflow never prints it. You can overwrite `OPS_ENV_VALUE` for each use —
+  it's a scratch slot, not a registry.
+
+All three env actions make a timestamped `.env` backup on the box first
+(keeping the last 5, listed by `env-list`), then recreate the `service`
+input's container (default `backend`) with a health wait. After any change,
+refresh the off-box copy of the production `.env` (§1).
 
 Concurrency: mutating actions share the `deploy-production` concurrency
 group with `deploy.yml`, so they queue instead of racing a deploy; read-only

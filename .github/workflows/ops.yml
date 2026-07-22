@@ -38,6 +38,7 @@ on:
           - preview-list
           - preview-logs
           - backup-list
+          - env-list
           # mutating (queued behind deploys)
           - restart
           - restart-all
@@ -50,13 +51,16 @@ on:
           - rollback
           - alembic-downgrade
           - preview-teardown
+          - env-set
+          - env-set-secret
+          - env-unset
       service:
         description: "Service (for restart / logs)"
         type: choice
         default: backend
         options: [backend, frontend, caddy, db, prestart]
       args:
-        description: "logs: line count · preview-*: PR number · rollback: git SHA · alembic-downgrade: revision"
+        description: "logs: lines · preview-*: PR nr · rollback: SHA · alembic-downgrade: rev · env-set: KEY=value · env-set-secret/env-unset: KEY"
         type: string
         required: false
         default: ""
@@ -74,7 +78,7 @@ permissions:
 # can never run on the box at the same time — same rationale as the
 # 2026-07-08 incident note in deploy.yml.
 concurrency:
-  group: ${{ contains(fromJSON('["status","health","logs","resources","db-stats","migrate-status","preview-list","preview-logs","backup-list"]'), inputs.action) && format('ops-read-{0}', github.run_id) || 'deploy-production' }}
+  group: ${{ contains(fromJSON('["status","health","logs","resources","db-stats","migrate-status","preview-list","preview-logs","backup-list","env-list"]'), inputs.action) && format('ops-read-{0}', github.run_id) || 'deploy-production' }}
   cancel-in-progress: false
 
 jobs:
@@ -86,11 +90,12 @@ jobs:
           ACTION: ${{ inputs.action }}
           ARGS: ${{ inputs.args }}
           CONFIRM: ${{ inputs.confirm }}
+          SECRET_VALUE: ${{ secrets.OPS_ENV_VALUE }}
         run: |
           set -eu
           die() { echo "::error::$1"; exit 1; }
           case "$ACTION" in
-            rollback|alembic-downgrade|preview-teardown)
+            rollback|alembic-downgrade|preview-teardown|env-set|env-set-secret|env-unset)
               [ "$CONFIRM" = "true" ] || die "'$ACTION' is destructive — re-run with 'confirm' checked" ;;
           esac
           case "$ACTION" in
@@ -104,6 +109,16 @@ jobs:
               echo "$ARGS" | grep -Eq '^[0-9a-f]{7,40}$' || die "args must be the git SHA of a previously deployed commit (see deploy history)" ;;
             alembic-downgrade)
               echo "$ARGS" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || die "args must be an alembic revision id (or -1)" ;;
+            env-set)
+              # Dispatch inputs are stored in plain text in the run metadata —
+              # NEVER pass secrets this way; use env-set-secret instead.
+              echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*=.*$' || die "args must be KEY=value (KEY in CAPS_WITH_UNDERSCORES). For secret values use env-set-secret."
+              echo "::warning::env-set values are visible in the run metadata — use env-set-secret for anything sensitive" ;;
+            env-set-secret)
+              echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*$' || die "args must be just the KEY; the value is read from the OPS_ENV_VALUE repo secret"
+              [ -n "$SECRET_VALUE" ] || die "set the OPS_ENV_VALUE repository secret first (Settings → Secrets and variables → Actions), then re-run" ;;
+            env-unset)
+              echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*$' || die "args must be the KEY to remove" ;;
           esac
           echo "inputs OK"
 
@@ -113,11 +128,13 @@ jobs:
           ACTION: ${{ inputs.action }}
           SERVICE: ${{ inputs.service }}
           ARGS: ${{ inputs.args }}
+          # Only used by env-set-secret; GitHub masks it in any log output.
+          SECRET_VALUE: ${{ secrets.OPS_ENV_VALUE }}
         with:
           host: ${{ secrets.BOX_IP }}
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: ACTION,SERVICE,ARGS
+          envs: ACTION,SERVICE,ARGS,SECRET_VALUE
           # backup-now (pg_dump + tar + rclone) can outlive the 10m default.
           command_timeout: 30m
           script: |
@@ -213,6 +230,16 @@ jobs:
                 rclone lsl remote:brommerboek-backups | sort -k4 | tail -30
                 ;;
 
+              env-list)
+                # Keys only — values stay off the log by design.
+                say ".env keys (values hidden)"
+                grep -Ev '^[[:space:]]*(#|$)' .env | cut -d= -f1
+                say ".env.deploy (current image tag)"
+                cat .env.deploy
+                say ".env backups on the box"
+                ls -1t .env.bak.* 2>/dev/null || echo "(none)"
+                ;;
+
               # ---------- mutating ----------
 
               restart)
@@ -302,6 +329,32 @@ jobs:
                   "ghcr.io/stanlocht/brommerboek-frontend:$PR" 2>/dev/null || true
                 $DC exec -T caddy caddy reload --config /etc/caddy/Caddyfile
                 echo "$PR torn down"
+                ;;
+
+              env-set|env-set-secret|env-unset)
+                # All three: timestamped .env backup (the 2026-07-08 incident
+                # is why), edit, recreate $SERVICE to pick the change up.
+                # Values are never echoed; KEY is pre-validated on the runner
+                # to ^[A-Z][A-Z0-9_]*$ so it is safe inside the sed pattern.
+                case "$ACTION" in
+                  env-set)        KEY="${ARGS%%=*}"; VAL="${ARGS#*=}" ;;
+                  env-set-secret) KEY="$ARGS";       VAL="$SECRET_VALUE" ;;
+                  env-unset)      KEY="$ARGS";       VAL= ;;
+                esac
+                cp .env ".env.bak.$(date +%Y%m%d-%H%M%S)"
+                ls -1t .env.bak.* 2>/dev/null | tail -n +6 | xargs -r rm -f
+                sed -i "/^$KEY=/d" .env
+                if [ "$ACTION" = "env-unset" ]; then
+                  say "removed $KEY from .env"
+                else
+                  printf '%s=%s\n' "$KEY" "$VAL" >> .env
+                  say "set $KEY in .env (value not shown)"
+                fi
+                say "recreating $SERVICE with the new environment"
+                $DC up -d --force-recreate --no-deps "$SERVICE"
+                if [ "$SERVICE" = "backend" ]; then wait_healthy; fi
+                echo
+                echo "NOTE: refresh your off-box copy of the production .env (RUNBOOK section 1)."
                 ;;
 
               *)
