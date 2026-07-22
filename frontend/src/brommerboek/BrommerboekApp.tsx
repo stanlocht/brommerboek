@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ReactNode } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { UsersService } from "@/client"
 import { isLoggedIn } from "@/hooks/useAuth"
@@ -23,7 +24,13 @@ import { EMPTY_STATS } from "./trip"
 import type { NewStop, Stop } from "./types"
 import useReplay from "./useReplay"
 
-function CenterState({ text }: { text: string }) {
+function CenterState({
+  text,
+  children,
+}: {
+  text: string
+  children?: ReactNode
+}) {
   return (
     <div
       className="bb-app"
@@ -41,6 +48,7 @@ function CenterState({ text }: { text: string }) {
       <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: C.ochreDeep }}>
         {text}
       </div>
+      {children}
     </div>
   )
 }
@@ -250,11 +258,97 @@ export default function BrommerboekApp() {
     [],
   )
 
+  const toastEl = toast && (
+    <div
+      className="bb-toast"
+      style={{
+        position: "absolute",
+        bottom: 32,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 90,
+        background: "#332c22",
+        color: C.wrappedInk,
+        fontFamily: FONT_MONO,
+        fontSize: 12,
+        padding: "10px 18px",
+        borderRadius: 20,
+        boxShadow: "0 4px 12px rgba(0,0,0,.35)",
+      }}
+    >
+      {toast}
+    </div>
+  )
+
   if (isLoading) return <CenterState text="de kaart wordt geladen…" />
   if (isError || !stops)
     return <CenterState text="kon de reis niet laden — draait de backend?" />
   if (stops.length === 0)
-    return <CenterState text="nog geen stops — voeg de eerste toe" />
+    return (
+      <CenterState
+        text={
+          canEdit
+            ? "nog geen stops — voeg de eerste toe"
+            : "nog geen stops op de route"
+        }
+      >
+        {canEdit ? (
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            style={{
+              fontFamily: FONT_MONO,
+              fontSize: 12,
+              letterSpacing: 1,
+              color: C.wrappedInk,
+              background: C.red,
+              border: `2px solid ${C.paperLight}`,
+              borderRadius: 20,
+              padding: "10px 20px",
+              cursor: "pointer",
+              boxShadow: "0 4px 10px rgba(0,0,0,.25)",
+            }}
+          >
+            + nieuwe stop
+          </button>
+        ) : (
+          !me && (
+            <button
+              type="button"
+              onClick={() => setLoginOpen(true)}
+              style={{
+                fontFamily: FONT_MONO,
+                fontSize: 11,
+                letterSpacing: 1,
+                color: C.ochreDeep,
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: "4px 6px",
+                textDecoration: "underline",
+              }}
+            >
+              log in
+            </button>
+          )
+        )}
+        {addOpen && canEdit && (
+          <AddFlow
+            suggestedKm={stats.suggested_km}
+            onClose={() => setAddOpen(false)}
+            onCreate={(s) => createMut.mutate(s)}
+          />
+        )}
+        {loginOpen && (
+          <LoginPrompt
+            intent="signin"
+            onClose={() => setLoginOpen(false)}
+            onSuccess={() => setLoginOpen(false)}
+          />
+        )}
+        {toastEl}
+      </CenterState>
+    )
 
   const cur = stops[activeIndex] ?? stops[0]
 
@@ -403,27 +497,7 @@ export default function BrommerboekApp() {
         />
       )}
 
-      {toast && (
-        <div
-          className="bb-toast"
-          style={{
-            position: "absolute",
-            bottom: 32,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 90,
-            background: "#332c22",
-            color: C.wrappedInk,
-            fontFamily: FONT_MONO,
-            fontSize: 12,
-            padding: "10px 18px",
-            borderRadius: 20,
-            boxShadow: "0 4px 12px rgba(0,0,0,.35)",
-          }}
-        >
-          {toast}
-        </div>
-      )}
+      {toastEl}
     </div>
   )
 }
