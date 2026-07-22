@@ -156,6 +156,56 @@ def test_create_and_delete_stop_as_superuser(
     assert client.get(f"{STOPS_URL}{created['id']}").status_code == 404
 
 
+def test_create_backdated_stop_slots_into_route_by_date(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    # A stop dated before the seed trip's last stop must slot into the route
+    # at its date position, not get appended because it was uploaded last.
+    r = client.post(
+        STOPS_URL,
+        headers=superuser_token_headers,
+        json=stop_payload(place="Laatbericht", date="2024-05-10"),
+    )
+    assert r.status_code == 200
+    created = r.json()
+    try:
+        listed = client.get(STOPS_URL).json()["data"]
+        dates = [s["date"] for s in listed]
+        assert dates == sorted(dates)
+        order = [s["order_index"] for s in listed]
+        assert order == list(range(len(listed)))
+        # The backdated stop sits after the seed stops of its date and before
+        # any later-dated stop — so not at the tail.
+        idx = next(i for i, s in enumerate(listed) if s["id"] == created["id"])
+        assert idx < len(listed) - 1
+    finally:
+        r = client.delete(
+            f"{STOPS_URL}{created['id']}", headers=superuser_token_headers
+        )
+        assert r.status_code == 200
+
+
+def test_update_stop_date_resequences_route(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    # Correcting a stop's date moves it along the route accordingly.
+    stop = create_test_stop(db, date="2024-06-01")  # after the seed trip
+    try:
+        r = client.patch(
+            f"{STOPS_URL}{stop.id}",
+            headers=superuser_token_headers,
+            json={"date": "2024-05-01"},  # before the seed trip
+        )
+        assert r.status_code == 200
+        assert r.json()["order_index"] == 0
+        listed = client.get(STOPS_URL).json()["data"]
+        assert listed[0]["id"] == str(stop.id)
+        dates = [s["date"] for s in listed]
+        assert dates == sorted(dates)
+    finally:
+        delete_test_stop(db, stop)
+
+
 def test_update_stop_requires_auth(client: TestClient, db: Session) -> None:
     stop = create_test_stop(db)
     try:
