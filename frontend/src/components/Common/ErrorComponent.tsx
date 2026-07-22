@@ -1,9 +1,17 @@
 // Vintage-styled error screen: motorpech.
 
 import { Link } from "@tanstack/react-router"
+import { useEffect } from "react"
 import { C, FONT_MONO, FONT_SERIF } from "@/brommerboek/theme"
+import { reportError } from "@/lib/telemetry"
 
-const ErrorComponent = () => {
+const ErrorComponent = ({ error }: { error?: unknown }) => {
+  // The user only sees "motorpech"; the actual error goes to telemetry so
+  // it can be triaged without anyone having to report it.
+  useEffect(() => {
+    if (error !== undefined) reportError(error, "error-boundary")
+  }, [error])
+
   return (
     <div className="bb-app" data-testid="error-component">
       <div

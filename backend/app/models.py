@@ -550,3 +550,113 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+# ----------------------------------------------------------------------------
+# Error telemetry ("pechregistratie").
+#
+# Unhandled backend exceptions and frontend crashes are recorded here so
+# broken things surface without a user having to file a storingsdienst
+# report. Events are grouped by a normalized fingerprint; a scheduled GitHub
+# workflow (error-triage.yml) turns new open groups into GitHub issues and
+# flips them to "reported". Superusers (or the workflow, via OPS_TOKEN) read
+# and manage the queue through /api/v1/telemetry/errors.
+# ----------------------------------------------------------------------------
+
+ERROR_SOURCES = {"frontend", "backend"}
+ERROR_GROUP_STATUSES = {"open", "reported", "resolved"}
+
+# Only this many full events are stored per group; beyond that the group
+# still counts occurrences (event_count / last_seen) but drops the payloads,
+# so a crash-looping client can't grow the table unbounded.
+ERROR_EVENTS_KEPT_PER_GROUP = 25
+
+
+class ErrorGroup(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    # sha256 hex of (source, normalized message, top stack frame).
+    fingerprint: str = Field(unique=True, index=True, max_length=64)
+    source: str = Field(max_length=16)  # one of ERROR_SOURCES
+    title: str = Field(max_length=500)
+    status: str = Field(default="open", max_length=16, index=True)
+    event_count: int = Field(default=0)
+    # Filled by the triage workflow once a GitHub issue exists for the group.
+    issue_url: str | None = Field(default=None, max_length=512)
+    first_seen: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    last_seen: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class ErrorEvent(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    group_id: uuid.UUID = Field(
+        foreign_key="errorgroup.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    message: str = Field(sa_type=Text)
+    stack: str = Field(default="", sa_type=Text)
+    # Frontend: the page URL; backend: "METHOD /path".
+    url: str = Field(default="", max_length=1024)
+    # Free-form extras: user agent, release tag, HTTP method, …
+    context: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+# What the frontend posts when it crashes. Kept deliberately small — no
+# auth required (the error boundary may hit while logged out), so nothing
+# here is trusted beyond being displayed to a superuser.
+class ErrorReportIn(SQLModel):
+    message: str = Field(min_length=1, max_length=2000)
+    stack: str = Field(default="", max_length=20000)
+    url: str = Field(default="", max_length=1024)
+    # What the client thinks it is running (e.g. a git SHA baked at build).
+    release: str = Field(default="", max_length=64)
+
+
+class ErrorEventPublic(SQLModel):
+    id: uuid.UUID
+    message: str
+    stack: str
+    url: str
+    context: dict
+    created_at: datetime | None
+
+
+class ErrorGroupPublic(SQLModel):
+    id: uuid.UUID
+    fingerprint: str
+    source: str
+    title: str
+    status: str
+    event_count: int
+    issue_url: str | None
+    first_seen: datetime | None
+    last_seen: datetime | None
+    # Most recent stored event, as the representative sample.
+    latest_event: ErrorEventPublic | None = None
+
+
+class ErrorGroupsPublic(SQLModel):
+    data: list[ErrorGroupPublic]
+    count: int
+
+
+class ErrorGroupUpdate(SQLModel):
+    status: str = Field(max_length=16)
+    issue_url: str | None = Field(default=None, max_length=512)
+
+    @field_validator("status")
+    @classmethod
+    def check_status(cls, v: str) -> str:
+        if v not in ERROR_GROUP_STATUSES:
+            raise ValueError(
+                f"status must be one of: {', '.join(sorted(ERROR_GROUP_STATUSES))}"
+            )
+        return v

@@ -332,6 +332,43 @@ dc logs --tail=100 prestart
 docker inspect -f '{{.State.ExitCode}}' "$(dc ps -aq prestart)"
 ```
 
+### Error telemetry → GitHub issues
+
+Users who hit "Motorpech — er ging iets mis" no longer have to report it
+themselves; the app phones home:
+
+- **What gets recorded.** Every unhandled backend exception (middleware in
+  `backend/app/main.py`) and every frontend crash — router error boundary,
+  `window.onerror`, unhandled promise rejections, and failed TanStack
+  queries/mutations (`frontend/src/lib/telemetry.ts`) — is POSTed to
+  `POST /api/v1/telemetry/errors` and stored in Postgres, grouped by a
+  normalized fingerprint (`backend/app/core/errortrack.py`). Per group only
+  the first 25 full events are kept; the occurrence counter keeps climbing.
+- **Reading the queue.** As a superuser:
+  `GET /api/v1/telemetry/errors?status=open` (also `reported` / `resolved`).
+  Each group carries its latest sample event (message, stack, URL, release).
+- **Issues, automatically.** `.github/workflows/error-triage.yml` runs 4×
+  a day, reads the open groups, files one GitHub issue per group (label
+  `telemetry`) with the stack sample, and PATCHes the group to `reported`
+  with the issue URL. From there the fix is a normal issue → PR flow
+  (assign it to Claude Code or pick it up yourself).
+- **Lifecycle.** Fix shipped → PATCH the group to `resolved` (or leave the
+  issue closed; the group stays `reported` and files nothing new). If a
+  `resolved` error recurs it reopens automatically and the next triage run
+  files a fresh issue — regressions never rot silently.
+- **Setup (one-time).** Generate a token (`openssl rand -hex 32`), then:
+  1. put it in the box `.env` as `OPS_TOKEN=…` — easiest via ops.yml →
+     `env-set-secret` with `args=OPS_TOKEN` (value in the `OPS_ENV_VALUE`
+     repo secret), which also recreates the backend;
+  2. save the same value as the `OPS_TOKEN` **repository secret** on GitHub.
+  Without the token everything is still recorded and superuser-readable;
+  only the automated issue filing is off (the workflow no-ops with a
+  warning).
+- Anti-abuse: the report endpoint is rate-limited (10/min/IP), payloads are
+  size-capped, the frontend dedupes per page load, and groups cap stored
+  events at 25 — a crash loop can't flood the table or the issue tracker
+  (one group = one issue).
+
 ## 9. Remote ops without SSH (`ops.yml`)
 
 `.github/workflows/ops.yml` exposes the routine box operations from this

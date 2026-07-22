@@ -1,0 +1,116 @@
+name: error-triage
+
+# Turns error telemetry into GitHub issues, unattended. The backend groups
+# every unhandled backend exception and frontend crash report under
+# /api/v1/telemetry/errors (see docs/RUNBOOK.md §8). This workflow reads the
+# "open" groups with the OPS_TOKEN, files one issue per group (label:
+# telemetry), and flips the group to "reported" with the issue URL — so a
+# broken page surfaces here within a few hours, without any user filing a
+# storingsdienst report. From the issue, a fix can be picked up by Claude
+# Code (or a human) like any other issue.
+#
+# Needs the OPS_TOKEN repository secret to match OPS_TOKEN in the box's
+# .env (set it there with ops.yml → env-set-secret). If the secret is
+# missing the run is a no-op that says so.
+
+on:
+  schedule:
+    # Four times a day, off the whole hour.
+    - cron: "23 2,8,14,20 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: error-triage
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    env:
+      API: https://brommerboek.nl/api/v1/telemetry/errors
+      OPS_TOKEN: ${{ secrets.OPS_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Fetch open error groups
+        id: fetch
+        run: |
+          set -eu
+          if [ -z "$OPS_TOKEN" ]; then
+            echo "::warning::OPS_TOKEN secret not set — skipping (see docs/RUNBOOK.md §8)"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          curl -fsS -m 30 -H "X-Ops-Token: $OPS_TOKEN" \
+            "$API?status=open&limit=100" > groups.json
+          COUNT=$(jq '.data | length' groups.json)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "open error groups: $COUNT"
+
+      - name: File issues and mark groups reported
+        if: steps.fetch.outputs.count != '0'
+        run: |
+          set -eu
+          gh label create telemetry \
+            --description "Auto-filed from error telemetry" \
+            --color B60205 2>/dev/null || true
+
+          jq -c '.data[]' groups.json | while read -r group; do
+            ID=$(echo "$group" | jq -r '.id')
+            TITLE=$(echo "$group" | jq -r '.title' | tr '\n' ' ' | head -c 120)
+            SOURCE=$(echo "$group" | jq -r '.source')
+
+            {
+              echo "Automated report from error telemetry — this error was hit by real traffic."
+              echo
+              echo "| | |"
+              echo "|---|---|"
+              echo "| source | \`$(echo "$group" | jq -r '.source')\` |"
+              echo "| occurrences | $(echo "$group" | jq -r '.event_count') |"
+              echo "| first seen | $(echo "$group" | jq -r '.first_seen') |"
+              echo "| last seen | $(echo "$group" | jq -r '.last_seen') |"
+              echo "| release | $(echo "$group" | jq -r '.latest_event.context.release // "unknown"') |"
+              echo "| where | \`$(echo "$group" | jq -r '.latest_event.url // "unknown"')\` |"
+              echo "| fingerprint | \`$(echo "$group" | jq -r '.fingerprint')\` |"
+              echo
+              echo "### Message"
+              echo '```'
+              echo "$group" | jq -r '.latest_event.message // .title'
+              echo '```'
+              STACK=$(echo "$group" | jq -r '.latest_event.stack // ""')
+              if [ -n "$STACK" ]; then
+                echo
+                echo "### Stack (latest sample)"
+                echo '```'
+                echo "$STACK" | head -c 8000
+                echo '```'
+              fi
+              echo
+              echo "_Filed by the error-triage workflow. More samples: superuser GET /api/v1/telemetry/errors. When the fix ships, PATCH the group to \"resolved\" (or via the admin API) — a recurrence reopens it automatically._"
+            } > body.md
+
+            URL=$(gh issue create \
+              --title "[telemetry] $SOURCE: $TITLE" \
+              --label telemetry \
+              --body-file body.md)
+            echo "filed $URL for group $ID"
+
+            curl -fsS -m 30 -X PATCH \
+              -H "X-Ops-Token: $OPS_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"status\": \"reported\", \"issue_url\": \"$URL\"}" \
+              "$API/$ID" > /dev/null
+          done
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### error-triage"
+            echo ""
+            echo "Open groups found: \`${{ steps.fetch.outputs.count || 0 }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
