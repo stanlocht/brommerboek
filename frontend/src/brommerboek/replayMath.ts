@@ -60,7 +60,10 @@ export function buildTimeline(
   let t = 0
   for (let i = 0; i < stops.length; i++) {
     if (i > 0) {
-      const dur = reduced ? 0 : legDurationMs(route.cum[i] - route.cum[i - 1])
+      // A zero-distance leg (next stop at the same spot) has nothing to
+      // drive — skip straight to the stop instead of idling for LEG_MIN_MS.
+      const meters = route.cum[i] - route.cum[i - 1]
+      const dur = reduced || meters <= 0 ? 0 : legDurationMs(meters)
       segments.push({ kind: "drive", index: i, start: t, end: t + dur })
       t += dur
     }

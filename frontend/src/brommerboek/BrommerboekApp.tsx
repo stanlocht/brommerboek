@@ -335,6 +335,7 @@ export default function BrommerboekApp() {
         {addOpen && canEdit && (
           <AddFlow
             suggestedKm={stats.suggested_km}
+            saving={createMut.isPending}
             onClose={() => setAddOpen(false)}
             onCreate={(s) => createMut.mutate(s)}
           />
@@ -380,26 +381,27 @@ export default function BrommerboekApp() {
   const onStep = (dir: -1 | 1) => {
     cancelAnim()
     const from = progressRef.current
-    const currentIdx = nearestStop(route, from)
-    const targetIdx = Math.max(0, Math.min(stops.length - 1, currentIdx + dir))
-    if (targetIdx === currentIdx) return
+    // Step from the active stop, not from nearestStop(progress): stops that
+    // share a location (several posts from the same place) collapse to the
+    // same route fraction, so deriving the current stop from progress made
+    // prev/next unable to move between them.
+    const targetIdx = Math.max(0, Math.min(stops.length - 1, activeIndex + dir))
+    if (targetIdx === activeIndex) return
     const to = stopFraction(route, targetIdx)
     const duration = 400 + 800 * Math.abs(to - from)
     const t0 = performance.now()
     setDragging(true)
+    setActiveIndex(targetIdx)
     const step = (now: number) => {
       const k = Math.min(1, (now - t0) / duration)
       const eased = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2
-      const cur = from + (to - from) * eased
-      setProgress(cur)
-      setActiveIndex(nearestStop(route, cur))
+      setProgress(from + (to - from) * eased)
       if (k < 1) {
         animRef.current = requestAnimationFrame(step)
       } else {
         animRef.current = null
         setDragging(false)
         setProgress(to)
-        setActiveIndex(targetIdx)
       }
     }
     animRef.current = requestAnimationFrame(step)
@@ -475,6 +477,7 @@ export default function BrommerboekApp() {
       {addOpen && canEdit && (
         <AddFlow
           suggestedKm={stats.suggested_km}
+          saving={createMut.isPending}
           onClose={() => setAddOpen(false)}
           onCreate={(s) => createMut.mutate(s)}
         />
@@ -483,6 +486,7 @@ export default function BrommerboekApp() {
         <AddFlow
           suggestedKm={stats.suggested_km}
           initialStop={editStop}
+          saving={patchMut.isPending || deleteMut.isPending}
           onClose={() => setEditStop(null)}
           onPatch={(id, patch) => patchMut.mutate({ id, patch })}
           onDelete={(id) => deleteMut.mutate(id)}
