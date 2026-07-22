@@ -41,10 +41,11 @@ export interface HonkState {
 }
 
 // Prefixes `/media/...` URLs (returned as server-relative) with the API base
-// so <img> / <video> tags fetch from the right origin during dev.
+// so <img> / <video> tags fetch from the right origin during dev. Absolute
+// URLs — including blob:/data: local previews — pass through untouched.
 export function mediaSrc(url: string | null): string | undefined {
   if (!url) return undefined
-  if (/^https?:/.test(url)) return url
+  if (/^(https?|blob|data):/.test(url)) return url
   return `${BASE}${url}`
 }
 

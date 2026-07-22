@@ -369,32 +369,46 @@ export default function AddFlow({
   }
 
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = "" // allow re-selecting the same file
-    if (!file) return
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = "" // allow re-selecting the same file(s)
+    if (files.length === 0) return
     setUploadError(null)
-    // For an existing stop we upload straight to the server so the file
-    // lives on the media volume; the response reflects the new media list.
+    // For an existing stop we upload straight to the server so the files
+    // live on the media volume; each response reflects the new media list.
+    // Sequential on purpose — the backend appends to the stop's media list,
+    // and parallel POSTs could interleave those read-modify-writes.
     if (isEdit && initialStop) {
       setUploading(true)
+      let failed = 0
       try {
-        const updated = await uploadStopMedia(initialStop.id, file)
-        syncFromServer(updated)
-      } catch (err) {
-        setUploadError((err as Error).message ?? "Upload mislukt")
+        for (const file of files) {
+          try {
+            const updated = await uploadStopMedia(initialStop.id, file)
+            syncFromServer(updated)
+          } catch {
+            failed += 1
+          }
+        }
       } finally {
         setUploading(false)
       }
+      if (failed > 0) {
+        setUploadError(
+          failed === 1 ? "1 upload mislukt" : `${failed} uploads mislukt`,
+        )
+      }
       return
     }
-    // For a NEW stop we don't have an ID yet — stash a local-preview item
+    // For a NEW stop we don't have an ID yet — stash local-preview items
     // so the user can see what they picked, and defer the real upload until
     // after the stop is created (see BrommerboekApp.tsx).
-    const url = URL.createObjectURL(file)
-    const kind: MediaItem["kind"] = file.type.startsWith("video/")
-      ? "video"
-      : "image"
-    setMedia((m) => [...m, { tone: "", cap: "", kind, url }])
+    const items = files.map((file): MediaItem => {
+      const kind: MediaItem["kind"] = file.type.startsWith("video/")
+        ? "video"
+        : "image"
+      return { tone: "", cap: "", kind, url: URL.createObjectURL(file) }
+    })
+    setMedia((m) => [...m, ...items])
   }
 
   const onRemoveMedia = async (index: number) => {
@@ -915,7 +929,7 @@ export default function AddFlow({
               <button
                 type="button"
                 onClick={onPickFile}
-                aria-label="Voeg foto of video toe"
+                aria-label="Voeg foto's of video's toe"
                 disabled={uploading}
                 style={{
                   aspectRatio: "1",
@@ -938,6 +952,7 @@ export default function AddFlow({
                 ref={fileInputRef}
                 type="file"
                 accept="image/*,video/*"
+                multiple
                 onChange={onFileChange}
                 style={{ display: "none" }}
               />
