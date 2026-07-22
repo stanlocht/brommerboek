@@ -1,0 +1,387 @@
+name: ops
+run-name: "ops: ${{ inputs.action }} (service=${{ inputs.service }} args=${{ inputs.args }})"
+
+# Remote ops on the production box, run over SSH from a manually dispatched
+# workflow. This is the allowlisted "hands on the host" bridge: every action
+# is a predefined command sequence from docs/RUNBOOK.md — nothing free-form
+# ever reaches the box, and everything that happened is in the run log.
+#
+# Reuses the deploy secrets (BOX_IP, SSH_PRIVATE_KEY); no new secrets needed.
+#
+# Usage: Actions tab → ops → Run workflow, or via API/MCP
+# (actions_run_trigger with {action, service, args, confirm}).
+#
+#   action   what to do (see the case-block below; grouped read/mutate/destroy)
+#   service  target for restart/logs: backend, frontend, caddy, db, prestart
+#   args     action-specific: log line count | PR number | git SHA | alembic rev
+#   confirm  must be ticked for destructive actions (rollback,
+#            alembic-downgrade, preview-teardown)
+#
+# Log output is delimited with "=== section ===" markers so it is easy to
+# read back programmatically (get_job_logs).
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Operation to run on the box"
+        type: choice
+        required: true
+        options:
+          # read-only
+          - status
+          - health
+          - logs
+          - resources
+          - db-stats
+          - migrate-status
+          - preview-list
+          - preview-logs
+          - backup-list
+          - env-list
+          # mutating (queued behind deploys)
+          - restart
+          - restart-all
+          - caddy-reload
+          - migrate
+          - backfill-thumbs
+          - backup-now
+          - cleanup
+          # destructive (require confirm)
+          - rollback
+          - alembic-downgrade
+          - preview-teardown
+          - env-set
+          - env-set-secret
+          - env-unset
+      service:
+        description: "Service (for restart / logs)"
+        type: choice
+        default: backend
+        options: [backend, frontend, caddy, db, prestart]
+      args:
+        description: "logs: lines · preview-*: PR nr · rollback: SHA · alembic-downgrade: rev · env-set: KEY=value · env-set-secret/env-unset: KEY"
+        type: string
+        required: false
+        default: ""
+      confirm:
+        description: "Required for destructive actions"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Read-only actions get a unique group so they never queue (you want `status`
+# DURING a broken deploy, not after it). Everything that mutates the box
+# shares the `deploy-production` group with deploy.yml, so ops and deploys
+# can never run on the box at the same time — same rationale as the
+# 2026-07-08 incident note in deploy.yml.
+concurrency:
+  group: ${{ contains(fromJSON('["status","health","logs","resources","db-stats","migrate-status","preview-list","preview-logs","backup-list","env-list"]'), inputs.action) && format('ops-read-{0}', github.run_id) || 'deploy-production' }}
+  cancel-in-progress: false
+
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        env:
+          ACTION: ${{ inputs.action }}
+          ARGS: ${{ inputs.args }}
+          CONFIRM: ${{ inputs.confirm }}
+          SECRET_VALUE: ${{ secrets.OPS_ENV_VALUE }}
+        run: |
+          set -eu
+          die() { echo "::error::$1"; exit 1; }
+          case "$ACTION" in
+            rollback|alembic-downgrade|preview-teardown|env-set|env-set-secret|env-unset)
+              [ "$CONFIRM" = "true" ] || die "'$ACTION' is destructive — re-run with 'confirm' checked" ;;
+          esac
+          case "$ACTION" in
+            logs)
+              if [ -n "$ARGS" ]; then
+                echo "$ARGS" | grep -Eq '^[0-9]{1,4}$' || die "args for logs must be a line count (empty = 100)"
+              fi ;;
+            preview-logs|preview-teardown)
+              echo "$ARGS" | grep -Eq '^[0-9]+$' || die "args must be the PR number (e.g. 42)" ;;
+            rollback)
+              echo "$ARGS" | grep -Eq '^[0-9a-f]{7,40}$' || die "args must be the git SHA of a previously deployed commit (see deploy history)" ;;
+            alembic-downgrade)
+              echo "$ARGS" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || die "args must be an alembic revision id (or -1)" ;;
+            env-set)
+              # Dispatch inputs are stored in plain text in the run metadata —
+              # NEVER pass secrets this way; use env-set-secret instead.
+              echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*=.*$' || die "args must be KEY=value (KEY in CAPS_WITH_UNDERSCORES). For secret values use env-set-secret."
+              echo "::warning::env-set values are visible in the run metadata — use env-set-secret for anything sensitive" ;;
+            env-set-secret)
+              echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*$' || die "args must be just the KEY; the value is read from the OPS_ENV_VALUE repo secret"
+              [ -n "$SECRET_VALUE" ] || die "set the OPS_ENV_VALUE repository secret first (Settings → Secrets and variables → Actions), then re-run" ;;
+            env-unset)
+              echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*$' || die "args must be the KEY to remove" ;;
+          esac
+          echo "inputs OK"
+
+      - name: Run '${{ inputs.action }}' on the box
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          ACTION: ${{ inputs.action }}
+          SERVICE: ${{ inputs.service }}
+          ARGS: ${{ inputs.args }}
+          # Only used by env-set-secret; GitHub masks it in any log output.
+          SECRET_VALUE: ${{ secrets.OPS_ENV_VALUE }}
+        with:
+          host: ${{ secrets.BOX_IP }}
+          username: deploy
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: ACTION,SERVICE,ARGS,SECRET_VALUE
+          # backup-now (pg_dump + tar + rclone) can outlive the 10m default.
+          command_timeout: 30m
+          script: |
+            set -eu
+            cd ~/brommerboek
+            DC="docker compose -f docker-compose.yml --env-file .env --env-file .env.deploy"
+            say() { printf '\n=== %s ===\n' "$1"; }
+            wait_healthy() {
+              i=0
+              until $DC exec -T backend curl -fsS http://localhost:8000/api/v1/utils/health-check/ >/dev/null 2>&1; do
+                i=$((i + 1))
+                if [ "$i" -ge 12 ]; then
+                  echo "backend not healthy after $i attempts" >&2
+                  $DC logs --tail=100 prestart backend || true
+                  exit 1
+                fi
+                echo "waiting for backend health ($i/12)..."
+                sleep 5
+              done
+              echo "backend healthy"
+            }
+
+            case "$ACTION" in
+
+              # ---------- read-only ----------
+
+              status)
+                say "compose ps"; $DC ps -a
+                say "uptime / load"; uptime
+                say "memory"; free -h
+                say "disk"; df -h /
+                say "active previews"; ls -1t previews 2>/dev/null || echo "(none)"
+                ;;
+
+              health)
+                say "backend health (inside container)"
+                $DC exec -T backend curl -fsS http://localhost:8000/api/v1/utils/health-check/; echo
+                say "container states"; $DC ps
+                ;;
+
+              logs)
+                LINES="${ARGS:-100}"
+                say "last $LINES lines of $SERVICE"
+                $DC logs --tail="$LINES" --timestamps "$SERVICE"
+                ;;
+
+              resources)
+                say "docker stats (one-shot)"; docker stats --no-stream
+                say "docker disk usage"; docker system df
+                say "memory"; free -h
+                say "disk"; df -h
+                say "app data sizes"
+                du -sh ~/brommerboek/media /home/deploy/backups 2>/dev/null || true
+                ;;
+
+              db-stats)
+                set -a; . ./.env; set +a
+                Q() { $DC exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"; }
+                say "database size"
+                Q "SELECT pg_size_pretty(pg_database_size(current_database()));"
+                say "connections by state"
+                Q "SELECT state, count(*) FROM pg_stat_activity WHERE datname = current_database() GROUP BY state;"
+                say "largest tables"
+                Q "SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) AS size, n_live_tup FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 15;"
+                ;;
+
+              migrate-status)
+                say "current revision"; $DC exec -T backend alembic current
+                say "head revision"; $DC exec -T backend alembic heads
+                say "recent history"; $DC exec -T backend alembic history 2>/dev/null | head -15
+                ;;
+
+              preview-list)
+                say "running preview stacks"
+                docker compose ls --all | { grep -E '^pr-' || echo "(none)"; }
+                say "preview env dirs (newest first = last deployed)"
+                ls -1t previews 2>/dev/null || echo "(none)"
+                say "caddy snippets"
+                ls -1 caddy-previews 2>/dev/null || echo "(none)"
+                ;;
+
+              preview-logs)
+                PR="pr-$ARGS"
+                [ -f "previews/$PR/.env" ] || { echo "no preview $PR on the box (torn down or evicted?)" >&2; exit 1; }
+                PC="docker compose -p $PR -f docker-compose.preview.yml --env-file previews/$PR/.env"
+                say "$PR containers"; $PC ps -a
+                say "$PR prestart + backend logs"; $PC logs --tail=100 --timestamps prestart backend
+                ;;
+
+              backup-list)
+                say "local backups"; ls -lht /home/deploy/backups 2>/dev/null | head -20 || echo "(none)"
+                say "off-box backups (rclone remote)"
+                rclone lsl remote:brommerboek-backups | sort -k4 | tail -30
+                ;;
+
+              env-list)
+                # Keys only — values stay off the log by design.
+                say ".env keys (values hidden)"
+                grep -Ev '^[[:space:]]*(#|$)' .env | cut -d= -f1
+                say ".env.deploy (current image tag)"
+                cat .env.deploy
+                say ".env backups on the box"
+                ls -1t .env.bak.* 2>/dev/null || echo "(none)"
+                ;;
+
+              # ---------- mutating ----------
+
+              restart)
+                # up -d --force-recreate (not `restart`) so .env / TAG changes
+                # are picked up; --no-deps so recreating backend doesn't
+                # re-trigger the prestart dependency chain.
+                say "recreating $SERVICE"
+                $DC up -d --force-recreate --no-deps "$SERVICE"
+                if [ "$SERVICE" = "backend" ]; then wait_healthy; fi
+                $DC ps
+                ;;
+
+              restart-all)
+                say "reconciling full stack ($DC up -d)"
+                $DC up -d
+                wait_healthy
+                $DC ps
+                ;;
+
+              caddy-reload)
+                say "reloading caddy config"
+                $DC exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+                echo "caddy reloaded"
+                ;;
+
+              migrate)
+                # Full prestart: wait for db, alembic upgrade head, seed data.
+                say "running prestart (migrations + seed)"
+                $DC run --rm -T prestart
+                say "resulting revision"; $DC exec -T backend alembic current
+                ;;
+
+              backfill-thumbs)
+                say "backfilling media thumbnails (idempotent)"
+                $DC exec -T backend python app/backfill_thumbs.py
+                ;;
+
+              backup-now)
+                say "running backup.sh"
+                bash /home/deploy/brommerboek/backup.sh
+                say "local backups after run"; ls -lht /home/deploy/backups | head -10
+                ;;
+
+              cleanup)
+                say "docker disk usage before"; docker system df
+                say "pruning unused images"; docker image prune -f
+                say "after"; docker system df; df -h /
+                ;;
+
+              # ---------- destructive (validated confirm=true) ----------
+
+              rollback)
+                # docs/RUNBOOK.md §3. Note: the next push to main overwrites
+                # .env.deploy and rolls forward again. If the bad release
+                # added a migration the old code can't live with, run
+                # alembic-downgrade first.
+                say "rolling back to TAG=$ARGS"
+                echo "TAG=$ARGS" > .env.deploy
+                $DC pull backend frontend
+                $DC up -d
+                wait_healthy
+                say "now running"; $DC ps
+                ;;
+
+              alembic-downgrade)
+                say "alembic downgrade $ARGS"
+                $DC run --rm -T prestart alembic downgrade "$ARGS"
+                say "resulting revision"; $DC exec -T backend alembic current
+                ;;
+
+              preview-teardown)
+                # docs/RUNBOOK.md §7 manual teardown, for when the PR-close
+                # job never ran or half-finished.
+                PR="pr-$ARGS"
+                say "tearing down $PR"
+                if [ -f docker-compose.preview.yml ] && [ -f "previews/$PR/.env" ]; then
+                  docker compose -p "$PR" -f docker-compose.preview.yml \
+                    --env-file "previews/$PR/.env" down -v --remove-orphans || true
+                else
+                  echo "preview files missing; removing leftovers by compose project label"
+                  docker ps -aq --filter "label=com.docker.compose.project=$PR" | xargs -r docker rm -f
+                  docker volume ls -q --filter "label=com.docker.compose.project=$PR" | xargs -r docker volume rm || true
+                fi
+                rm -f "caddy-previews/$PR.caddy"
+                rm -rf "previews/$PR"
+                docker rmi "ghcr.io/stanlocht/brommerboek-backend:$PR" \
+                  "ghcr.io/stanlocht/brommerboek-frontend:$PR" 2>/dev/null || true
+                $DC exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+                echo "$PR torn down"
+                ;;
+
+              env-set|env-set-secret|env-unset)
+                # All three: timestamped .env backup (the 2026-07-08 incident
+                # is why), edit, recreate $SERVICE to pick the change up.
+                # Values are never echoed; KEY is pre-validated on the runner
+                # to ^[A-Z][A-Z0-9_]*$ so it is safe inside the sed pattern.
+                case "$ACTION" in
+                  env-set)        KEY="${ARGS%%=*}"; VAL="${ARGS#*=}" ;;
+                  env-set-secret) KEY="$ARGS";       VAL="$SECRET_VALUE" ;;
+                  env-unset)      KEY="$ARGS";       VAL= ;;
+                esac
+                cp .env ".env.bak.$(date +%Y%m%d-%H%M%S)"
+                ls -1t .env.bak.* 2>/dev/null | tail -n +6 | xargs -r rm -f
+                sed -i "/^$KEY=/d" .env
+                if [ "$ACTION" = "env-unset" ]; then
+                  say "removed $KEY from .env"
+                else
+                  printf '%s=%s\n' "$KEY" "$VAL" >> .env
+                  say "set $KEY in .env (value not shown)"
+                fi
+                say "recreating $SERVICE with the new environment"
+                $DC up -d --force-recreate --no-deps "$SERVICE"
+                if [ "$SERVICE" = "backend" ]; then wait_healthy; fi
+                echo
+                echo "NOTE: refresh your off-box copy of the production .env (RUNBOOK section 1)."
+                ;;
+
+              *)
+                echo "unknown action: $ACTION" >&2; exit 1
+                ;;
+            esac
+
+            say "done: $ACTION"
+
+      # The in-container check above bypasses Caddy/TLS/DNS; this one proves
+      # the site is reachable from the internet.
+      - name: Public health check
+        if: inputs.action == 'health'
+        run: |
+          curl -fsS -m 10 https://brommerboek.nl/api/v1/utils/health-check/
+          echo
+          echo "public endpoint OK"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### ops: \`${{ inputs.action }}\`"
+            echo ""
+            echo "| input | value |"
+            echo "|---|---|"
+            echo "| service | \`${{ inputs.service }}\` |"
+            echo "| args | \`${{ inputs.args }}\` |"
+            echo "| confirm | \`${{ inputs.confirm }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

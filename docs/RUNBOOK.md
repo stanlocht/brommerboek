@@ -332,7 +332,72 @@ dc logs --tail=100 prestart
 docker inspect -f '{{.State.ExitCode}}' "$(dc ps -aq prestart)"
 ```
 
-## 9. External services
+## 9. Remote ops without SSH (`ops.yml`)
+
+`.github/workflows/ops.yml` exposes the routine box operations from this
+runbook as a manually dispatched workflow (Actions tab → **ops** → *Run
+workflow*, or via the GitHub API — which also means Claude Code sessions can
+run them and read the output back). It reuses the deploy SSH secrets; the
+box needs no extra setup.
+
+Every action is an allowlisted command sequence — free-form commands never
+reach the box. Inputs: `action` (what to do), `service` (for
+`restart`/`logs`), `args` (action-specific), and a `confirm` checkbox that
+destructive actions require.
+
+| action | args | does |
+|---|---|---|
+| `status` | – | `dc ps -a`, uptime, memory, disk, active previews |
+| `health` | – | in-container health check + public URL check from the runner |
+| `logs` | line count (100) | `dc logs --tail=N <service>` |
+| `resources` | – | `docker stats`, `docker system df`, memory/disk, media+backup sizes |
+| `db-stats` | – | db size, connections by state, largest tables |
+| `migrate-status` | – | `alembic current` / `heads` / recent history |
+| `preview-list` | – | running preview stacks, env dirs, Caddy snippets |
+| `preview-logs` | PR number | preview stack `ps -a` + prestart/backend logs |
+| `backup-list` | – | local + off-box (rclone) backup listing |
+| `env-list` | – | `.env` **keys only** (never values), current TAG, `.env` backups |
+| `restart` | – | `dc up -d --force-recreate --no-deps <service>` (+ health wait for backend) |
+| `restart-all` | – | `dc up -d` + health wait |
+| `caddy-reload` | – | reload Caddy config |
+| `migrate` | – | run `prestart` (migrations + seed), idempotent |
+| `backfill-thumbs` | – | §6 thumbnail backfill |
+| `backup-now` | – | run `backup.sh` immediately |
+| `cleanup` | – | `docker image prune -f` with before/after disk report |
+| `rollback` ⚠️ | git SHA | §3 rollback to a previous image tag (+ health wait) |
+| `alembic-downgrade` ⚠️ | revision | §3 migration downgrade |
+| `preview-teardown` ⚠️ | PR number | §7 manual preview teardown (incl. label-based leftover cleanup) |
+| `env-set` ⚠️ | `KEY=value` | set a **non-secret** `.env` var, recreate `<service>` |
+| `env-set-secret` ⚠️ | `KEY` | set a secret `.env` var; value comes from the `OPS_ENV_VALUE` repo secret |
+| `env-unset` ⚠️ | `KEY` | remove a `.env` var, recreate `<service>` |
+
+⚠️ = requires the `confirm` checkbox.
+
+### Changing `.env` remotely
+
+Workflow-dispatch inputs are stored **in plain text** in the run metadata, so
+there are two paths:
+
+- **Non-secret values** (`ENVIRONMENT`, `SENTRY_DSN=` to clear it, …):
+  `env-set` with `args: KEY=value`.
+- **Secrets** (SMTP password, `VAPID_PRIVATE_KEY`, …): first store the value
+  in the repo secret **`OPS_ENV_VALUE`** (GitHub → Settings → Secrets and
+  variables → Actions — works from a phone browser), then dispatch
+  `env-set-secret` with `args: KEY`. GitHub masks the value everywhere; the
+  workflow never prints it. You can overwrite `OPS_ENV_VALUE` for each use —
+  it's a scratch slot, not a registry.
+
+All three env actions make a timestamped `.env` backup on the box first
+(keeping the last 5, listed by `env-list`), then recreate the `service`
+input's container (default `backend`) with a health wait. After any change,
+refresh the off-box copy of the production `.env` (§1).
+
+Concurrency: mutating actions share the `deploy-production` concurrency
+group with `deploy.yml`, so they queue instead of racing a deploy; read-only
+actions never queue. Log output uses `=== section ===` delimiters so it's
+easy to parse from the run log.
+
+## 10. External services
 
 - **Weather auto-fill: Open-Meteo** (https://open-meteo.com). The backend's
   `GET /api/v1/weather/suggest` endpoint asks `api.open-meteo.com` (recent
