@@ -164,7 +164,9 @@ def test_unhandled_backend_exception_is_recorded(db: Session) -> None:
 
     from app.main import app
 
-    @app.get("/api/v1/_boom_test_route")
+    # The app's generate_unique_id_function indexes route.tags, so the
+    # test route needs one.
+    @app.get("/api/v1/_boom_test_route", tags=["boomtest"])
     def _boom() -> None:
         raise RuntimeError("kaboom for telemetry test")
 

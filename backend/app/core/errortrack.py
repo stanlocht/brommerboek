@@ -39,12 +39,16 @@ _UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
 )
 _HEX_RE = re.compile(r"\b[0-9a-f]{16,}\b", re.IGNORECASE)
+# Vite content-hashes bundle names (index-DfGhIjKl.js) — a new hash every
+# release, so it must not enter the fingerprint.
+_ASSET_HASH_RE = re.compile(r"-[A-Za-z0-9_-]{4,}\.(js|css)\b")
 _NUM_RE = re.compile(r"\d+")
 
 
 def _normalize(text: str) -> str:
     text = _UUID_RE.sub("<uuid>", text)
     text = _HEX_RE.sub("<hex>", text)
+    text = _ASSET_HASH_RE.sub(r"-<hash>.\1", text)
     return _NUM_RE.sub("#", text)
 
 
