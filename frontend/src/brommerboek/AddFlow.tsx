@@ -110,6 +110,7 @@ function MediaThumb({ item }: { item: MediaItem }) {
 export default function AddFlow({
   suggestedKm,
   initialStop,
+  saving = false,
   onClose,
   onCreate,
   onPatch,
@@ -122,6 +123,10 @@ export default function AddFlow({
   // When set, the flow edits an existing stop instead of creating a new
   // one, and media uploads land on it immediately.
   initialStop?: Stop
+  // True while the parent's create/patch mutation is in flight. Disables
+  // the submit button so a slow save (media uploads) can't be fired twice
+  // and create duplicate stops.
+  saving?: boolean
   onClose: () => void
   // Called when the user submits a NEW stop (no `initialStop`).
   onCreate?: (stop: NewStop) => void
@@ -198,6 +203,13 @@ export default function AddFlow({
   // Two-step delete: first click shows the confirm bar; second click fires
   // onDelete. Confirmation resets whenever the user navigates a step.
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  // Set on submit, released when the parent reports the save settled — on
+  // success the flow unmounts; on error this re-arms the button for a retry.
+  const submitLockRef = useRef(false)
+  useEffect(() => {
+    if (!saving) submitLockRef.current = false
+  }, [saving])
 
   // Local-preview blob: URLs must be revoked to avoid leaking. On unmount we
   // revoke whatever is still pending — unless the media was handed off via
@@ -294,7 +306,10 @@ export default function AddFlow({
   const parsedKm = km.trim() === "" ? null : Number.parseInt(km, 10)
 
   const submit = () => {
-    if (!picked) return
+    // The ref blocks re-entry synchronously (double-taps land before the
+    // parent's isPending re-render); `saving` covers the rest of the save.
+    if (!picked || saving || submitLockRef.current) return
+    submitLockRef.current = true
     const payload: NewStop = {
       place: picked.place,
       country: picked.country,
@@ -1272,6 +1287,7 @@ export default function AddFlow({
         <button
           type="button"
           onClick={next}
+          disabled={saving}
           style={{
             flex: 1,
             padding: 14,
@@ -1282,11 +1298,18 @@ export default function AddFlow({
             fontFamily: FONT_MONO,
             fontSize: 14,
             letterSpacing: 1,
-            cursor: "pointer",
+            cursor: saving ? "wait" : "pointer",
+            opacity: saving ? 0.6 : 1,
             boxShadow: "0 3px 0 rgba(90,30,20,.4)",
           }}
         >
-          {step < 3 ? "volgende ›" : isEdit ? "✓ opslaan" : "✓ plaats stop"}
+          {saving
+            ? "bezig met opslaan…"
+            : step < 3
+              ? "volgende ›"
+              : isEdit
+                ? "✓ opslaan"
+                : "✓ plaats stop"}
         </button>
       </div>
     </div>
