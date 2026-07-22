@@ -191,17 +191,22 @@ export interface BorderCrossing {
 
 // Border crossings derived purely from the ordered stops' country codes: a
 // stamp belongs to every stop whose code differs from the previous stop's.
+// Preparation posts predate the trip — they neither stamp nor count as the
+// "previous" stop another one is compared against.
 export function stampCrossings(stops: Stop[]): BorderCrossing[] {
   const out: BorderCrossing[] = []
-  for (let i = 1; i < stops.length; i++) {
-    const code = stops[i].code
-    if (code && code !== stops[i - 1].code)
+  let prev: Stop | null = null
+  for (let i = 0; i < stops.length; i++) {
+    const s = stops[i]
+    if (s.type === "preparation") continue
+    if (prev && s.code && s.code !== prev.code)
       out.push({
         index: i,
-        code,
-        flag: stops[i].flag,
-        country: stops[i].country,
+        code: s.code,
+        flag: s.flag,
+        country: s.country,
       })
+    prev = s
   }
   return out
 }

@@ -122,6 +122,43 @@ def test_stats_haversine_fallback_when_km_missing(
         delete_test_stop(db, stop)
 
 
+def test_stats_exclude_preparation_stops(client: TestClient, db: Session) -> None:
+    # A preparation post — packing at home weeks before departure, in a
+    # country not on the route — must not move a single trip figure.
+    baseline = client.get(f"{STOPS_URL}stats").json()
+    stop = create_test_stop(
+        db,
+        place="Thuis",
+        country="Duitsland",
+        code="DE",
+        lat=50.0,
+        lng=8.0,
+        date="2024-04-01",
+        type="preparation",
+    )
+    try:
+        stats = client.get(f"{STOPS_URL}stats").json()
+        assert stats == baseline
+    finally:
+        delete_test_stop(db, stop)
+
+
+def test_stats_preparation_km_reading_still_suggested(
+    client: TestClient, db: Session
+) -> None:
+    # The odometer prefill is about the moped, not the trip: a reading noted
+    # on a preparation post after the latest stop is still the freshest one.
+    stop = create_test_stop(
+        db, place="Garage", date="2024-05-25", type="preparation", km=1030
+    )
+    try:
+        stats = client.get(f"{STOPS_URL}stats").json()
+        assert stats["suggested_km"] == 1030
+        assert stats["km"] == 1024  # trip distance untouched
+    finally:
+        delete_test_stop(db, stop)
+
+
 # ----- Write endpoints are superuser-only -------------------------------------
 
 

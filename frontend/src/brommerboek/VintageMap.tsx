@@ -161,13 +161,16 @@ export default function VintageMap({
         const el = document.createElement("div")
         el.className = "bb-pin"
         const isRepair = s.type === "repair"
+        // Preparation posts keep the plain dot but in ochre — part of the
+        // journal, visibly not part of the ride.
+        const dotColor = s.type === "preparation" ? C.ochre : C.red
         const rot = PIN_ROTS[i % PIN_ROTS.length]
         el.innerHTML = `
           <div class="bb-pin-dot" style="transform:translate(-50%,-50%) rotate(${rot}deg)">
             ${
               isRepair
                 ? `<svg width="24" height="24" viewBox="-12 -12 24 24"><circle cx="0" cy="0" r="12" fill="${C.teal}" stroke="${C.cream}" stroke-width="2.5"></circle><g transform="translate(-8,-8)" style="color:${C.cream}"><svg width="16" height="16" viewBox="0 0 24 24">${WRENCH_INNER}</svg></g></svg>`
-                : `<svg width="22" height="22" viewBox="-11 -11 22 22"><circle cx="0" cy="0" r="9" fill="${C.red}" stroke="${C.cream}" stroke-width="2.5"></circle><circle cx="0" cy="0" r="3" fill="${C.cream}"></circle></svg>`
+                : `<svg width="22" height="22" viewBox="-11 -11 22 22"><circle cx="0" cy="0" r="9" fill="${dotColor}" stroke="${C.cream}" stroke-width="2.5"></circle><circle cx="0" cy="0" r="3" fill="${C.cream}"></circle></svg>`
             }
           </div>
           ${

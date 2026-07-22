@@ -333,6 +333,17 @@ describe("stampCrossings", () => {
     // "" is not a crossing, and NL after "" stamps because the code changed
     expect(stampCrossings(stops).map((c) => c.index)).toEqual([2])
   })
+
+  it("ignores preparation posts as stamp and as comparison point", () => {
+    const stops = [
+      // Prep post abroad (picking up the moped) — never a crossing itself,
+      // and the trip's first real stop still doesn't stamp after it.
+      makeStop({ code: "DE", type: "preparation" }),
+      makeStop({ id: "x", code: "NL" }),
+      makeStop({ id: "y", code: "FR", country: "Frankrijk", flag: "🇫🇷" }),
+    ]
+    expect(stampCrossings(stops).map((c) => c.index)).toEqual([2])
+  })
 })
 
 describe("dampenBearing", () => {

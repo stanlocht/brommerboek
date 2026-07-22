@@ -80,7 +80,7 @@ class UsersPublic(SQLModel):
 #
 # A trip is a series of discrete stops the rider uploads after the fact. Each
 # stop has real coordinates, a date, a written story, a gallery of media and a
-# type ("stop" or "repair"). The route is simply the line connecting the stops
+# type (see STOP_TYPES). The route is simply the line connecting the stops
 # in order (`order_index`). This is a personal, single-trip showcase, so reads
 # are public.
 # ----------------------------------------------------------------------------
@@ -112,7 +112,9 @@ WEATHER_CONDITIONS = {
     "fog",
 }
 
-STOP_TYPES = {"stop", "repair"}
+# "preparation" marks a pre-departure post (packing, tinkering at home);
+# it shows up in the journal but is excluded from every trip statistic.
+STOP_TYPES = {"stop", "repair", "preparation"}
 
 
 def check_weather_condition(v: str | None) -> str | None:
@@ -147,7 +149,7 @@ class StopBase(SQLModel):
     # `WEATHER_CONDITIONS` short codes (or an empty string for "unspecified").
     weather_temp: int | None = Field(default=None)
     weather_condition: str = Field(default="", max_length=16)
-    type: str = Field(default="stop", max_length=16)  # "stop" | "repair"
+    type: str = Field(default="stop", max_length=16)  # one of STOP_TYPES
     story: str = Field(default="", sa_type=Text)
     broke: str | None = Field(default=None, sa_type=Text)  # repair: what broke
     fixed: str | None = Field(default=None, sa_type=Text)  # repair: what fixed

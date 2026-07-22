@@ -271,13 +271,18 @@ export default function LogboekScreen() {
   })
   const stats = statsData ?? EMPTY_STATS
 
+  // Preparation posts are journal-only; every recap figure counts the trip.
+  const tripStops = useMemo(
+    () => stops.filter((s) => s.type !== "preparation"),
+    [stops],
+  )
   const d = useMemo(
-    () => derive(stops, stats.km, stats.days),
-    [stops, stats.km, stats.days],
+    () => derive(tripStops, stats.km, stats.days),
+    [tripStops, stats.km, stats.days],
   )
   // Null when fewer than 2 stops carry a temperature — then the plain
   // weather list below is shown instead.
-  const tempChart = useMemo(() => buildTempChart(stops), [stops])
+  const tempChart = useMemo(() => buildTempChart(tripStops), [tripStops])
 
   if (isLoading) {
     return (
