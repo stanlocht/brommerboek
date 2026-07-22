@@ -14,6 +14,13 @@ describe("mediaSrc", () => {
     )
   })
 
+  it("passes local-preview blob: and data: URLs through untouched", () => {
+    const blob = "blob:https://app.example/1234-abcd"
+    expect(mediaSrc(blob)).toBe(blob)
+    const data = "data:image/png;base64,AAAA"
+    expect(mediaSrc(data)).toBe(data)
+  })
+
   it("resolves server-relative media paths", () => {
     expect(mediaSrc("/media/abc/foto.png")).toMatch(/\/media\/abc\/foto\.png$/)
   })
