@@ -476,4 +476,12 @@ easy to parse from the run log.
   unreachable the endpoint keeps serving the last fix it saw since the backend
   started (and 503s only when it never saw one). A fix older than 10 minutes
   renders greyed-out as "laatst gezien …" — tracker off, no coverage, or the
-  Cub is parked somewhere indoors.
+  Cub is parked somewhere indoors. A scheme-less base URL defaults to
+  `https://`.
+
+  `GET /api/v1/location/trail?hours=24` (1–48) additionally serves the
+  **breadcrumb trail**: Traccar's stored positions for the window, thinned to
+  ≤400 points and cached for 5 minutes, drawn on the map as a dotted teal
+  line under the route. It reads Traccar's own position history, so no extra
+  storage or forwarding config is involved; retention follows the Traccar
+  server's database.

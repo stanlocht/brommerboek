@@ -10,11 +10,17 @@ import { useCallback, useEffect, useRef } from "react"
 import type { RouteGeometry } from "./geo"
 import { pointAt } from "./geo"
 import { cubSvgString, flagSvgString, WRENCH_INNER } from "./icons"
-import { isLiveFresh } from "./live"
+import { isLiveFresh, trailGeoJSON } from "./live"
 import { vintageStyle } from "./mapStyle"
 import { bearingDelta, dampenBearing, INTRO_MS } from "./replayMath"
 import { C, PIN_ROTS } from "./theme"
-import type { LiveLocation, MapFlag, MapFlagKind, Stop } from "./types"
+import type {
+  LiveLocation,
+  LiveTrailPoint,
+  MapFlag,
+  MapFlagKind,
+  Stop,
+} from "./types"
 
 const FOLLOW_ZOOM = 6.3
 // Cinematic replay camera: slightly closer than the scrub follow, pitched for
@@ -67,6 +73,9 @@ interface Props {
   onFlagClick?: (kind: MapFlagKind) => void
   // Last GPS fix of the Cub from the tracker; null/absent hides the marker.
   live?: LiveLocation | null
+  // Recent breadcrumbs (oldest first) drawn as a dotted teal trail under the
+  // route; null/absent or fewer than 2 points draws nothing.
+  trail?: LiveTrailPoint[] | null
   // Cinematic replay mode: while true the camera follows the cub with pitch,
   // closer zoom and dampened rotation toward the travel bearing.
   replaying?: boolean
@@ -88,6 +97,7 @@ export default function VintageMap({
   flags = [],
   onFlagClick,
   live = null,
+  trail = null,
   replaying = false,
   replayFollow = true,
   replayReduced = false,
@@ -283,6 +293,54 @@ export default function VintageMap({
       for (const m of markers) m.remove()
     }
   }, [flags, flagsClickable, stops])
+
+  // --- breadcrumb trail ------------------------------------------------------
+  // A dotted teal line of the tracker's recent positions, slotted beneath the
+  // route casing so the red route stays dominant. Unlike the markers this is
+  // a style layer, so it must wait for the map's `load`; the init effect
+  // registers its handler first, meaning route-casing already exists by the
+  // time ours runs after a rebuild on `stops`.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `stops` re-adds the layer after the init effect rebuilds the map
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !trail || trail.length < 2) return
+    const apply = () => {
+      if (mapRef.current !== map) return
+      const source = map.getSource("live-trail") as
+        | maplibregl.GeoJSONSource
+        | undefined
+      if (source) {
+        source.setData(trailGeoJSON(trail))
+        return
+      }
+      map.addSource("live-trail", {
+        type: "geojson",
+        data: trailGeoJSON(trail),
+      })
+      map.addLayer(
+        {
+          id: "live-trail-line",
+          type: "line",
+          source: "live-trail",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": C.teal,
+            "line-width": 2.4,
+            // Tight round dashes: literal breadcrumbs, visibly different
+            // from the long red dashes of the trip route.
+            "line-dasharray": [0.1, 1.8],
+            "line-opacity": 0.85,
+          },
+        },
+        "route-casing",
+      )
+    }
+    if (readyRef.current) apply()
+    else map.once("load", apply)
+    return () => {
+      map.off("load", apply)
+    }
+  }, [trail, stops])
 
   // --- live GPS marker -------------------------------------------------------
   // Like the flags: a DOM overlay recreated per update (the fix changes at

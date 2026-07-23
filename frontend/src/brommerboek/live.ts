@@ -1,5 +1,28 @@
 // Helpers around the live GPS fix: how old it is, whether it still counts
-// as "live", and the Dutch "laatst gezien" label for the map chip.
+// as "live", the Dutch "laatst gezien" label for the map chip, and the
+// GeoJSON for the breadcrumb trail.
+
+import type { LiveTrailPoint } from "./types"
+
+// The breadcrumb trail as a LineString the map can draw. Fewer than two
+// points isn't a trail — callers skip rendering entirely then.
+export function trailGeoJSON(
+  points: LiveTrailPoint[],
+): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: points.map((p) => [p.lng, p.lat]),
+        },
+        properties: {},
+      },
+    ],
+  }
+}
 
 // A fix younger than this shows the pulsing "live" treatment; older fixes
 // grey out (tracker off, no coverage, or the Cub is parked in a garage).

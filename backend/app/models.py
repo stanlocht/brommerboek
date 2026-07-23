@@ -256,6 +256,19 @@ class LiveLocation(SQLModel):
     fix_time: datetime | None = None
 
 
+# The breadcrumb trail: recent stored positions from Traccar, oldest first,
+# decimated server-side to a drawable size. The map renders them as a dotted
+# trail leading to the live marker.
+class LiveTrailPoint(SQLModel):
+    lat: float
+    lng: float
+    fix_time: datetime | None = None
+
+
+class LiveTrail(SQLModel):
+    points: list[LiveTrailPoint]
+
+
 # Aggregate trip statistics for the "Wrapped" recap screen. `km` uses each
 # leg's odometer delta when both endpoints have a km value, and falls back
 # to great-circle distance otherwise. `suggested_km` is the last known

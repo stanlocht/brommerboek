@@ -8,6 +8,7 @@ import {
   createStop,
   deleteStop,
   fetchLiveLocation,
+  fetchLiveTrail,
   fetchMapFlags,
   fetchStats,
   fetchStops,
@@ -99,6 +100,15 @@ export default function BrommerboekApp() {
     queryFn: fetchLiveLocation,
     refetchInterval: 60_000,
     staleTime: 30_000,
+  })
+
+  // The breadcrumb trail behind the live marker. The backend caches the
+  // Traccar history query for 5 minutes, so polling faster buys nothing.
+  const { data: liveTrail } = useQuery({
+    queryKey: ["liveTrail"],
+    queryFn: fetchLiveTrail,
+    refetchInterval: 300_000,
+    staleTime: 240_000,
   })
 
   // Clicking a flag (admins only) opens the editor for that kind; saving a
@@ -478,6 +488,7 @@ export default function BrommerboekApp() {
         }}
         flags={mapFlags}
         live={liveLocation}
+        trail={liveTrail}
         onFlagClick={
           canEdit
             ? (kind) => {

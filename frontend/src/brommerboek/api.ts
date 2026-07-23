@@ -4,6 +4,7 @@
 import type { TripStats } from "./trip"
 import type {
   LiveLocation,
+  LiveTrailPoint,
   MapFlag,
   MapFlagKind,
   MapFlagPatch,
@@ -24,6 +25,7 @@ const honksUrl = (id: string) => `${BASE}/api/v1/stops/${id}/honks`
 const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
 const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
 const LIVE_LOCATION_URL = `${BASE}/api/v1/location/live`
+const LIVE_TRAIL_URL = `${BASE}/api/v1/location/trail`
 const PUSH_PUBLIC_KEY_URL = `${BASE}/api/v1/push/public-key`
 const PUSH_SUBSCRIBE_URL = `${BASE}/api/v1/push/subscribe`
 const WEATHER_SUGGEST_URL = `${BASE}/api/v1/weather/suggest`
@@ -102,6 +104,19 @@ export async function fetchLiveLocation(): Promise<LiveLocation | null> {
     const res = await fetch(LIVE_LOCATION_URL)
     if (!res.ok) return null
     return (await res.json()) as LiveLocation
+  } catch {
+    return null
+  }
+}
+
+// Recent GPS breadcrumbs (last ~24h, decimated server-side). Same null-on-
+// anything contract as fetchLiveLocation: no trail just means no trail drawn.
+export async function fetchLiveTrail(): Promise<LiveTrailPoint[] | null> {
+  try {
+    const res = await fetch(LIVE_TRAIL_URL)
+    if (!res.ok) return null
+    const body = (await res.json()) as { points: LiveTrailPoint[] }
+    return body.points
   } catch {
     return null
   }

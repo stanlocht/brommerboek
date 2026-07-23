@@ -113,3 +113,11 @@ export interface LiveLocation {
   battery: number | null
   fix_time: string | null
 }
+
+// One breadcrumb of the recent-trail endpoint — mirror of the backend
+// `LiveTrailPoint`. Points arrive oldest-first, already decimated.
+export interface LiveTrailPoint {
+  lat: number
+  lng: number
+  fix_time: string | null
+}
