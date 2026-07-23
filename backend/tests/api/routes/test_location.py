@@ -10,6 +10,7 @@ from app.api.routes.location import (
     LOCATION_RATE_LIMIT,
     pick_position,
     to_live_location,
+    traccar_url,
 )
 from app.core.config import settings
 
@@ -59,6 +60,24 @@ def _mock_fetch(monkeypatch: pytest.MonkeyPatch, payload: Any) -> list[int]:
 
     monkeypatch.setattr(location, "fetch_positions", fake_fetch)
     return calls
+
+
+# ----- URL building ------------------------------------------------------------
+
+
+def test_traccar_url_tolerates_missing_scheme_and_trailing_slash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for base, expected in (
+        ("https://gps.example.com", "https://gps.example.com/api/positions"),
+        ("https://gps.example.com/", "https://gps.example.com/api/positions"),
+        ("http://gps.example.com:8082", "http://gps.example.com:8082/api/positions"),
+        # A base configured without a scheme gets https, not an error.
+        ("gps.example.com", "https://gps.example.com/api/positions"),
+        (" gps.example.com/ ", "https://gps.example.com/api/positions"),
+    ):
+        monkeypatch.setattr(settings, "TRACCAR_BASE_URL", base)
+        assert traccar_url() == expected, base
 
 
 # ----- Position parsing --------------------------------------------------------

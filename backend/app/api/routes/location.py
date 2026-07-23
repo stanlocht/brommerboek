@@ -39,11 +39,19 @@ def clear_cache() -> None:
         _cache = None
 
 
+def traccar_url() -> str:
+    """Full positions URL; tolerates a base configured without a scheme."""
+    base = settings.TRACCAR_BASE_URL.strip().rstrip("/")
+    if not base.startswith(("http://", "https://")):
+        base = f"https://{base}"
+    return f"{base}/api/positions"
+
+
 def fetch_positions() -> Any:
     """Latest known position per device from the Traccar REST API."""
     # Kept as a seam: tests monkeypatch this instead of hitting the network.
     response = httpx.get(
-        f"{settings.TRACCAR_BASE_URL.rstrip('/')}/api/positions",
+        traccar_url(),
         headers={"Authorization": f"Bearer {settings.TRACCAR_TOKEN}"},
         timeout=UPSTREAM_TIMEOUT_SECONDS,
     )
