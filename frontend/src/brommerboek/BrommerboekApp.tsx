@@ -14,6 +14,9 @@ import {
   updateStop,
   uploadStopMedia,
 } from "./api"
+import FlagEditor from "./FlagEditor"
+import type { FlagDraft } from "./flagEdit"
+import { draftFromFlag, parseFlagDraft } from "./flagEdit"
 import { buildRoute, nearestStop, stopFraction } from "./geo"
 import { CubIcon } from "./icons"
 import LoginPrompt from "./LoginPrompt"
@@ -23,7 +26,7 @@ import StopSheet from "./StopSheet"
 import { shareUrl, stopIdFromSearch, withoutStopParam } from "./share"
 import { C, FONT_MONO } from "./theme"
 import { EMPTY_STATS } from "./trip"
-import type { MapFlagKind, NewStop, Stop } from "./types"
+import type { MapFlagKind, MapFlagPatch, NewStop, Stop } from "./types"
 import useReplay from "./useReplay"
 
 function CenterState({
@@ -89,26 +92,45 @@ export default function BrommerboekApp() {
     queryFn: fetchMapFlags,
   })
 
+  // A dragged flag saves right away; the editor (opened by clicking a flag)
+  // saves the whole draft — both go through this one mutation.
   const flagMut = useMutation({
-    mutationFn: ({
-      kind,
-      lat,
-      lng,
-    }: {
-      kind: MapFlagKind
-      lat: number
-      lng: number
-    }) => updateMapFlag(kind, { lat, lng }),
+    mutationFn: ({ kind, patch }: { kind: MapFlagKind; patch: MapFlagPatch }) =>
+      updateMapFlag(kind, patch),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["mapFlags"] })
-      flash("✓ vlag verplaatst")
+      setFlagDraft(null)
+      setFlagPicking(false)
+      flash("✓ vlag bijgewerkt")
     },
     onError: () => {
-      // Snap the dragged marker back to the server's position.
+      // Snap a dragged marker back to the server's position; a failed
+      // editor save keeps the dialog open so nothing typed is lost.
       qc.invalidateQueries({ queryKey: ["mapFlags"] })
-      flash("kon de vlag niet verplaatsen")
+      flash("kon de vlag niet bijwerken")
     },
   })
+
+  // Flag editor state. `flagDraft` holds the form while it's open;
+  // `flagPicking` hides the dialog and arms a one-shot map click that fills
+  // in the coordinates.
+  const [flagDraft, setFlagDraft] = useState<FlagDraft | null>(null)
+  const [flagPicking, setFlagPicking] = useState(false)
+  useEffect(() => {
+    if (!flagPicking) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFlagPicking(false)
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [flagPicking])
+
+  const saveFlagDraft = () => {
+    if (!flagDraft) return
+    const parsed = parseFlagDraft(flagDraft)
+    if (!parsed) return
+    flagMut.mutate({ kind: flagDraft.kind, patch: parsed })
+  }
 
   const [activeIndex, setActiveIndex] = useState(0)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -472,7 +494,31 @@ export default function BrommerboekApp() {
         flags={mapFlags}
         onFlagMove={
           canEdit
-            ? (kind, lat, lng) => flagMut.mutate({ kind, lat, lng })
+            ? (kind, lat, lng) => flagMut.mutate({ kind, patch: { lat, lng } })
+            : undefined
+        }
+        onFlagClick={
+          canEdit
+            ? (kind) => {
+                if (replaying) return
+                const flag = mapFlags?.find((f) => f.kind === kind)
+                if (flag) setFlagDraft(draftFromFlag(flag))
+              }
+            : undefined
+        }
+        onMapPick={
+          flagPicking
+            ? (lat, lng) => {
+                setFlagDraft(
+                  (prev) =>
+                    prev && {
+                      ...prev,
+                      lat: lat.toFixed(5),
+                      lng: lng.toFixed(5),
+                    },
+                )
+                setFlagPicking(false)
+              }
             : undefined
         }
         onAdd={canEdit ? () => setAddOpen(true) : undefined}
@@ -535,6 +581,58 @@ export default function BrommerboekApp() {
           onClose={() => setLoginOpen(false)}
           onSuccess={() => setLoginOpen(false)}
         />
+      )}
+
+      {flagDraft && canEdit && !flagPicking && (
+        <FlagEditor
+          draft={flagDraft}
+          saving={flagMut.isPending}
+          onChange={setFlagDraft}
+          onPickOnMap={() => setFlagPicking(true)}
+          onClose={() => setFlagDraft(null)}
+          onSave={saveFlagDraft}
+        />
+      )}
+      {flagDraft && flagPicking && (
+        <div
+          style={{
+            position: "absolute",
+            top: 90,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 90,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            background: "#332c22",
+            color: C.wrappedInk,
+            fontFamily: FONT_MONO,
+            fontSize: 12,
+            padding: "10px 18px",
+            borderRadius: 20,
+            boxShadow: "0 4px 12px rgba(0,0,0,.35)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          tik op de kaart voor de{" "}
+          {flagDraft.kind === "start" ? "startvlag" : "finishvlag"}
+          <button
+            type="button"
+            onClick={() => setFlagPicking(false)}
+            style={{
+              fontFamily: FONT_MONO,
+              fontSize: 11,
+              color: C.wrappedInk,
+              background: "transparent",
+              border: `1px solid ${C.wrappedInk}`,
+              borderRadius: 12,
+              padding: "2px 10px",
+              cursor: "pointer",
+            }}
+          >
+            annuleer
+          </button>
+        </div>
       )}
 
       {toastEl}

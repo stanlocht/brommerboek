@@ -65,6 +65,12 @@ interface Props {
   // Present for admins only: the flags become draggable and a drop reports
   // the new coordinates.
   onFlagMove?: (kind: MapFlagKind, lat: number, lng: number) => void
+  // Present for admins only: a plain click (not a drag) on a flag opens the
+  // flag editor.
+  onFlagClick?: (kind: MapFlagKind) => void
+  // Pick-on-map mode for the flag editor: while set, the cursor turns into a
+  // crosshair and the next map click reports its coordinates.
+  onMapPick?: (lat: number, lng: number) => void
   // Cinematic replay mode: while true the camera follows the cub with pitch,
   // closer zoom and dampened rotation toward the travel bearing.
   replaying?: boolean
@@ -85,6 +91,8 @@ export default function VintageMap({
   onPinClick,
   flags = [],
   onFlagMove,
+  onFlagClick,
+  onMapPick,
   replaying = false,
   replayFollow = true,
   replayReduced = false,
@@ -101,6 +109,10 @@ export default function VintageMap({
   onPinClickRef.current = onPinClick
   const onFlagMoveRef = useRef(onFlagMove)
   onFlagMoveRef.current = onFlagMove
+  const onFlagClickRef = useRef(onFlagClick)
+  onFlagClickRef.current = onFlagClick
+  const onMapPickRef = useRef(onMapPick)
+  onMapPickRef.current = onMapPick
   const flagsRef = useRef(flags)
   flagsRef.current = flags
   const replayingRef = useRef(replaying)
@@ -270,17 +282,48 @@ export default function VintageMap({
       })
         .setLngLat([f.lng, f.lat])
         .addTo(map)
-      if (flagsEditable)
+      if (flagsEditable) {
+        // A drag ends with a mouseup on the element, which the browser also
+        // reports as a click — the guard keeps that from opening the editor.
+        let justDragged = false
+        marker.on("dragstart", () => {
+          justDragged = true
+        })
         marker.on("dragend", () => {
           const ll = marker.getLngLat()
           onFlagMoveRef.current?.(f.kind, ll.lat, ll.lng)
+          setTimeout(() => {
+            justDragged = false
+          }, 150)
         })
+        el.addEventListener("click", (ev) => {
+          ev.stopPropagation()
+          if (justDragged) return
+          onFlagClickRef.current?.(f.kind)
+        })
+      }
       return marker
     })
     return () => {
       for (const m of markers) m.remove()
     }
   }, [flags, flagsEditable, stops])
+
+  // --- pick-on-map for the flag editor ---------------------------------------
+  const picking = !!onMapPick
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !picking) return
+    map.getCanvas().style.cursor = "crosshair"
+    const handler = (e: maplibregl.MapMouseEvent) => {
+      onMapPickRef.current?.(e.lngLat.lat, e.lngLat.lng)
+    }
+    map.on("click", handler)
+    return () => {
+      map.off("click", handler)
+      map.getCanvas().style.cursor = ""
+    }
+  }, [picking])
 
   // --- move cub + follow camera on progress/drag ----------------------------
   // ALL camera math lives here (plus the replay enter/exit effect below).
