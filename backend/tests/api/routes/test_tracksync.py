@@ -192,6 +192,110 @@ def test_sync_tracks_not_configured_is_404(
     assert client.post(SYNC_URL, headers=headers).status_code == 404
 
 
+# ----- Edit/delete hooks -------------------------------------------------------
+
+
+def _pin_history(stops: list[Stop]) -> Any:
+    """History with one entry at every stop's pin, timestamped on its date —
+    enough for build_leg to slice any leg between them."""
+
+    def history_for(_device: int, start: datetime, end: datetime) -> list[dict]:
+        return [
+            _history_entry(s.lat, s.lng, f"{s.date}T12:00:00Z")
+            for s in stops
+            if start <= datetime.combine(s.date, datetime.min.time(), tzinfo=UTC) < end
+        ]
+
+    return history_for
+
+
+@pytest.mark.usefixtures("_clean_tracks")
+def test_patch_date_or_pin_resyncs_surrounding_legs(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = get_superuser_token_headers(client)
+    stops = list(db.exec(select(Stop).order_by(Stop.order_index)).all())
+    mid = stops[1]
+    monkeypatch.setattr(location, "fetch_history", _pin_history(stops))
+
+    # Re-sending the same date counts as a geometry edit and triggers the
+    # sync; a caption-ish edit (title) must not.
+    r = client.patch(
+        f"{settings.API_V1_STR}/stops/{mid.id}",
+        headers=headers,
+        json={"date": mid.date.isoformat()},
+    )
+    assert r.status_code == 200
+    tracked = {row.to_stop_id for row in db.exec(select(LegTrack)).all()}
+    assert tracked == {stops[1].id, stops[2].id}
+
+    db.execute(delete(LegTrack))
+    db.commit()
+    r = client.patch(
+        f"{settings.API_V1_STR}/stops/{mid.id}",
+        headers=headers,
+        json={"title": mid.title},
+    )
+    assert r.status_code == 200
+    assert list(db.exec(select(LegTrack)).all()) == []
+
+
+@pytest.mark.usefixtures("_clean_tracks")
+def test_delete_stop_drops_its_tracks_and_resyncs_the_merged_leg(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = get_superuser_token_headers(client)
+
+    def post_stop(place: str, lat: float, lng: float, day: str) -> str:
+        r = client.post(
+            f"{settings.API_V1_STR}/stops/",
+            headers=headers,
+            json={
+                "place": place,
+                "country": "Testland",
+                "code": "NL",
+                "lat": lat,
+                "lng": lng,
+                "date": day,
+                "title": f"test {place}",
+                "media": [],
+            },
+        )
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    # Three far-future stops so they land at the end of the seeded route.
+    # Posting already syncs legs via the create hook; the empty history mock
+    # keeps those runs from storing anything yet.
+    monkeypatch.setattr(location, "fetch_history", lambda *_: [])
+    d1 = post_stop("Delta-1", 10.0, 10.0, "2027-05-01")
+    d2 = post_stop("Delta-2", 11.0, 11.0, "2027-05-02")
+    d3 = post_stop("Delta-3", 12.0, 12.0, "2027-05-03")
+
+    fresh = list(db.exec(select(Stop).order_by(Stop.order_index)).all())
+    monkeypatch.setattr(location, "fetch_history", _pin_history(fresh))
+    # Give D2 its incoming/outgoing tracks first.
+    tracksync.sync_for_stop(uuid.UUID(d2))
+    assert {
+        row.to_stop_id for row in db.exec(select(LegTrack)).all()
+    } == {uuid.UUID(d2), uuid.UUID(d3)}
+
+    r = client.delete(f"{settings.API_V1_STR}/stops/{d2}", headers=headers)
+    assert r.status_code == 200
+    rows = list(db.exec(select(LegTrack)).all())
+    # D2's own tracks are gone; the merged leg D1→D3 was re-sliced.
+    assert {row.to_stop_id for row in rows} == {uuid.UUID(d3)}
+    merged = next(row for row in rows if row.to_stop_id == uuid.UUID(d3))
+    assert merged.from_stop_id == uuid.UUID(d1)
+
+    # Cleanup: remove the test stops (mocked history keeps hooks harmless).
+    monkeypatch.setattr(location, "fetch_history", lambda *_: [])
+    for sid in (d1, d3):
+        assert client.delete(
+            f"{settings.API_V1_STR}/stops/{sid}", headers=headers
+        ).status_code == 200
+
+
 # ----- sync_for_stop background task -------------------------------------------
 
 

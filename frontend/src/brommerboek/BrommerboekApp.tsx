@@ -276,6 +276,11 @@ export default function BrommerboekApp() {
     mutationFn: ({ id, patch }: { id: string; patch: NewStop }) =>
       updateStop(id, patch),
     onSuccess: async () => {
+      // Date/pin edits re-slice the surrounding ridden roads server-side.
+      setTimeout(
+        () => qc.invalidateQueries({ queryKey: ["legTracks"] }),
+        10_000,
+      )
       await qc.invalidateQueries({ queryKey: ["stops"] })
       setEditStop(null)
       flash("✓ Stop bijgewerkt")
@@ -289,6 +294,12 @@ export default function BrommerboekApp() {
       // The current activeIndex may now be past the tail; reset before the
       // list refetches so we don't briefly render an out-of-range stop.
       initedRef.current = false
+      // Deleting merges the two legs around the stop; the server re-slices
+      // the merged ridden road in the background.
+      setTimeout(
+        () => qc.invalidateQueries({ queryKey: ["legTracks"] }),
+        10_000,
+      )
       await qc.invalidateQueries({ queryKey: ["stops"] })
       setEditStop(null)
       flash("✓ Stop verwijderd")
