@@ -58,6 +58,11 @@ export function reportError(error: unknown, context = ""): void {
 // components and promise rejections nobody awaited.
 export function installGlobalErrorReporting(): void {
   window.addEventListener("error", (event) => {
+    // Errors from cross-origin scripts (browser extensions, injected code —
+    // we bundle everything same-origin) are masked by the browser to a bare
+    // "Script error." with no stack or location. Nothing to act on, so
+    // don't let them fill the error tracker.
+    if (event.error == null && /^Script error\.?$/.test(event.message)) return
     reportError(event.error ?? event.message, "window.onerror")
   })
   window.addEventListener("unhandledrejection", (event) => {
