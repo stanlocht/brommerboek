@@ -72,9 +72,7 @@ export default function MapScreen({
   onOpenSheet,
   onPinClick,
   flags,
-  onFlagMove,
   onFlagClick,
-  onMapPick,
   onAdd,
   onLogin,
   replaying = false,
@@ -101,13 +99,10 @@ export default function MapScreen({
   onStep: (dir: -1 | 1) => void
   onOpenSheet: () => void
   onPinClick: (i: number) => void
-  // Start/finish flags for the map; onFlagMove/onFlagClick are present for
-  // admins only and make the flags draggable and clickable (editor). While
-  // onMapPick is set the map is in pick mode for the flag editor.
+  // Start/finish flags for the map; onFlagClick is present for admins only
+  // and makes the flags clickable (opens the flag editor).
   flags?: MapFlag[]
-  onFlagMove?: (kind: MapFlagKind, lat: number, lng: number) => void
   onFlagClick?: (kind: MapFlagKind) => void
-  onMapPick?: (lat: number, lng: number) => void
   onAdd?: () => void
   onLogin: () => void
   // "Rij de reis" replay: while true the header/preview/scrubber/FAB chrome
@@ -137,9 +132,7 @@ export default function MapScreen({
         dragging={dragging}
         onPinClick={onPinClick}
         flags={flags}
-        onFlagMove={onFlagMove}
         onFlagClick={onFlagClick}
-        onMapPick={onMapPick}
         replaying={replaying}
         replayFollow={replayFollow}
         replayReduced={replayReduced}

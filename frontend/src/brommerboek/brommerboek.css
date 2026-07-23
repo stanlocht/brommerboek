@@ -176,8 +176,8 @@ body:has(.bb-app) {
 }
 
 /* start/finish flags: same vintage treatment as the pins. Viewers can't
-   interact with them (so they never block a pin click); admins get a
-   draggable grab cursor. */
+   interact with them (so they never block a pin click); admins can click
+   one to open the flag editor. */
 .bb-flag {
   position: relative;
   line-height: 0;
@@ -186,10 +186,7 @@ body:has(.bb-app) {
 }
 .bb-flag-editable {
   pointer-events: auto;
-  cursor: grab;
-}
-.bb-flag-editable:active {
-  cursor: grabbing;
+  cursor: pointer;
 }
 .bb-flag-label {
   position: absolute;

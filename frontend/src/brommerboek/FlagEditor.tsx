@@ -1,38 +1,33 @@
 // Admin dialog for the start/finish flags, opened by clicking a flag on the
-// map. Coordinates can be typed directly or picked by tapping the map (the
-// caller hides this dialog while pick mode is active). Styled after
-// LoginPrompt so it reads as the same family of small overlays.
+// map. Uses the same place picker as the stop flow: search, tap a result,
+// save — the chosen place becomes the flag's position and label. Styled
+// after LoginPrompt so it reads as the same family of small overlays.
 
-import { useEffect } from "react"
-import type { FlagDraft } from "./flagEdit"
-import { parseFlagDraft } from "./flagEdit"
+import { useEffect, useState } from "react"
+import type { PlaceHit } from "./geocode"
+import PlaceSearch from "./PlaceSearch"
 import { C, FONT_MONO } from "./theme"
+import type { MapFlag } from "./types"
 
 interface FlagEditorProps {
-  draft: FlagDraft
+  flag: MapFlag
   saving: boolean
-  onChange: (draft: FlagDraft) => void
-  // Enter pick-on-map mode: the caller closes this dialog and waits for a
-  // map click to fill the coordinates.
-  onPickOnMap: () => void
   onClose: () => void
-  onSave: () => void
+  onSave: (hit: PlaceHit) => void
 }
 
 export default function FlagEditor({
-  draft,
+  flag,
   saving,
-  onChange,
-  onPickOnMap,
   onClose,
   onSave,
 }: FlagEditorProps) {
-  const parsed = parseFlagDraft(draft)
+  const [picked, setPicked] = useState<PlaceHit | null>(null)
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!parsed || saving) return
-    onSave()
+    if (!picked || saving) return
+    onSave(picked)
   }
 
   useEffect(() => {
@@ -72,6 +67,7 @@ export default function FlagEditor({
       />
       <form
         onSubmit={submit}
+        className="bb-scroll"
         style={{
           position: "relative",
           background: C.paperCard,
@@ -80,6 +76,8 @@ export default function FlagEditor({
           padding: 20,
           width: "100%",
           maxWidth: 340,
+          maxHeight: "80%",
+          overflowY: "auto",
           display: "flex",
           flexDirection: "column",
           gap: 12,
@@ -95,83 +93,72 @@ export default function FlagEditor({
             textTransform: "uppercase",
           }}
         >
-          {draft.kind === "start" ? "startvlag" : "finishvlag"} verplaatsen
+          {flag.kind === "start" ? "startvlag" : "finishvlag"} verplaatsen
         </div>
 
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.sepia }}>
-            label
-          </span>
-          <input
-            type="text"
-            maxLength={255}
-            value={draft.label}
-            onChange={(e) => onChange({ ...draft, label: e.target.value })}
-            style={inputStyle}
-          />
-        </label>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <label
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 4,
-              flex: 1,
-            }}
-          >
-            <span
-              style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.sepia }}
-            >
-              breedtegraad
-            </span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={draft.lat}
-              onChange={(e) => onChange({ ...draft, lat: e.target.value })}
-              style={inputStyle}
-            />
-          </label>
-          <label
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 4,
-              flex: 1,
-            }}
-          >
-            <span
-              style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.sepia }}
-            >
-              lengtegraad
-            </span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={draft.lng}
-              onChange={(e) => onChange({ ...draft, lng: e.target.value })}
-              style={inputStyle}
-            />
-          </label>
+        <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.sepia }}>
+          nu: {flag.label ? `${flag.label} — ` : ""}
+          {flag.lat.toFixed(4)}°, {flag.lng.toFixed(4)}°
         </div>
 
-        <button
-          type="button"
-          onClick={onPickOnMap}
-          style={{
-            ...btnStyle,
-            background: "transparent",
-            color: C.teal,
-            borderColor: C.teal,
-          }}
-        >
-          📍 kies een punt op de kaart
-        </button>
+        <PlaceSearch autoFocus={!picked} onPick={setPicked} />
 
-        {!parsed && (
-          <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.red }}>
-            Ongeldige coördinaten — breedtegraad −90…90, lengtegraad −180…180.
+        {picked && (
+          <div
+            style={{
+              border: `1.5px solid ${C.ochre}`,
+              borderRadius: 12,
+              padding: 14,
+              background: C.paperCard,
+              boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontFamily: FONT_MONO,
+                  fontSize: 10,
+                  letterSpacing: 2,
+                  color: C.ochreDeep,
+                }}
+              >
+                GEKOZEN PLEK
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 18, marginTop: 2 }}>
+                {picked.flag} {picked.place}
+              </div>
+              <div
+                style={{
+                  fontFamily: FONT_MONO,
+                  fontSize: 10,
+                  color: C.sepia,
+                  marginTop: 6,
+                }}
+              >
+                ◉ {picked.lat.toFixed(4)}° N, {picked.lng.toFixed(4)}° E
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPicked(null)}
+              style={{
+                border: `1.5px solid ${C.ochre}`,
+                borderRadius: 8,
+                background: "none",
+                padding: "6px 10px",
+                fontFamily: FONT_MONO,
+                fontSize: 10,
+                color: C.ochreDeep,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              herkies
+            </button>
           </div>
         )}
 
@@ -185,13 +172,13 @@ export default function FlagEditor({
           </button>
           <button
             type="submit"
-            disabled={!parsed || saving}
+            disabled={!picked || saving}
             style={{
               ...btnStyle,
               background: C.ochreDeep,
               color: C.cream,
               flex: 1,
-              opacity: !parsed || saving ? 0.6 : 1,
+              opacity: !picked || saving ? 0.6 : 1,
             }}
           >
             {saving ? "…" : "opslaan"}
@@ -200,18 +187,6 @@ export default function FlagEditor({
       </form>
     </div>
   )
-}
-
-const inputStyle: React.CSSProperties = {
-  fontFamily: FONT_MONO,
-  fontSize: 13,
-  padding: "8px 10px",
-  border: `1.5px solid ${C.border}`,
-  borderRadius: 6,
-  background: C.paperLight,
-  color: C.ink,
-  outline: "none",
-  width: "100%",
 }
 
 const btnStyle: React.CSSProperties = {
