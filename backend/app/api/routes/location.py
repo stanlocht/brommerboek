@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -10,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.config import settings
 from app.core.ratelimit import rate_limit
 from app.models import LiveLocation
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/location", tags=["location"])
 
@@ -128,7 +131,14 @@ def live_location() -> Any:
         location = to_live_location(pos)
     except HTTPException:
         raise
-    except (httpx.HTTPError, ValueError, LookupError, TypeError):
+    except (httpx.HTTPError, ValueError, LookupError, TypeError) as exc:
+        # The 503 hides the cause from the public; the log keeps it. A
+        # status error also notes the upstream body's start — Traccar 401s
+        # and login-page HTML both identify themselves there.
+        detail = ""
+        if isinstance(exc, httpx.HTTPStatusError):
+            detail = f" body: {exc.response.text[:200]!r}"
+        logger.warning("traccar fetch failed: %r%s", exc, detail)
         if cached:
             return cached[1]
         raise HTTPException(status_code=503, detail="gps service unavailable")
