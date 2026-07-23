@@ -9,11 +9,11 @@ import "maplibre-gl/dist/maplibre-gl.css"
 import { useCallback, useEffect, useRef } from "react"
 import type { RouteGeometry } from "./geo"
 import { pointAt } from "./geo"
-import { cubSvgString, WRENCH_INNER } from "./icons"
+import { cubSvgString, flagSvgString, WRENCH_INNER } from "./icons"
 import { vintageStyle } from "./mapStyle"
 import { bearingDelta, dampenBearing, INTRO_MS } from "./replayMath"
 import { C, PIN_ROTS } from "./theme"
-import type { Stop } from "./types"
+import type { MapFlag, MapFlagKind, Stop } from "./types"
 
 const FOLLOW_ZOOM = 6.3
 // Cinematic replay camera: slightly closer than the scrub follow, pitched for
@@ -59,6 +59,12 @@ interface Props {
   progress: number
   dragging: boolean
   onPinClick: (index: number) => void
+  // Start/finish flags. Independent of the stops — the finish flag marks
+  // where the trip is headed, not where the latest stop is.
+  flags?: MapFlag[]
+  // Present for admins only: the flags become draggable and a drop reports
+  // the new coordinates.
+  onFlagMove?: (kind: MapFlagKind, lat: number, lng: number) => void
   // Cinematic replay mode: while true the camera follows the cub with pitch,
   // closer zoom and dampened rotation toward the travel bearing.
   replaying?: boolean
@@ -77,6 +83,8 @@ export default function VintageMap({
   progress,
   dragging,
   onPinClick,
+  flags = [],
+  onFlagMove,
   replaying = false,
   replayFollow = true,
   replayReduced = false,
@@ -91,6 +99,10 @@ export default function VintageMap({
   const interactedRef = useRef(false)
   const onPinClickRef = useRef(onPinClick)
   onPinClickRef.current = onPinClick
+  const onFlagMoveRef = useRef(onFlagMove)
+  onFlagMoveRef.current = onFlagMove
+  const flagsRef = useRef(flags)
+  flagsRef.current = flags
   const replayingRef = useRef(replaying)
   replayingRef.current = replaying
   const replayFollowRef = useRef(replayFollow)
@@ -210,9 +222,11 @@ export default function VintageMap({
 
       readyRef.current = true
 
-      // frame the whole trip
+      // frame the whole trip — flags included (when already loaded), so the
+      // finish flag far beyond the latest stop stays in view
       const b = new maplibregl.LngLatBounds()
       for (const s of stops) b.extend([s.lng, s.lat])
+      for (const f of flagsRef.current) b.extend([f.lng, f.lat])
       map.fitBounds(b, {
         padding: { top: 120, bottom: 250, left: 55, right: 55 },
         duration: 0,
@@ -230,6 +244,43 @@ export default function VintageMap({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stops])
+
+  // --- start/finish flags ----------------------------------------------------
+  // Markers are DOM overlays, so they can attach before the style finishes
+  // loading — no need to wait for the map's `load` event. Admins get
+  // draggable flags; dropping one reports the new spot via onFlagMove.
+  const flagsEditable = !!onFlagMove
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `stops` re-creates the markers after the init effect rebuilds the map
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const markers = flags.map((f) => {
+      const el = document.createElement("div")
+      el.className = flagsEditable ? "bb-flag bb-flag-editable" : "bb-flag"
+      el.innerHTML = `${flagSvgString(f.kind)}${
+        f.label ? `<span class="bb-flag-label">${f.label}</span>` : ""
+      }`
+      // The pole base sits 4px from the left and 2px above the bottom of
+      // the flag art — offset so exactly that point lands on the coordinate.
+      const marker = new maplibregl.Marker({
+        element: el,
+        anchor: "bottom-left",
+        offset: [-4, 2],
+        draggable: flagsEditable,
+      })
+        .setLngLat([f.lng, f.lat])
+        .addTo(map)
+      if (flagsEditable)
+        marker.on("dragend", () => {
+          const ll = marker.getLngLat()
+          onFlagMoveRef.current?.(f.kind, ll.lat, ll.lng)
+        })
+      return marker
+    })
+    return () => {
+      for (const m of markers) m.remove()
+    }
+  }, [flags, flagsEditable, stops])
 
   // --- move cub + follow camera on progress/drag ----------------------------
   // ALL camera math lives here (plus the replay enter/exit effect below).

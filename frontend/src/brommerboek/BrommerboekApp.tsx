@@ -7,8 +7,10 @@ import AddFlow from "./AddFlow"
 import {
   createStop,
   deleteStop,
+  fetchMapFlags,
   fetchStats,
   fetchStops,
+  updateMapFlag,
   updateStop,
   uploadStopMedia,
 } from "./api"
@@ -21,7 +23,7 @@ import StopSheet from "./StopSheet"
 import { shareUrl, stopIdFromSearch, withoutStopParam } from "./share"
 import { C, FONT_MONO } from "./theme"
 import { EMPTY_STATS } from "./trip"
-import type { NewStop, Stop } from "./types"
+import type { MapFlagKind, NewStop, Stop } from "./types"
 import useReplay from "./useReplay"
 
 function CenterState({
@@ -79,6 +81,34 @@ export default function BrommerboekApp() {
     enabled: isLoggedIn(),
   })
   const canEdit = !!me?.is_superuser
+
+  // Start/finish flags — everyone sees them; admins can drag them around.
+  // Loads independently of the stops, so a failure just means no flags.
+  const { data: mapFlags } = useQuery({
+    queryKey: ["mapFlags"],
+    queryFn: fetchMapFlags,
+  })
+
+  const flagMut = useMutation({
+    mutationFn: ({
+      kind,
+      lat,
+      lng,
+    }: {
+      kind: MapFlagKind
+      lat: number
+      lng: number
+    }) => updateMapFlag(kind, { lat, lng }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["mapFlags"] })
+      flash("✓ vlag verplaatst")
+    },
+    onError: () => {
+      // Snap the dragged marker back to the server's position.
+      qc.invalidateQueries({ queryKey: ["mapFlags"] })
+      flash("kon de vlag niet verplaatsen")
+    },
+  })
 
   const [activeIndex, setActiveIndex] = useState(0)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -439,6 +469,12 @@ export default function BrommerboekApp() {
           setActiveIndex(i)
           setSheetOpen(true)
         }}
+        flags={mapFlags}
+        onFlagMove={
+          canEdit
+            ? (kind, lat, lng) => flagMut.mutate({ kind, lat, lng })
+            : undefined
+        }
         onAdd={canEdit ? () => setAddOpen(true) : undefined}
         onLogin={() => setLoginOpen(true)}
         replaying={replaying}

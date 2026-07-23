@@ -8,7 +8,7 @@ import { nearestStop, stopFraction } from "./geo"
 import { legInfo, legLabel } from "./legs"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import type { TripStats } from "./trip"
-import type { Stop } from "./types"
+import type { MapFlag, MapFlagKind, Stop } from "./types"
 import VintageMap from "./VintageMap"
 
 function frac(e: ReactPointerEvent<HTMLDivElement>): number {
@@ -71,6 +71,8 @@ export default function MapScreen({
   onStep,
   onOpenSheet,
   onPinClick,
+  flags,
+  onFlagMove,
   onAdd,
   onLogin,
   replaying = false,
@@ -97,6 +99,10 @@ export default function MapScreen({
   onStep: (dir: -1 | 1) => void
   onOpenSheet: () => void
   onPinClick: (i: number) => void
+  // Start/finish flags for the map; onFlagMove is present for admins only
+  // and makes them draggable.
+  flags?: MapFlag[]
+  onFlagMove?: (kind: MapFlagKind, lat: number, lng: number) => void
   onAdd?: () => void
   onLogin: () => void
   // "Rij de reis" replay: while true the header/preview/scrubber/FAB chrome
@@ -125,6 +131,8 @@ export default function MapScreen({
         progress={progress}
         dragging={dragging}
         onPinClick={onPinClick}
+        flags={flags}
+        onFlagMove={onFlagMove}
         replaying={replaying}
         replayFollow={replayFollow}
         replayReduced={replayReduced}
