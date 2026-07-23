@@ -100,3 +100,16 @@ export interface MapFlag {
 }
 
 export type MapFlagPatch = Partial<Omit<MapFlag, "kind">>
+
+// Last known GPS fix of the Cub — mirror of the backend `LiveLocation`,
+// which proxies the Traccar tracker. `fix_time` is an ISO timestamp; the
+// helpers in live.ts turn it into a "laatst gezien" label and a staleness
+// verdict.
+export interface LiveLocation {
+  lat: number
+  lng: number
+  speed_kmh: number | null
+  course: number | null
+  battery: number | null
+  fix_time: string | null
+}

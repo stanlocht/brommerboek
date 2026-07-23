@@ -100,6 +100,21 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
+    # Traccar GPS server the Cub's tracker reports to. Empty base URL = live
+    # location disabled: /location/live answers 404 and the frontend simply
+    # never shows the live marker. TRACCAR_TOKEN is an API token created in
+    # the Traccar web UI (sent as a Bearer header). TRACCAR_DEVICE_ID pins
+    # the tracker when the Traccar account has several devices; unset, the
+    # first device's position wins.
+    TRACCAR_BASE_URL: str = ""
+    TRACCAR_TOKEN: str = ""
+    TRACCAR_DEVICE_ID: int | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def traccar_enabled(self) -> bool:
+        return bool(self.TRACCAR_BASE_URL)
+
     # Web Push (VAPID). Empty private key = push disabled: the subscribe
     # endpoints answer 503 and the send helpers no-op. Key generation is
     # documented in docs/RUNBOOK.md. The claims email is the operator contact

@@ -3,6 +3,7 @@
 
 import type { TripStats } from "./trip"
 import type {
+  LiveLocation,
   MapFlag,
   MapFlagKind,
   MapFlagPatch,
@@ -22,6 +23,7 @@ const mediaIndexUrl = (id: string, i: number) =>
 const honksUrl = (id: string) => `${BASE}/api/v1/stops/${id}/honks`
 const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
 const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
+const LIVE_LOCATION_URL = `${BASE}/api/v1/location/live`
 const PUSH_PUBLIC_KEY_URL = `${BASE}/api/v1/push/public-key`
 const PUSH_SUBSCRIBE_URL = `${BASE}/api/v1/push/subscribe`
 const WEATHER_SUGGEST_URL = `${BASE}/api/v1/weather/suggest`
@@ -90,6 +92,19 @@ export async function suggestWeather(
   const res = await fetch(`${WEATHER_SUGGEST_URL}?${params}`)
   if (!res.ok) throw new Error(`No weather suggestion (${res.status})`)
   return (await res.json()) as WeatherSuggestion
+}
+
+// Live GPS fix of the Cub via the backend's Traccar proxy. Null covers every
+// "nothing to show" case — tracker not configured (404), Traccar unreachable
+// (503), network failure — so callers just hide the live marker.
+export async function fetchLiveLocation(): Promise<LiveLocation | null> {
+  try {
+    const res = await fetch(LIVE_LOCATION_URL)
+    if (!res.ok) return null
+    return (await res.json()) as LiveLocation
+  } catch {
+    return null
+  }
 }
 
 export async function createStop(stop: NewStop): Promise<Stop> {

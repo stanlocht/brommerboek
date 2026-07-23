@@ -1,19 +1,66 @@
 import { Link } from "@tanstack/react-router"
 import type { PointerEvent as ReactPointerEvent } from "react"
+import { useEffect, useState } from "react"
 import type { UserPublic } from "@/client"
 import { mediaSrc } from "./api"
 import FollowBell from "./FollowBell"
 import type { RouteGeometry } from "./geo"
 import { nearestStop, stopFraction } from "./geo"
 import { legInfo, legLabel } from "./legs"
+import { isLiveFresh, liveAgeLabel } from "./live"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import type { TripStats } from "./trip"
-import type { MapFlag, MapFlagKind, Stop } from "./types"
+import type { LiveLocation, MapFlag, MapFlagKind, Stop } from "./types"
 import VintageMap from "./VintageMap"
 
 function frac(e: ReactPointerEvent<HTMLDivElement>): number {
   const r = e.currentTarget.getBoundingClientRect()
   return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
+}
+
+// "LIVE · zojuist" while the tracker reports, "laatst gezien 3 uur geleden"
+// once the fix goes stale. Re-renders itself every half minute so the age
+// keeps up between the app's polls of the backend.
+function LiveChip({ live }: { live: LiveLocation }) {
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  const fresh = isLiveFresh(live.fix_time, nowMs)
+  const age = liveAgeLabel(live.fix_time, nowMs)
+  return (
+    <span
+      style={{
+        marginTop: 8,
+        marginLeft: 6,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 10px",
+        borderRadius: 999,
+        background: C.paperCard,
+        border: `1.5px solid ${C.border}`,
+        boxShadow: "1px 2px 0 rgba(120,90,40,.2)",
+        fontFamily: FONT_MONO,
+        fontSize: 10,
+        letterSpacing: 1,
+        color: fresh ? C.teal : C.sepia,
+      }}
+    >
+      <span
+        className={fresh ? "bb-live-chip-dot" : undefined}
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: fresh ? C.teal : C.sepia,
+          flex: "none",
+        }}
+      />
+      {fresh ? `LIVE · ${age}` : `laatst gezien ${age}`}
+    </span>
+  )
 }
 
 function AuthLink({
@@ -73,6 +120,7 @@ export default function MapScreen({
   onPinClick,
   flags,
   onFlagClick,
+  live,
   onAdd,
   onLogin,
   replaying = false,
@@ -103,6 +151,9 @@ export default function MapScreen({
   // and makes the flags clickable (opens the flag editor).
   flags?: MapFlag[]
   onFlagClick?: (kind: MapFlagKind) => void
+  // Last GPS fix of the Cub (Traccar via the backend); null/absent means no
+  // tracker — the live marker and chip simply don't render.
+  live?: LiveLocation | null
   onAdd?: () => void
   onLogin: () => void
   // "Rij de reis" replay: while true the header/preview/scrubber/FAB chrome
@@ -133,6 +184,7 @@ export default function MapScreen({
         onPinClick={onPinClick}
         flags={flags}
         onFlagClick={onFlagClick}
+        live={live}
         replaying={replaying}
         replayFollow={replayFollow}
         replayReduced={replayReduced}
@@ -260,6 +312,7 @@ export default function MapScreen({
             >
               STEMPELS
             </Link>
+            {live && <LiveChip live={live} />}
           </div>
           <div
             style={{

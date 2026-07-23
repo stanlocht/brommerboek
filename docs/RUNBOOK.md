@@ -452,3 +452,28 @@ easy to parse from the run log.
   `backend/app/api/routes/weather.py` at it. Upstream failures degrade
   gracefully: the endpoint returns 503 and the app simply leaves the weather
   fields manual.
+- **Live GPS locatie: Traccar** (https://www.traccar.org), self-hosted, with
+  a tracker in the Cub. The backend's public `GET /api/v1/location/live`
+  proxies Traccar's `GET /api/positions` so the Traccar credentials never
+  reach the browser; the frontend polls it once a minute and shows a pulsing
+  teal marker on the map plus a "LIVE · zojuist" / "laatst gezien X geleden"
+  chip in the header. Enable it in `~/brommerboek/.env`:
+
+  ```bash
+  # Base URL of the Traccar server (empty = live location off; the endpoint
+  # answers 404 and the app hides the marker)
+  TRACCAR_BASE_URL=https://gps.example.com
+  # API token, created in the Traccar web UI under Settings → Preferences →
+  # (your account) → Token; sent as a Bearer header
+  TRACCAR_TOKEN=<token>
+  # Optional: pin the tracker when the account has several devices
+  # (Settings → Devices shows the numeric id); unset = first device wins
+  TRACCAR_DEVICE_ID=1
+  ```
+
+  then `dc up -d backend`. Responses are cached in-process for 30 s, so any
+  number of viewers costs at most two Traccar calls a minute; when Traccar is
+  unreachable the endpoint keeps serving the last fix it saw since the backend
+  started (and 503s only when it never saw one). A fix older than 10 minutes
+  renders greyed-out as "laatst gezien …" — tracker off, no coverage, or the
+  Cub is parked somewhere indoors.

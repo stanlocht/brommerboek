@@ -10,10 +10,11 @@ import { useCallback, useEffect, useRef } from "react"
 import type { RouteGeometry } from "./geo"
 import { pointAt } from "./geo"
 import { cubSvgString, flagSvgString, WRENCH_INNER } from "./icons"
+import { isLiveFresh } from "./live"
 import { vintageStyle } from "./mapStyle"
 import { bearingDelta, dampenBearing, INTRO_MS } from "./replayMath"
 import { C, PIN_ROTS } from "./theme"
-import type { MapFlag, MapFlagKind, Stop } from "./types"
+import type { LiveLocation, MapFlag, MapFlagKind, Stop } from "./types"
 
 const FOLLOW_ZOOM = 6.3
 // Cinematic replay camera: slightly closer than the scrub follow, pitched for
@@ -64,6 +65,8 @@ interface Props {
   flags?: MapFlag[]
   // Present for admins only: clicking a flag opens the flag editor.
   onFlagClick?: (kind: MapFlagKind) => void
+  // Last GPS fix of the Cub from the tracker; null/absent hides the marker.
+  live?: LiveLocation | null
   // Cinematic replay mode: while true the camera follows the cub with pitch,
   // closer zoom and dampened rotation toward the travel bearing.
   replaying?: boolean
@@ -84,6 +87,7 @@ export default function VintageMap({
   onPinClick,
   flags = [],
   onFlagClick,
+  live = null,
   replaying = false,
   replayFollow = true,
   replayReduced = false,
@@ -279,6 +283,28 @@ export default function VintageMap({
       for (const m of markers) m.remove()
     }
   }, [flags, flagsClickable, stops])
+
+  // --- live GPS marker -------------------------------------------------------
+  // Like the flags: a DOM overlay recreated per update (the fix changes at
+  // most once a minute), so it also survives the map rebuild on `stops`.
+  // Fresh fixes pulse; stale ones grey out but stay visible — the last known
+  // spot is still the answer to "waar is de brommer nu?".
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `stops` re-adds the marker after the init effect rebuilds the map
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !live) return
+    const el = document.createElement("div")
+    el.className = isLiveFresh(live.fix_time, Date.now())
+      ? "bb-live-marker"
+      : "bb-live-marker bb-live-stale"
+    el.innerHTML = `<div class="bb-live-ring"></div><div class="bb-live-dot"></div>`
+    const marker = new maplibregl.Marker({ element: el, anchor: "center" })
+      .setLngLat([live.lng, live.lat])
+      .addTo(map)
+    return () => {
+      marker.remove()
+    }
+  }, [live, stops])
 
   // --- move cub + follow camera on progress/drag ----------------------------
   // ALL camera math lives here (plus the replay enter/exit effect below).
