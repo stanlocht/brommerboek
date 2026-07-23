@@ -257,6 +257,51 @@ class TripStats(SQLModel):
 
 
 # ----------------------------------------------------------------------------
+# Map flags (start + finish).
+#
+# The map shows a starting flag and a finish flag marking where the trip
+# begins and where it is headed. They are independent of the stops — the
+# finish can sit far beyond the latest stop. Reads are public; a superuser
+# can drag a flag to a new spot (or rename its label). Exactly one row per
+# kind; missing rows are lazily created with the defaults below.
+# ----------------------------------------------------------------------------
+
+MAP_FLAG_KINDS = {"start", "finish"}
+
+# Defaults for a fresh database: the trip runs Amsterdam → Tanger (Morocco).
+DEFAULT_MAP_FLAGS: dict[str, dict] = {
+    "start": {"label": "Amsterdam", "lat": 52.3676, "lng": 4.9041},
+    "finish": {"label": "Tanger", "lat": 35.7595, "lng": -5.834},
+}
+
+
+class MapFlagBase(SQLModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    label: str = Field(default="", max_length=255)
+
+
+class MapFlag(MapFlagBase, table=True):
+    kind: str = Field(primary_key=True, max_length=16)  # one of MAP_FLAG_KINDS
+
+
+# Partial update — a drag sends just lat/lng; the label can change separately.
+class MapFlagUpdate(SQLModel):
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    label: str | None = Field(default=None, max_length=255)
+
+
+class MapFlagPublic(MapFlagBase):
+    kind: str
+
+
+class MapFlagsPublic(SQLModel):
+    data: list[MapFlagPublic]
+    count: int
+
+
+# ----------------------------------------------------------------------------
 # Comments + horn honks (public reactions on stops).
 #
 # Anyone can read; only authenticated users can post a comment or honk. A user

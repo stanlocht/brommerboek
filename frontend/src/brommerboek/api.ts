@@ -2,7 +2,15 @@
 // the generated auth client so it needs no live backend at build time.
 
 import type { TripStats } from "./trip"
-import type { NewStop, Stop, StopPatch, StopsResponse } from "./types"
+import type {
+  MapFlag,
+  MapFlagKind,
+  MapFlagPatch,
+  NewStop,
+  Stop,
+  StopPatch,
+  StopsResponse,
+} from "./types"
 
 const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")
 const STOPS_URL = `${BASE}/api/v1/stops/`
@@ -12,6 +20,8 @@ const mediaUrl = (id: string) => `${BASE}/api/v1/stops/${id}/media`
 const mediaIndexUrl = (id: string, i: number) =>
   `${BASE}/api/v1/stops/${id}/media/${i}`
 const honksUrl = (id: string) => `${BASE}/api/v1/stops/${id}/honks`
+const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
+const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
 const PUSH_PUBLIC_KEY_URL = `${BASE}/api/v1/push/public-key`
 const PUSH_SUBSCRIBE_URL = `${BASE}/api/v1/push/subscribe`
 const WEATHER_SUGGEST_URL = `${BASE}/api/v1/weather/suggest`
@@ -166,6 +176,32 @@ export async function deleteStop(id: string): Promise<void> {
     headers: authHeaders(),
   })
   if (!res.ok) throw new Error(`Failed to delete stop (${res.status})`)
+}
+
+// ----- Map flags (start + finish) --------------------------------------------
+
+export async function fetchMapFlags(): Promise<MapFlag[]> {
+  const res = await fetch(MAP_FLAGS_URL)
+  if (!res.ok) throw new Error(`Failed to load map flags (${res.status})`)
+  const body = (await res.json()) as { data: MapFlag[]; count: number }
+  return body.data
+}
+
+// Superuser-only: move a flag (or rename its label).
+export async function updateMapFlag(
+  kind: MapFlagKind,
+  patch: MapFlagPatch,
+): Promise<MapFlag> {
+  const res = await fetch(mapFlagUrl(kind), {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(`Failed to move flag (${res.status})`)
+  return (await res.json()) as MapFlag
 }
 
 // ----- Feedback / bug reports ("storingsdienst") -----------------------------

@@ -7,11 +7,14 @@ import AddFlow from "./AddFlow"
 import {
   createStop,
   deleteStop,
+  fetchMapFlags,
   fetchStats,
   fetchStops,
+  updateMapFlag,
   updateStop,
   uploadStopMedia,
 } from "./api"
+import FlagEditor from "./FlagEditor"
 import { buildRoute, nearestStop, stopFraction } from "./geo"
 import { CubIcon } from "./icons"
 import LoginPrompt from "./LoginPrompt"
@@ -21,7 +24,7 @@ import StopSheet from "./StopSheet"
 import { shareUrl, stopIdFromSearch, withoutStopParam } from "./share"
 import { C, FONT_MONO } from "./theme"
 import { EMPTY_STATS } from "./trip"
-import type { NewStop, Stop } from "./types"
+import type { MapFlagKind, MapFlagPatch, NewStop, Stop } from "./types"
 import useReplay from "./useReplay"
 
 function CenterState({
@@ -79,6 +82,29 @@ export default function BrommerboekApp() {
     enabled: isLoggedIn(),
   })
   const canEdit = !!me?.is_superuser
+
+  // Start/finish flags — everyone sees them; admins can drag them around.
+  // Loads independently of the stops, so a failure just means no flags.
+  const { data: mapFlags } = useQuery({
+    queryKey: ["mapFlags"],
+    queryFn: fetchMapFlags,
+  })
+
+  // Clicking a flag (admins only) opens the editor for that kind; saving a
+  // picked place moves the flag there and relabels it after the place.
+  const [editFlagKind, setEditFlagKind] = useState<MapFlagKind | null>(null)
+  const editFlag = mapFlags?.find((f) => f.kind === editFlagKind) ?? null
+  const flagMut = useMutation({
+    mutationFn: ({ kind, patch }: { kind: MapFlagKind; patch: MapFlagPatch }) =>
+      updateMapFlag(kind, patch),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["mapFlags"] })
+      setEditFlagKind(null)
+      flash("✓ vlag verplaatst")
+    },
+    // A failed save keeps the dialog open so the picked place isn't lost.
+    onError: () => flash("kon de vlag niet verplaatsen"),
+  })
 
   const [activeIndex, setActiveIndex] = useState(0)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -439,6 +465,15 @@ export default function BrommerboekApp() {
           setActiveIndex(i)
           setSheetOpen(true)
         }}
+        flags={mapFlags}
+        onFlagClick={
+          canEdit
+            ? (kind) => {
+                if (replaying) return
+                setEditFlagKind(kind)
+              }
+            : undefined
+        }
         onAdd={canEdit ? () => setAddOpen(true) : undefined}
         onLogin={() => setLoginOpen(true)}
         replaying={replaying}
@@ -498,6 +533,20 @@ export default function BrommerboekApp() {
           intent="signin"
           onClose={() => setLoginOpen(false)}
           onSuccess={() => setLoginOpen(false)}
+        />
+      )}
+
+      {editFlag && canEdit && (
+        <FlagEditor
+          flag={editFlag}
+          saving={flagMut.isPending}
+          onClose={() => setEditFlagKind(null)}
+          onSave={(hit) =>
+            flagMut.mutate({
+              kind: editFlag.kind,
+              patch: { lat: hit.lat, lng: hit.lng, label: hit.place },
+            })
+          }
         />
       )}
 

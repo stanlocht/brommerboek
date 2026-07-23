@@ -175,6 +175,37 @@ body:has(.bb-app) {
     0 0 3px #efe4c9;
 }
 
+/* start/finish flags: same vintage treatment as the pins. Viewers can't
+   interact with them (so they never block a pin click); admins can click
+   one to open the flag editor. */
+.bb-flag {
+  position: relative;
+  line-height: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+.bb-flag-editable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.bb-flag-label {
+  position: absolute;
+  left: 30px;
+  top: 10px;
+  white-space: nowrap;
+  font-family: "Special Elite", monospace;
+  font-size: 12px;
+  line-height: 1;
+  color: #3a332a;
+  pointer-events: none;
+  text-shadow:
+    -1px -1px 0 #efe4c9,
+    1px -1px 0 #efe4c9,
+    -1px 1px 0 #efe4c9,
+    1px 1px 0 #efe4c9,
+    0 0 3px #efe4c9;
+}
+
 .bb-cub-marker {
   line-height: 0;
   pointer-events: none;

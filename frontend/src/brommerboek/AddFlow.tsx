@@ -12,8 +12,9 @@ import {
   updateStopMediaCaption,
   uploadStopMedia,
 } from "./api"
-import { type PlaceHit, searchPlaces } from "./geocode"
+import type { PlaceHit } from "./geocode"
 import { WrenchIcon } from "./icons"
+import PlaceSearch from "./PlaceSearch"
 import { C, FONT_MONO } from "./theme"
 import type {
   MediaItem,
@@ -161,10 +162,6 @@ export default function AddFlow({
         }
       : null,
   )
-  const [query, setQuery] = useState("")
-  const [results, setResults] = useState<PlaceHit[]>([])
-  const [searching, setSearching] = useState(false)
-  const [searchError, setSearchError] = useState<string | null>(null)
   const [date, setDate] = useState(
     initialStop?.date ?? new Date().toISOString().slice(0, 10),
   )
@@ -234,43 +231,10 @@ export default function AddFlow({
     [],
   )
 
-  // Debounced search: fires 400ms after the last keystroke, cancels the
-  // in-flight request when the user keeps typing.
-  useEffect(() => {
-    const trimmed = query.trim()
-    if (trimmed.length < 2) {
-      setResults([])
-      setSearching(false)
-      setSearchError(null)
-      return
-    }
-    const ac = new AbortController()
-    const t = setTimeout(() => {
-      setSearching(true)
-      setSearchError(null)
-      searchPlaces(trimmed, ac.signal)
-        .then((hits) => {
-          setResults(hits)
-          setSearching(false)
-        })
-        .catch((err) => {
-          if ((err as Error).name === "AbortError") return
-          setSearching(false)
-          setSearchError("Kon geen plaatsen ophalen")
-        })
-    }, 400)
-    return () => {
-      clearTimeout(t)
-      ac.abort()
-    }
-  }, [query])
-
   const canProceedStep0 = picked !== null
 
   const pick = (hit: PlaceHit) => {
     setPicked(hit)
-    setResults([])
-    setQuery("")
     if (!title.trim()) setTitle(hit.place)
   }
 
@@ -350,12 +314,6 @@ export default function AddFlow({
     setConfirmingDelete(false)
     setStep((s) => Math.max(0, s - 1))
   }
-
-  // Autofocus the search input when landing on step 0 (only for new stops).
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
-  useEffect(() => {
-    if (step === 0 && !picked) searchInputRef.current?.focus()
-  }, [step, picked])
 
   const onPickFile = () => fileInputRef.current?.click()
 
@@ -522,118 +480,7 @@ export default function AddFlow({
               Waar ben je?
             </div>
 
-            <Field label="ZOEK PLAATS">
-              <div style={{ position: "relative", marginTop: 4 }}>
-                <input
-                  ref={searchInputRef}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="bv. Firenze, Grimselpass, Vernazza…"
-                  style={{ ...fieldStyle, paddingLeft: 34 }}
-                />
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    left: 12,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    color: C.ochreDeep,
-                    fontSize: 14,
-                  }}
-                >
-                  🔍
-                </span>
-              </div>
-            </Field>
-
-            {searching && (
-              <div
-                style={{
-                  fontFamily: FONT_MONO,
-                  fontSize: 11,
-                  color: C.sepia,
-                  marginTop: 10,
-                }}
-              >
-                zoeken…
-              </div>
-            )}
-            {searchError && !searching && (
-              <div
-                style={{
-                  fontFamily: FONT_MONO,
-                  fontSize: 11,
-                  color: C.red,
-                  marginTop: 10,
-                }}
-              >
-                {searchError}
-              </div>
-            )}
-
-            {results.length > 0 && (
-              <div
-                style={{
-                  marginTop: 10,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
-                }}
-              >
-                {results.map((hit) => (
-                  <button
-                    key={hit.key}
-                    type="button"
-                    onClick={() => pick(hit)}
-                    style={{
-                      textAlign: "left",
-                      border: `1.5px solid ${C.border}`,
-                      borderRadius: 10,
-                      padding: "10px 12px",
-                      background: C.paperCard,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      fontFamily: "inherit",
-                      color: C.ink,
-                    }}
-                  >
-                    <span style={{ fontSize: 22 }} aria-hidden="true">
-                      {hit.flag || "📍"}
-                    </span>
-                    <span style={{ minWidth: 0, flex: 1 }}>
-                      <span
-                        style={{
-                          fontWeight: 600,
-                          fontSize: 15,
-                          display: "block",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {hit.place}
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: FONT_MONO,
-                          fontSize: 10,
-                          color: C.sepia,
-                          display: "block",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {[hit.region, hit.country].filter(Boolean).join(" · ")}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+            <PlaceSearch autoFocus={!picked} onPick={pick} />
 
             {picked && (
               <div
@@ -697,10 +544,7 @@ export default function AddFlow({
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setPicked(null)
-                      setQuery("")
-                    }}
+                    onClick={() => setPicked(null)}
                     style={{
                       border: `1.5px solid ${C.ochre}`,
                       borderRadius: 8,
