@@ -242,6 +242,20 @@ class WeatherSuggestion(SQLModel):
     condition: str | None
 
 
+# Last known position of the Cub, read from the Traccar GPS server. `fix_time`
+# is when the tracker recorded the fix — the frontend renders it as "laatst
+# gezien X geleden" and greys the marker when it goes stale. Speed is km/h
+# (Traccar reports knots; the route converts). `battery` is the tracker's
+# battery percentage when the device reports one.
+class LiveLocation(SQLModel):
+    lat: float
+    lng: float
+    speed_kmh: float | None = None
+    course: float | None = None
+    battery: float | None = None
+    fix_time: datetime | None = None
+
+
 # Aggregate trip statistics for the "Wrapped" recap screen. `km` uses each
 # leg's odometer delta when both endpoints have a km value, and falls back
 # to great-circle distance otherwise. `suggested_km` is the last known

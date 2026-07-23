@@ -30,6 +30,10 @@ with five screens plus overlays:
   logbook.
 - **Reparatie-laag (Repair layer)** — the wrench toggle fades the route and
   shows only repair pins, turning the map into a record of the cub's wear.
+- **Live locatie** — with a Traccar GPS server configured (`TRACCAR_*` in
+  `.env`, see `docs/RUNBOOK.md` §10), a pulsing marker shows where the Cub is
+  right now and the header gets a "LIVE · zojuist" / "laatst gezien X geleden"
+  chip. The backend proxies Traccar so its credentials stay server-side.
 - **Stempelmuur (Stamp wall)** — perforated passport ovals, one per country.
 - **Wrapped recap** — big stat cards with a regeneratable highlight line.
 - **Reis-highlight (Reel)** — a storyboard mockup of an auto-generated highlight

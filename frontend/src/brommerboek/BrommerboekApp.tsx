@@ -7,6 +7,7 @@ import AddFlow from "./AddFlow"
 import {
   createStop,
   deleteStop,
+  fetchLiveLocation,
   fetchMapFlags,
   fetchStats,
   fetchStops,
@@ -88,6 +89,16 @@ export default function BrommerboekApp() {
   const { data: mapFlags } = useQuery({
     queryKey: ["mapFlags"],
     queryFn: fetchMapFlags,
+  })
+
+  // Live GPS fix of the Cub (Traccar via the backend). Polled every minute;
+  // the backend caches upstream calls, so many viewers stay cheap. Null (no
+  // tracker configured, Traccar down, offline) just hides the live marker.
+  const { data: liveLocation } = useQuery({
+    queryKey: ["liveLocation"],
+    queryFn: fetchLiveLocation,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   })
 
   // Clicking a flag (admins only) opens the editor for that kind; saving a
@@ -466,6 +477,7 @@ export default function BrommerboekApp() {
           setSheetOpen(true)
         }}
         flags={mapFlags}
+        live={liveLocation}
         onFlagClick={
           canEdit
             ? (kind) => {
