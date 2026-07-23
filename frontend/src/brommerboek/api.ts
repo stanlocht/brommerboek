@@ -2,7 +2,15 @@
 // the generated auth client so it needs no live backend at build time.
 
 import type { TripStats } from "./trip"
-import type { NewStop, Stop, StopPatch, StopsResponse } from "./types"
+import type {
+  MapFlag,
+  MapFlagKind,
+  MapFlagPatch,
+  NewStop,
+  Stop,
+  StopPatch,
+  StopsResponse,
+} from "./types"
 
 const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")
 const STOPS_URL = `${BASE}/api/v1/stops/`
@@ -12,9 +20,14 @@ const mediaUrl = (id: string) => `${BASE}/api/v1/stops/${id}/media`
 const mediaIndexUrl = (id: string, i: number) =>
   `${BASE}/api/v1/stops/${id}/media/${i}`
 const honksUrl = (id: string) => `${BASE}/api/v1/stops/${id}/honks`
+const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
+const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
 const PUSH_PUBLIC_KEY_URL = `${BASE}/api/v1/push/public-key`
 const PUSH_SUBSCRIBE_URL = `${BASE}/api/v1/push/subscribe`
 const WEATHER_SUGGEST_URL = `${BASE}/api/v1/weather/suggest`
+const FEEDBACK_URL = `${BASE}/api/v1/feedback/`
+const MY_FEEDBACK_URL = `${BASE}/api/v1/feedback/mine`
+const feedbackUrl = (id: string) => `${BASE}/api/v1/feedback/${id}`
 
 export interface Honker {
   user_id: string
@@ -38,10 +51,11 @@ export interface HonkState {
 }
 
 // Prefixes `/media/...` URLs (returned as server-relative) with the API base
-// so <img> / <video> tags fetch from the right origin during dev.
+// so <img> / <video> tags fetch from the right origin during dev. Absolute
+// URLs — including blob:/data: local previews — pass through untouched.
 export function mediaSrc(url: string | null): string | undefined {
   if (!url) return undefined
-  if (/^https?:/.test(url)) return url
+  if (/^(https?|blob|data):/.test(url)) return url
   return `${BASE}${url}`
 }
 
@@ -162,6 +176,109 @@ export async function deleteStop(id: string): Promise<void> {
     headers: authHeaders(),
   })
   if (!res.ok) throw new Error(`Failed to delete stop (${res.status})`)
+}
+
+// ----- Map flags (start + finish) --------------------------------------------
+
+export async function fetchMapFlags(): Promise<MapFlag[]> {
+  const res = await fetch(MAP_FLAGS_URL)
+  if (!res.ok) throw new Error(`Failed to load map flags (${res.status})`)
+  const body = (await res.json()) as { data: MapFlag[]; count: number }
+  return body.data
+}
+
+// Superuser-only: move a flag (or rename its label).
+export async function updateMapFlag(
+  kind: MapFlagKind,
+  patch: MapFlagPatch,
+): Promise<MapFlag> {
+  const res = await fetch(mapFlagUrl(kind), {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(`Failed to move flag (${res.status})`)
+  return (await res.json()) as MapFlag
+}
+
+// ----- Feedback / bug reports ("storingsdienst") -----------------------------
+
+export type FeedbackStatus = "open" | "resolved"
+
+export interface FeedbackReport {
+  id: string
+  user_id: string
+  author_name: string
+  is_mine: boolean
+  body: string
+  page: string
+  status: FeedbackStatus
+  created_at: string | null
+}
+
+export interface FeedbackList {
+  data: FeedbackReport[]
+  count: number
+}
+
+export async function createFeedback(
+  body: string,
+  page = "",
+): Promise<FeedbackReport> {
+  const res = await fetch(FEEDBACK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ body, page }),
+  })
+  if (!res.ok) throw new Error(`Failed to send report (${res.status})`)
+  return (await res.json()) as FeedbackReport
+}
+
+export async function fetchMyFeedback(): Promise<FeedbackList> {
+  const res = await fetch(MY_FEEDBACK_URL, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Failed to load reports (${res.status})`)
+  return (await res.json()) as FeedbackList
+}
+
+// Superuser-only: the full queue, optionally filtered by status.
+export async function fetchAllFeedback(
+  status?: FeedbackStatus,
+): Promise<FeedbackList> {
+  const url = status ? `${FEEDBACK_URL}?status=${status}` : FEEDBACK_URL
+  const res = await fetch(url, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Failed to load reports (${res.status})`)
+  return (await res.json()) as FeedbackList
+}
+
+// Superuser-only: mark a report resolved, or reopen it.
+export async function updateFeedbackStatus(
+  id: string,
+  status: FeedbackStatus,
+): Promise<FeedbackReport> {
+  const res = await fetch(feedbackUrl(id), {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ status }),
+  })
+  if (!res.ok) throw new Error(`Failed to update report (${res.status})`)
+  return (await res.json()) as FeedbackReport
+}
+
+export async function deleteFeedback(id: string): Promise<void> {
+  const res = await fetch(feedbackUrl(id), {
+    method: "DELETE",
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Failed to delete report (${res.status})`)
 }
 
 // ----- Web Push ("volg de reis") ---------------------------------------------

@@ -85,34 +85,39 @@ def read_stats(session: SessionDep) -> Any:
     Aggregate trip statistics for the "Wrapped" recap screen.
     """
     stops = _ordered_stops(session)
+    # Preparation posts belong to the journal, not the journey: dropping them
+    # from the sequence keeps them out of every figure, including the km
+    # chain (a mid-sequence stop would otherwise contribute two legs).
+    trip = [s for s in stops if s.type != "preparation"]
     # Prefer odometer delta per leg when both endpoints have km; that matches
     # the actual road distance (haversine cuts across every switchback).
     km_total = 0.0
-    for prev, cur in zip(stops, stops[1:], strict=False):
+    for prev, cur in zip(trip, trip[1:], strict=False):
         if prev.km is not None and cur.km is not None and cur.km >= prev.km:
             km_total += cur.km - prev.km
         else:
             km_total += haversine_km((prev.lat, prev.lng), (cur.lat, cur.lng))
     # Suggested km = the most recent stop's odometer reading (whatever order
     # we happened to add them in — falls back to earlier stops if the latest
-    # has no reading).
+    # has no reading). All stops count here: a reading noted while packing is
+    # still the moped's latest known odometer state.
     suggested_km: int | None = None
     for s in reversed(stops):
         if s.km is not None:
             suggested_km = s.km
             break
-    codes = {s.code for s in stops if s.code}
-    repairs = sum(1 for s in stops if s.type == "repair")
+    codes = {s.code for s in trip if s.code}
+    repairs = sum(1 for s in trip if s.type == "repair")
     days = 0
-    if stops:
-        dates = sorted(s.date for s in stops)
+    if trip:
+        dates = sorted(s.date for s in trip)
         days = (dates[-1] - dates[0]).days
     return TripStats(
         km=round(km_total),
         suggested_km=suggested_km,
         days=days,
         countries=len(codes),
-        stops=len(stops),
+        stops=len(trip),
         repairs=repairs,
         stamps=len(codes),
     )
@@ -145,8 +150,9 @@ def create_stop(
     *, session: SessionDep, stop_in: StopCreate, background_tasks: BackgroundTasks
 ) -> Any:
     """
-    Add a new stop to the end of the route. Superusers only — this is a
-    single-rider journal.
+    Add a new stop to the route, slotted in by its date (a backdated stop
+    lands earlier on the route, not at the end). Superusers only — this is
+    a single-rider journal.
     """
     stop = crud.create_stop(session=session, stop_in=stop_in)
     background_tasks.add_task(

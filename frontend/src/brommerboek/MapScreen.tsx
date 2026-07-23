@@ -8,7 +8,7 @@ import { nearestStop, stopFraction } from "./geo"
 import { legInfo, legLabel } from "./legs"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import type { TripStats } from "./trip"
-import type { Stop } from "./types"
+import type { MapFlag, MapFlagKind, Stop } from "./types"
 import VintageMap from "./VintageMap"
 
 function frac(e: ReactPointerEvent<HTMLDivElement>): number {
@@ -71,6 +71,8 @@ export default function MapScreen({
   onStep,
   onOpenSheet,
   onPinClick,
+  flags,
+  onFlagClick,
   onAdd,
   onLogin,
   onGame,
@@ -98,6 +100,10 @@ export default function MapScreen({
   onStep: (dir: -1 | 1) => void
   onOpenSheet: () => void
   onPinClick: (i: number) => void
+  // Start/finish flags for the map; onFlagClick is present for admins only
+  // and makes the flags clickable (opens the flag editor).
+  flags?: MapFlag[]
+  onFlagClick?: (kind: MapFlagKind) => void
   onAdd?: () => void
   onLogin: () => void
   // Opens the Brommersprong minigame.
@@ -128,6 +134,8 @@ export default function MapScreen({
         progress={progress}
         dragging={dragging}
         onPinClick={onPinClick}
+        flags={flags}
+        onFlagClick={onFlagClick}
         replaying={replaying}
         replayFollow={replayFollow}
         replayReduced={replayReduced}
@@ -369,6 +377,9 @@ export default function MapScreen({
                 {cur.type === "repair" && (
                   <span style={{ color: C.teal }}>· REPARATIE</span>
                 )}
+                {cur.type === "preparation" && (
+                  <span style={{ color: C.ochre }}>· VOORBEREIDING</span>
+                )}
               </div>
               <div
                 style={{
@@ -520,7 +531,12 @@ export default function MapScreen({
                   borderRadius: "50%",
                   transform: "translateX(-50%)",
                   left: `${(stopFraction(route, i) * 100).toFixed(2)}%`,
-                  background: s.type === "repair" ? C.teal : C.red,
+                  background:
+                    s.type === "repair"
+                      ? C.teal
+                      : s.type === "preparation"
+                        ? C.ochre
+                        : C.red,
                   border: `2px solid ${C.paperLight}`,
                 }}
               />

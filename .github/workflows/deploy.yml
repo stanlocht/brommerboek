@@ -53,6 +53,7 @@ jobs:
           push: true
           build-args: |
             VITE_API_URL=https://brommerboek.nl
+            VITE_RELEASE=${{ github.sha }}
             NODE_ENV=production
           tags: |
             ghcr.io/stanlocht/brommerboek-frontend:${{ github.sha }}

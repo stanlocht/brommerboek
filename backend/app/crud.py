@@ -67,9 +67,26 @@ def authenticate(*, session: Session, email: str, password: str) -> User | None:
     return db_user
 
 
+def resequence_stops(*, session: Session) -> None:
+    """Renumber order_index so the route follows the stops' dates.
+
+    Stops sharing a date keep their existing relative order (order_index is
+    the tiebreaker), so same-day stops stay in the order they were added.
+    """
+    stops = session.exec(
+        select(Stop).order_by(col(Stop.date).asc(), col(Stop.order_index).asc())
+    ).all()
+    for i, stop in enumerate(stops):
+        if stop.order_index != i:
+            stop.order_index = i
+            session.add(stop)
+    session.commit()
+
+
 def create_stop(
     *, session: Session, stop_in: StopCreate, order_index: int | None = None
 ) -> Stop:
+    explicit_order = order_index is not None
     if order_index is None:
         last = session.exec(select(Stop).order_by(col(Stop.order_index).desc())).first()
         order_index = (last.order_index + 1) if last else 0
@@ -86,6 +103,11 @@ def create_stop(
     )
     session.add(db_stop)
     session.commit()
+    # A backdated stop belongs earlier on the route, not at the end — reslot
+    # everything by date. Callers passing an explicit order_index (seeding)
+    # opt out.
+    if not explicit_order:
+        resequence_stops(session=session)
     session.refresh(db_stop)
     return db_stop
 
@@ -104,8 +126,12 @@ def update_stop(*, session: Session, db_stop: Stop, stop_in: StopUpdate) -> Stop
     # Keep flag derived from the ISO code, same rule as create_stop.
     if "code" in data:
         extra["flag"] = flag_emoji(data["code"])
+    date_changed = "date" in data and data["date"] != db_stop.date
     db_stop.sqlmodel_update(data, update=extra)
     session.add(db_stop)
     session.commit()
+    # Moving a stop to another date can move it along the route too.
+    if date_changed:
+        resequence_stops(session=session)
     session.refresh(db_stop)
     return db_stop

@@ -12,10 +12,17 @@ import {
   updateStopMediaCaption,
   uploadStopMedia,
 } from "./api"
-import { type PlaceHit, searchPlaces } from "./geocode"
+import type { PlaceHit } from "./geocode"
 import { WrenchIcon } from "./icons"
+import PlaceSearch from "./PlaceSearch"
 import { C, FONT_MONO } from "./theme"
-import type { MediaItem, NewStop, Stop, WeatherCondition } from "./types"
+import type {
+  MediaItem,
+  NewStop,
+  Stop,
+  StopType,
+  WeatherCondition,
+} from "./types"
 import { WEATHER_OPTIONS } from "./weather"
 
 const STEP_LABELS = ["LOCATIE", "MEDIA", "VERHAAL", "TYPE"]
@@ -110,6 +117,7 @@ function MediaThumb({ item }: { item: MediaItem }) {
 export default function AddFlow({
   suggestedKm,
   initialStop,
+  saving = false,
   onClose,
   onCreate,
   onPatch,
@@ -122,6 +130,10 @@ export default function AddFlow({
   // When set, the flow edits an existing stop instead of creating a new
   // one, and media uploads land on it immediately.
   initialStop?: Stop
+  // True while the parent's create/patch mutation is in flight. Disables
+  // the submit button so a slow save (media uploads) can't be fired twice
+  // and create duplicate stops.
+  saving?: boolean
   onClose: () => void
   // Called when the user submits a NEW stop (no `initialStop`).
   onCreate?: (stop: NewStop) => void
@@ -135,9 +147,7 @@ export default function AddFlow({
 }) {
   const isEdit = !!initialStop
   const [step, setStep] = useState(0)
-  const [type, setType] = useState<"stop" | "repair">(
-    initialStop?.type ?? "stop",
-  )
+  const [type, setType] = useState<StopType>(initialStop?.type ?? "stop")
   const [picked, setPicked] = useState<PlaceHit | null>(
     initialStop
       ? {
@@ -152,10 +162,6 @@ export default function AddFlow({
         }
       : null,
   )
-  const [query, setQuery] = useState("")
-  const [results, setResults] = useState<PlaceHit[]>([])
-  const [searching, setSearching] = useState(false)
-  const [searchError, setSearchError] = useState<string | null>(null)
   const [date, setDate] = useState(
     initialStop?.date ?? new Date().toISOString().slice(0, 10),
   )
@@ -199,6 +205,13 @@ export default function AddFlow({
   // onDelete. Confirmation resets whenever the user navigates a step.
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
+  // Set on submit, released when the parent reports the save settled — on
+  // success the flow unmounts; on error this re-arms the button for a retry.
+  const submitLockRef = useRef(false)
+  useEffect(() => {
+    if (!saving) submitLockRef.current = false
+  }, [saving])
+
   // Local-preview blob: URLs must be revoked to avoid leaking. On unmount we
   // revoke whatever is still pending — unless the media was handed off via
   // onCreate, in which case BrommerboekApp still needs the blobs for the
@@ -218,43 +231,10 @@ export default function AddFlow({
     [],
   )
 
-  // Debounced search: fires 400ms after the last keystroke, cancels the
-  // in-flight request when the user keeps typing.
-  useEffect(() => {
-    const trimmed = query.trim()
-    if (trimmed.length < 2) {
-      setResults([])
-      setSearching(false)
-      setSearchError(null)
-      return
-    }
-    const ac = new AbortController()
-    const t = setTimeout(() => {
-      setSearching(true)
-      setSearchError(null)
-      searchPlaces(trimmed, ac.signal)
-        .then((hits) => {
-          setResults(hits)
-          setSearching(false)
-        })
-        .catch((err) => {
-          if ((err as Error).name === "AbortError") return
-          setSearching(false)
-          setSearchError("Kon geen plaatsen ophalen")
-        })
-    }, 400)
-    return () => {
-      clearTimeout(t)
-      ac.abort()
-    }
-  }, [query])
-
   const canProceedStep0 = picked !== null
 
   const pick = (hit: PlaceHit) => {
     setPicked(hit)
-    setResults([])
-    setQuery("")
     if (!title.trim()) setTitle(hit.place)
   }
 
@@ -294,7 +274,10 @@ export default function AddFlow({
   const parsedKm = km.trim() === "" ? null : Number.parseInt(km, 10)
 
   const submit = () => {
-    if (!picked) return
+    // The ref blocks re-entry synchronously (double-taps land before the
+    // parent's isPending re-render); `saving` covers the rest of the save.
+    if (!picked || saving || submitLockRef.current) return
+    submitLockRef.current = true
     const payload: NewStop = {
       place: picked.place,
       country: picked.country,
@@ -332,12 +315,6 @@ export default function AddFlow({
     setStep((s) => Math.max(0, s - 1))
   }
 
-  // Autofocus the search input when landing on step 0 (only for new stops).
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
-  useEffect(() => {
-    if (step === 0 && !picked) searchInputRef.current?.focus()
-  }, [step, picked])
-
   const onPickFile = () => fileInputRef.current?.click()
 
   // Every server media response resets both the visible list and the
@@ -369,32 +346,46 @@ export default function AddFlow({
   }
 
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = "" // allow re-selecting the same file
-    if (!file) return
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = "" // allow re-selecting the same file(s)
+    if (files.length === 0) return
     setUploadError(null)
-    // For an existing stop we upload straight to the server so the file
-    // lives on the media volume; the response reflects the new media list.
+    // For an existing stop we upload straight to the server so the files
+    // live on the media volume; each response reflects the new media list.
+    // Sequential on purpose — the backend appends to the stop's media list,
+    // and parallel POSTs could interleave those read-modify-writes.
     if (isEdit && initialStop) {
       setUploading(true)
+      let failed = 0
       try {
-        const updated = await uploadStopMedia(initialStop.id, file)
-        syncFromServer(updated)
-      } catch (err) {
-        setUploadError((err as Error).message ?? "Upload mislukt")
+        for (const file of files) {
+          try {
+            const updated = await uploadStopMedia(initialStop.id, file)
+            syncFromServer(updated)
+          } catch {
+            failed += 1
+          }
+        }
       } finally {
         setUploading(false)
       }
+      if (failed > 0) {
+        setUploadError(
+          failed === 1 ? "1 upload mislukt" : `${failed} uploads mislukt`,
+        )
+      }
       return
     }
-    // For a NEW stop we don't have an ID yet — stash a local-preview item
+    // For a NEW stop we don't have an ID yet — stash local-preview items
     // so the user can see what they picked, and defer the real upload until
     // after the stop is created (see BrommerboekApp.tsx).
-    const url = URL.createObjectURL(file)
-    const kind: MediaItem["kind"] = file.type.startsWith("video/")
-      ? "video"
-      : "image"
-    setMedia((m) => [...m, { tone: "", cap: "", kind, url }])
+    const items = files.map((file): MediaItem => {
+      const kind: MediaItem["kind"] = file.type.startsWith("video/")
+        ? "video"
+        : "image"
+      return { tone: "", cap: "", kind, url: URL.createObjectURL(file) }
+    })
+    setMedia((m) => [...m, ...items])
   }
 
   const onRemoveMedia = async (index: number) => {
@@ -489,118 +480,7 @@ export default function AddFlow({
               Waar ben je?
             </div>
 
-            <Field label="ZOEK PLAATS">
-              <div style={{ position: "relative", marginTop: 4 }}>
-                <input
-                  ref={searchInputRef}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="bv. Firenze, Grimselpass, Vernazza…"
-                  style={{ ...fieldStyle, paddingLeft: 34 }}
-                />
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    left: 12,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    color: C.ochreDeep,
-                    fontSize: 14,
-                  }}
-                >
-                  🔍
-                </span>
-              </div>
-            </Field>
-
-            {searching && (
-              <div
-                style={{
-                  fontFamily: FONT_MONO,
-                  fontSize: 11,
-                  color: C.sepia,
-                  marginTop: 10,
-                }}
-              >
-                zoeken…
-              </div>
-            )}
-            {searchError && !searching && (
-              <div
-                style={{
-                  fontFamily: FONT_MONO,
-                  fontSize: 11,
-                  color: C.red,
-                  marginTop: 10,
-                }}
-              >
-                {searchError}
-              </div>
-            )}
-
-            {results.length > 0 && (
-              <div
-                style={{
-                  marginTop: 10,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
-                }}
-              >
-                {results.map((hit) => (
-                  <button
-                    key={hit.key}
-                    type="button"
-                    onClick={() => pick(hit)}
-                    style={{
-                      textAlign: "left",
-                      border: `1.5px solid ${C.border}`,
-                      borderRadius: 10,
-                      padding: "10px 12px",
-                      background: C.paperCard,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      fontFamily: "inherit",
-                      color: C.ink,
-                    }}
-                  >
-                    <span style={{ fontSize: 22 }} aria-hidden="true">
-                      {hit.flag || "📍"}
-                    </span>
-                    <span style={{ minWidth: 0, flex: 1 }}>
-                      <span
-                        style={{
-                          fontWeight: 600,
-                          fontSize: 15,
-                          display: "block",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {hit.place}
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: FONT_MONO,
-                          fontSize: 10,
-                          color: C.sepia,
-                          display: "block",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {[hit.region, hit.country].filter(Boolean).join(" · ")}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+            <PlaceSearch autoFocus={!picked} onPick={pick} />
 
             {picked && (
               <div
@@ -664,10 +544,7 @@ export default function AddFlow({
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setPicked(null)
-                      setQuery("")
-                    }}
+                    onClick={() => setPicked(null)}
                     style={{
                       border: `1.5px solid ${C.ochre}`,
                       borderRadius: 8,
@@ -915,7 +792,7 @@ export default function AddFlow({
               <button
                 type="button"
                 onClick={onPickFile}
-                aria-label="Voeg foto of video toe"
+                aria-label="Voeg foto's of video's toe"
                 disabled={uploading}
                 style={{
                   aspectRatio: "1",
@@ -938,6 +815,7 @@ export default function AddFlow({
                 ref={fileInputRef}
                 type="file"
                 accept="image/*,video/*"
+                multiple
                 onChange={onFileChange}
                 style={{ display: "none" }}
               />
@@ -1196,6 +1074,53 @@ export default function AddFlow({
                   </div>
                 </div>
               </button>
+              <button
+                type="button"
+                onClick={() => setType("preparation")}
+                style={{
+                  textAlign: "left",
+                  border: `2px solid ${type === "preparation" ? C.ochre : C.border}`,
+                  borderRadius: 12,
+                  padding: 16,
+                  background: type === "preparation" ? "#f5edda" : C.paperCard,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                }}
+              >
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: "50%",
+                    background: C.ochre,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flex: "none",
+                    color: C.cream,
+                    fontSize: 17,
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓
+                </div>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 18 }}>
+                    Voorbereiding
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: FONT_MONO,
+                      fontSize: 11,
+                      color: C.sepia,
+                    }}
+                  >
+                    vóór vertrek — telt niet mee
+                  </div>
+                </div>
+              </button>
               {type === "repair" && (
                 <div
                   className="bb-fadein"
@@ -1257,6 +1182,7 @@ export default function AddFlow({
         <button
           type="button"
           onClick={next}
+          disabled={saving}
           style={{
             flex: 1,
             padding: 14,
@@ -1267,11 +1193,18 @@ export default function AddFlow({
             fontFamily: FONT_MONO,
             fontSize: 14,
             letterSpacing: 1,
-            cursor: "pointer",
+            cursor: saving ? "wait" : "pointer",
+            opacity: saving ? 0.6 : 1,
             boxShadow: "0 3px 0 rgba(90,30,20,.4)",
           }}
         >
-          {step < 3 ? "volgende ›" : isEdit ? "✓ opslaan" : "✓ plaats stop"}
+          {saving
+            ? "bezig met opslaan…"
+            : step < 3
+              ? "volgende ›"
+              : isEdit
+                ? "✓ opslaan"
+                : "✓ plaats stop"}
         </button>
       </div>
     </div>

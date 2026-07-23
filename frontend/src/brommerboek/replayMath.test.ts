@@ -146,6 +146,23 @@ describe("buildTimeline", () => {
     }
     expect(tl.total).toBe(STOP_PAUSE_MS * 3)
   })
+
+  it("skips the drive for a zero-distance leg (same-place stops)", () => {
+    // Two posts from the same spot, then a real leg — there is nothing to
+    // drive between the co-located stops, so that segment takes no time.
+    const stops = [
+      makeStop({ id: "a", lat: 52.02, lng: 4.87 }),
+      makeStop({ id: "b", order_index: 1, lat: 52.02, lng: 4.87 }),
+      makeStop({ id: "c", order_index: 2, lat: 52.37, lng: 4.89 }),
+    ]
+    const route = buildRoute(stops.map((s) => [s.lng, s.lat]))
+    const tl = buildTimeline(stops, route)
+    const drives = tl.segments.filter((s) => s.kind === "drive")
+    expect(drives[0].end - drives[0].start).toBe(0)
+    expect(drives[1].end - drives[1].start).toBeGreaterThan(0)
+    // The zero-length drive is skipped over, never sampled mid-"drive".
+    expect(tl.total).toBe(STOP_PAUSE_MS * 3 + (drives[1].end - drives[1].start))
+  })
 })
 
 describe("sampleTimeline", () => {
@@ -314,6 +331,17 @@ describe("stampCrossings", () => {
       makeStop({ id: "y", code: "NL" }),
     ]
     // "" is not a crossing, and NL after "" stamps because the code changed
+    expect(stampCrossings(stops).map((c) => c.index)).toEqual([2])
+  })
+
+  it("ignores preparation posts as stamp and as comparison point", () => {
+    const stops = [
+      // Prep post abroad (picking up the moped) — never a crossing itself,
+      // and the trip's first real stop still doesn't stamp after it.
+      makeStop({ code: "DE", type: "preparation" }),
+      makeStop({ id: "x", code: "NL" }),
+      makeStop({ id: "y", code: "FR", country: "Frankrijk", flag: "🇫🇷" }),
+    ]
     expect(stampCrossings(stops).map((c) => c.index)).toEqual([2])
   })
 })

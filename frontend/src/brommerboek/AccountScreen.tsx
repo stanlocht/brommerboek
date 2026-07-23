@@ -11,8 +11,8 @@ import IosInstallSheet from "./IosInstallSheet"
 import { CubIcon } from "./icons"
 import {
   currentSubscription,
-  isPushSupported,
   needsIosInstall,
+  pushAvailability,
   readIosEnv,
   subscribe,
 } from "./push"
@@ -357,7 +357,11 @@ function PasswordCard() {
 const REACTIONS_FLAG = "bb_push_reactions"
 
 function NotificationsCard() {
-  const supported = isPushSupported()
+  // "ios-needs-install" still renders the toggle: tapping it opens the
+  // install sheet (via the needsIosInstall check in `toggle`) instead of
+  // writing the feature off as unsupported.
+  const availability = pushAvailability()
+  const supported = availability === "supported"
   const [enabled, setEnabled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -422,7 +426,7 @@ function NotificationsCard() {
 
   return (
     <Card title="MELDINGEN" rot=".2deg">
-      {supported ? (
+      {availability !== "unsupported" ? (
         <>
           <div
             style={{
@@ -433,6 +437,8 @@ function NotificationsCard() {
             }}
           >
             krijg een push zodra iemand reageert of toetert op de route.
+            {availability === "ios-needs-install" &&
+              " op iphone en ipad werkt dit zodra brommerboek op je beginscherm staat — tik op de knop voor uitleg."}
           </div>
           <button
             type="button"
@@ -508,6 +514,40 @@ function AdminCard() {
           machinekamer
         </Link>
       </div>
+    </Card>
+  )
+}
+
+// Entry point to the feedback screen — every signed-in rijder can report
+// something broken on the site from here.
+function FeedbackCard() {
+  return (
+    <Card title="STORINGSDIENST" rot="-.2deg">
+      <div
+        style={{
+          fontFamily: FONT_MONO,
+          fontSize: 12,
+          color: C.sepia,
+          marginBottom: 10,
+        }}
+      >
+        werkt er iets niet op de site? meld het, dan sleutelen wij eraan.
+      </div>
+      <Link
+        to="/feedback"
+        style={{
+          display: "inline-block",
+          padding: "9px 14px",
+          border: `1.5px solid ${C.ochre}`,
+          borderRadius: 20,
+          fontFamily: FONT_MONO,
+          fontSize: 12,
+          color: C.sepia,
+          textDecoration: "none",
+        }}
+      >
+        🔧 meld een storing
+      </Link>
     </Card>
   )
 }
@@ -722,6 +762,7 @@ export default function AccountScreen() {
           <PasswordCard />
           {user?.is_superuser && <NotificationsCard />}
           {user?.is_superuser && <AdminCard />}
+          <FeedbackCard />
           <LogoutCard />
           <DangerCard />
         </div>

@@ -9,6 +9,8 @@ RUN bun install
 
 COPY ./frontend /app/frontend
 ARG VITE_API_URL
+# Baked into crash reports so telemetry can say which release broke.
+ARG VITE_RELEASE
 
 RUN bun run build
 

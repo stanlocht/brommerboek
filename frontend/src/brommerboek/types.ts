@@ -29,6 +29,10 @@ export type WeatherCondition =
   | "snow"
   | "fog"
 
+// "preparation" is a pre-departure post (packing, tinkering at home): it
+// shows in the journal and on the map, but counts toward no trip statistic.
+export type StopType = "stop" | "repair" | "preparation"
+
 export interface Stop {
   id: string
   order_index: number
@@ -43,7 +47,7 @@ export interface Stop {
   km: number | null
   weather_temp: number | null
   weather_condition: WeatherCondition
-  type: "stop" | "repair"
+  type: StopType
   story: string
   broke: string | null
   fixed: string | null
@@ -72,7 +76,7 @@ export interface NewStop {
   km: number | null
   weather_temp: number | null
   weather_condition: WeatherCondition
-  type: "stop" | "repair"
+  type: StopType
   story: string
   broke: string | null
   fixed: string | null
@@ -82,3 +86,17 @@ export interface NewStop {
 // Same shape as NewStop but every field optional — matches the backend
 // StopUpdate model.
 export type StopPatch = Partial<NewStop>
+
+// Start/finish flags on the map — mirror of the backend `MapFlagPublic`.
+// Independent of the stops: the finish flag can sit far beyond the latest
+// stop. Superusers can drag them to a new spot.
+export type MapFlagKind = "start" | "finish"
+
+export interface MapFlag {
+  kind: MapFlagKind
+  lat: number
+  lng: number
+  label: string
+}
+
+export type MapFlagPatch = Partial<Omit<MapFlag, "kind">>

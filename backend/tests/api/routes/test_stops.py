@@ -122,6 +122,43 @@ def test_stats_haversine_fallback_when_km_missing(
         delete_test_stop(db, stop)
 
 
+def test_stats_exclude_preparation_stops(client: TestClient, db: Session) -> None:
+    # A preparation post — packing at home weeks before departure, in a
+    # country not on the route — must not move a single trip figure.
+    baseline = client.get(f"{STOPS_URL}stats").json()
+    stop = create_test_stop(
+        db,
+        place="Thuis",
+        country="Duitsland",
+        code="DE",
+        lat=50.0,
+        lng=8.0,
+        date="2024-04-01",
+        type="preparation",
+    )
+    try:
+        stats = client.get(f"{STOPS_URL}stats").json()
+        assert stats == baseline
+    finally:
+        delete_test_stop(db, stop)
+
+
+def test_stats_preparation_km_reading_still_suggested(
+    client: TestClient, db: Session
+) -> None:
+    # The odometer prefill is about the moped, not the trip: a reading noted
+    # on a preparation post after the latest stop is still the freshest one.
+    stop = create_test_stop(
+        db, place="Garage", date="2024-05-25", type="preparation", km=1030
+    )
+    try:
+        stats = client.get(f"{STOPS_URL}stats").json()
+        assert stats["suggested_km"] == 1030
+        assert stats["km"] == 1024  # trip distance untouched
+    finally:
+        delete_test_stop(db, stop)
+
+
 # ----- Write endpoints are superuser-only -------------------------------------
 
 
@@ -154,6 +191,56 @@ def test_create_and_delete_stop_as_superuser(
     assert r.status_code == 200
     assert r.json()["message"] == "Stop deleted"
     assert client.get(f"{STOPS_URL}{created['id']}").status_code == 404
+
+
+def test_create_backdated_stop_slots_into_route_by_date(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    # A stop dated before the seed trip's last stop must slot into the route
+    # at its date position, not get appended because it was uploaded last.
+    r = client.post(
+        STOPS_URL,
+        headers=superuser_token_headers,
+        json=stop_payload(place="Laatbericht", date="2024-05-10"),
+    )
+    assert r.status_code == 200
+    created = r.json()
+    try:
+        listed = client.get(STOPS_URL).json()["data"]
+        dates = [s["date"] for s in listed]
+        assert dates == sorted(dates)
+        order = [s["order_index"] for s in listed]
+        assert order == list(range(len(listed)))
+        # The backdated stop sits after the seed stops of its date and before
+        # any later-dated stop — so not at the tail.
+        idx = next(i for i, s in enumerate(listed) if s["id"] == created["id"])
+        assert idx < len(listed) - 1
+    finally:
+        r = client.delete(
+            f"{STOPS_URL}{created['id']}", headers=superuser_token_headers
+        )
+        assert r.status_code == 200
+
+
+def test_update_stop_date_resequences_route(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    # Correcting a stop's date moves it along the route accordingly.
+    stop = create_test_stop(db, date="2024-06-01")  # after the seed trip
+    try:
+        r = client.patch(
+            f"{STOPS_URL}{stop.id}",
+            headers=superuser_token_headers,
+            json={"date": "2024-05-01"},  # before the seed trip
+        )
+        assert r.status_code == 200
+        assert r.json()["order_index"] == 0
+        listed = client.get(STOPS_URL).json()["data"]
+        assert listed[0]["id"] == str(stop.id)
+        dates = [s["date"] for s in listed]
+        assert dates == sorted(dates)
+    finally:
+        delete_test_stop(db, stop)
 
 
 def test_update_stop_requires_auth(client: TestClient, db: Session) -> None:

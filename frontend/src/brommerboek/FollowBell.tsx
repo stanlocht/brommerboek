@@ -1,14 +1,15 @@
 // "🔔 volg de reis" — the follower entry point for Web Push. Self-contained
 // (own state + toast + iOS install sheet) so dropping it into MapScreen costs
-// a single line. Hidden entirely when the browser can't do push.
+// a single line. Hidden entirely when the browser can't do push; an iOS
+// Safari tab still gets the bell, which opens the install instructions.
 
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import IosInstallSheet from "./IosInstallSheet"
 import {
   currentSubscription,
-  isPushSupported,
   needsIosInstall,
+  pushAvailability,
   readIosEnv,
   subscribe,
   unsubscribe,
@@ -16,7 +17,8 @@ import {
 import { C, FONT_MONO } from "./theme"
 
 export default function FollowBell() {
-  const supported = isPushSupported()
+  const availability = pushAvailability()
+  const supported = availability === "supported"
   const [following, setFollowing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -41,7 +43,7 @@ export default function FollowBell() {
     [],
   )
 
-  if (!supported) return null
+  if (availability === "unsupported") return null
 
   function flash(msg: string) {
     setToast(msg)

@@ -285,6 +285,21 @@ export default function StopSheet({
               REPARATIE
             </span>
           )}
+          {cur.type === "preparation" && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                color: "#fff",
+                background: C.ochre,
+                padding: "1px 7px",
+                borderRadius: 10,
+              }}
+            >
+              VOORBEREIDING
+            </span>
+          )}
         </div>
         <div
           style={{

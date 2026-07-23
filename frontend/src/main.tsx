@@ -10,6 +10,7 @@ import ReactDOM from "react-dom/client"
 import { ApiError, OpenAPI } from "./client"
 import { ThemeProvider } from "./components/theme-provider"
 import { Toaster } from "./components/ui/sonner"
+import { installGlobalErrorReporting, reportError } from "./lib/telemetry"
 import "./index.css"
 // Load the vintage stylesheet globally: route-based code splitting would
 // otherwise only ship it with the "/" chunk, leaving screens like /login or
@@ -22,11 +23,17 @@ OpenAPI.TOKEN = async () => {
   return localStorage.getItem("access_token") || ""
 }
 
+installGlobalErrorReporting()
+
 const handleApiError = (error: Error) => {
   if (error instanceof ApiError && [401, 403].includes(error.status)) {
     localStorage.removeItem("access_token")
     window.location.href = "/login"
+    return
   }
+  // Everything else used to vanish silently; now it lands in the backend's
+  // error telemetry (deduped client- and server-side).
+  reportError(error, "query")
 }
 const queryClient = new QueryClient({
   queryCache: new QueryCache({

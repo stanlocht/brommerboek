@@ -28,6 +28,11 @@ class UserRegister(SQLModel):
     email: EmailStr = Field(max_length=255)
     password: str = Field(min_length=8, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
+    # Moped-plate captcha (see app/core/captcha.py). Optional at the schema
+    # level so the check can sit behind SIGNUP_CAPTCHA_ENABLED; the route
+    # rejects missing values when the captcha is on.
+    captcha_token: str | None = Field(default=None, max_length=2048)
+    captcha_answer: str | None = Field(default=None, max_length=32)
 
 
 # Properties to receive via API on update, all are optional
@@ -75,7 +80,7 @@ class UsersPublic(SQLModel):
 #
 # A trip is a series of discrete stops the rider uploads after the fact. Each
 # stop has real coordinates, a date, a written story, a gallery of media and a
-# type ("stop" or "repair"). The route is simply the line connecting the stops
+# type (see STOP_TYPES). The route is simply the line connecting the stops
 # in order (`order_index`). This is a personal, single-trip showcase, so reads
 # are public.
 # ----------------------------------------------------------------------------
@@ -107,7 +112,9 @@ WEATHER_CONDITIONS = {
     "fog",
 }
 
-STOP_TYPES = {"stop", "repair"}
+# "preparation" marks a pre-departure post (packing, tinkering at home);
+# it shows up in the journal but is excluded from every trip statistic.
+STOP_TYPES = {"stop", "repair", "preparation"}
 
 
 def check_weather_condition(v: str | None) -> str | None:
@@ -142,7 +149,7 @@ class StopBase(SQLModel):
     # `WEATHER_CONDITIONS` short codes (or an empty string for "unspecified").
     weather_temp: int | None = Field(default=None)
     weather_condition: str = Field(default="", max_length=16)
-    type: str = Field(default="stop", max_length=16)  # "stop" | "repair"
+    type: str = Field(default="stop", max_length=16)  # one of STOP_TYPES
     story: str = Field(default="", sa_type=Text)
     broke: str | None = Field(default=None, sa_type=Text)  # repair: what broke
     fixed: str | None = Field(default=None, sa_type=Text)  # repair: what fixed
@@ -247,6 +254,51 @@ class TripStats(SQLModel):
     stops: int
     repairs: int
     stamps: int
+
+
+# ----------------------------------------------------------------------------
+# Map flags (start + finish).
+#
+# The map shows a starting flag and a finish flag marking where the trip
+# begins and where it is headed. They are independent of the stops — the
+# finish can sit far beyond the latest stop. Reads are public; a superuser
+# can drag a flag to a new spot (or rename its label). Exactly one row per
+# kind; missing rows are lazily created with the defaults below.
+# ----------------------------------------------------------------------------
+
+MAP_FLAG_KINDS = {"start", "finish"}
+
+# Defaults for a fresh database: the trip runs Amsterdam → Tanger (Morocco).
+DEFAULT_MAP_FLAGS: dict[str, dict] = {
+    "start": {"label": "Amsterdam", "lat": 52.3676, "lng": 4.9041},
+    "finish": {"label": "Tanger", "lat": 35.7595, "lng": -5.834},
+}
+
+
+class MapFlagBase(SQLModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    label: str = Field(default="", max_length=255)
+
+
+class MapFlag(MapFlagBase, table=True):
+    kind: str = Field(primary_key=True, max_length=16)  # one of MAP_FLAG_KINDS
+
+
+# Partial update — a drag sends just lat/lng; the label can change separately.
+class MapFlagUpdate(SQLModel):
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    label: str | None = Field(default=None, max_length=255)
+
+
+class MapFlagPublic(MapFlagBase):
+    kind: str
+
+
+class MapFlagsPublic(SQLModel):
+    data: list[MapFlagPublic]
+    count: int
 
 
 # ----------------------------------------------------------------------------
@@ -381,6 +433,73 @@ class PushPublicKey(SQLModel):
 
 
 # ----------------------------------------------------------------------------
+# Feedback / bug reports ("storingsdienst").
+#
+# Signed-in users can report something broken on the site. Reports land in a
+# small queue: the reporter sees their own reports (and their status), a
+# superuser sees everything and flips a report to "resolved" once it is
+# fixed. New reports push-notify the admins so nothing sits unnoticed.
+# ----------------------------------------------------------------------------
+
+FEEDBACK_STATUSES = {"open", "resolved"}
+
+
+def check_feedback_status(v: str) -> str:
+    if v not in FEEDBACK_STATUSES:
+        raise ValueError(
+            f"status must be one of: {', '.join(sorted(FEEDBACK_STATUSES))}"
+        )
+    return v
+
+
+class FeedbackCreate(SQLModel):
+    body: str = Field(min_length=1, max_length=4000)
+    # Where it went wrong — free text or a path like "/logboek". Optional.
+    page: str = Field(default="", max_length=255)
+
+
+class FeedbackStatusUpdate(SQLModel):
+    status: str = Field(max_length=16)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        return check_feedback_status(v)
+
+
+class Feedback(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    body: str = Field(sa_type=Text)
+    page: str = Field(default="", max_length=255)
+    status: str = Field(default="open", max_length=16, index=True)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class FeedbackPublic(SQLModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    # Rendered display name — same rule as comments: full_name when present,
+    # otherwise the email local-part so the full address never leaks.
+    author_name: str
+    is_mine: bool = False
+    body: str
+    page: str
+    status: str
+    created_at: datetime | None = None
+
+
+class FeedbacksPublic(SQLModel):
+    data: list[FeedbackPublic]
+    count: int
+
+
+# ----------------------------------------------------------------------------
 # Usage tracking + server status (superuser-only dashboard).
 #
 # Requests are counted in memory per worker (see core/usage.py) and flushed
@@ -453,6 +572,15 @@ class Message(SQLModel):
     message: str
 
 
+# A signup captcha challenge: the plate image to read and the signed token
+# that commits to its answer. `answer` is only filled in on local
+# environments so the e2e suite can solve the plate without OCR.
+class CaptchaChallenge(SQLModel):
+    token: str
+    image: str
+    answer: str | None = None
+
+
 # JSON payload containing access token
 class Token(SQLModel):
     access_token: str
@@ -467,3 +595,113 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+# ----------------------------------------------------------------------------
+# Error telemetry ("pechregistratie").
+#
+# Unhandled backend exceptions and frontend crashes are recorded here so
+# broken things surface without a user having to file a storingsdienst
+# report. Events are grouped by a normalized fingerprint; a scheduled GitHub
+# workflow (error-triage.yml) turns new open groups into GitHub issues and
+# flips them to "reported". Superusers (or the workflow, via OPS_TOKEN) read
+# and manage the queue through /api/v1/telemetry/errors.
+# ----------------------------------------------------------------------------
+
+ERROR_SOURCES = {"frontend", "backend"}
+ERROR_GROUP_STATUSES = {"open", "reported", "resolved"}
+
+# Only this many full events are stored per group; beyond that the group
+# still counts occurrences (event_count / last_seen) but drops the payloads,
+# so a crash-looping client can't grow the table unbounded.
+ERROR_EVENTS_KEPT_PER_GROUP = 25
+
+
+class ErrorGroup(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    # sha256 hex of (source, normalized message, top stack frame).
+    fingerprint: str = Field(unique=True, index=True, max_length=64)
+    source: str = Field(max_length=16)  # one of ERROR_SOURCES
+    title: str = Field(max_length=500)
+    status: str = Field(default="open", max_length=16, index=True)
+    event_count: int = Field(default=0)
+    # Filled by the triage workflow once a GitHub issue exists for the group.
+    issue_url: str | None = Field(default=None, max_length=512)
+    first_seen: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    last_seen: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class ErrorEvent(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    group_id: uuid.UUID = Field(
+        foreign_key="errorgroup.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    message: str = Field(sa_type=Text)
+    stack: str = Field(default="", sa_type=Text)
+    # Frontend: the page URL; backend: "METHOD /path".
+    url: str = Field(default="", max_length=1024)
+    # Free-form extras: user agent, release tag, HTTP method, …
+    context: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+# What the frontend posts when it crashes. Kept deliberately small — no
+# auth required (the error boundary may hit while logged out), so nothing
+# here is trusted beyond being displayed to a superuser.
+class ErrorReportIn(SQLModel):
+    message: str = Field(min_length=1, max_length=2000)
+    stack: str = Field(default="", max_length=20000)
+    url: str = Field(default="", max_length=1024)
+    # What the client thinks it is running (e.g. a git SHA baked at build).
+    release: str = Field(default="", max_length=64)
+
+
+class ErrorEventPublic(SQLModel):
+    id: uuid.UUID
+    message: str
+    stack: str
+    url: str
+    context: dict
+    created_at: datetime | None
+
+
+class ErrorGroupPublic(SQLModel):
+    id: uuid.UUID
+    fingerprint: str
+    source: str
+    title: str
+    status: str
+    event_count: int
+    issue_url: str | None
+    first_seen: datetime | None
+    last_seen: datetime | None
+    # Most recent stored event, as the representative sample.
+    latest_event: ErrorEventPublic | None = None
+
+
+class ErrorGroupsPublic(SQLModel):
+    data: list[ErrorGroupPublic]
+    count: int
+
+
+class ErrorGroupUpdate(SQLModel):
+    status: str = Field(max_length=16)
+    issue_url: str | None = Field(default=None, max_length=512)
+
+    @field_validator("status")
+    @classmethod
+    def check_status(cls, v: str) -> str:
+        if v not in ERROR_GROUP_STATUSES:
+            raise ValueError(
+                f"status must be one of: {', '.join(sorted(ERROR_GROUP_STATUSES))}"
+            )
+        return v

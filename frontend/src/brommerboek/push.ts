@@ -59,6 +59,25 @@ export function readIosEnv(): IosEnv {
   }
 }
 
+// iOS Safari doesn't expose PushManager in a plain browser tab — it only
+// appears once the site is installed on the home screen. That makes a bare
+// `isPushSupported()` report "unsupported" on every iPhone, when the honest
+// answer is "install first". Three-way answer so the UI can show install
+// instructions instead of giving up.
+export type PushAvailability = "supported" | "ios-needs-install" | "unsupported"
+
+export function pushAvailability(): PushAvailability {
+  if (isPushSupported()) return "supported"
+  if (
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    needsIosInstall(readIosEnv())
+  ) {
+    return "ios-needs-install"
+  }
+  return "unsupported"
+}
+
 export async function currentSubscription(): Promise<PushSubscription | null> {
   if (!isPushSupported()) return null
   const reg = await navigator.serviceWorker.getRegistration()
