@@ -8,6 +8,7 @@ from app.api.routes import (
     reactions,
     status,
     stops,
+    telemetry,
     users,
     utils,
     weather,
@@ -24,6 +25,7 @@ api_router.include_router(push.router)
 api_router.include_router(weather.router)
 api_router.include_router(feedback.router)
 api_router.include_router(status.router)
+api_router.include_router(telemetry.router)
 
 
 if settings.ENVIRONMENT == "local":

@@ -332,6 +332,44 @@ dc logs --tail=100 prestart
 docker inspect -f '{{.State.ExitCode}}' "$(dc ps -aq prestart)"
 ```
 
+### Error telemetry → GitHub issues
+
+Users who hit "Motorpech — er ging iets mis" no longer have to report it
+themselves; the app phones home:
+
+- **What gets recorded.** Every unhandled backend exception (middleware in
+  `backend/app/main.py`) and every frontend crash — router error boundary,
+  `window.onerror`, unhandled promise rejections, and failed TanStack
+  queries/mutations (`frontend/src/lib/telemetry.ts`) — is POSTed to
+  `POST /api/v1/telemetry/errors` and stored in Postgres, grouped by a
+  normalized fingerprint (`backend/app/core/errortrack.py`). Per group only
+  the first 25 full events are kept; the occurrence counter keeps climbing.
+- **Reading the queue.** As a superuser:
+  `GET /api/v1/telemetry/errors?status=open` (also `reported` / `resolved`).
+  Each group carries its latest sample event (message, stack, URL, release).
+- **Issues, automatically.** `.github/workflows/error-triage.yml` runs 4×
+  a day, reads the open groups, files one GitHub issue per group (label
+  `telemetry`) with the stack sample, and PATCHes the group to `reported`
+  with the issue URL. From there the fix is a normal issue → PR flow
+  (assign it to Claude Code or pick it up yourself).
+- **Lifecycle.** Fix shipped → PATCH the group to `resolved` (or leave the
+  issue closed; the group stays `reported` and files nothing new). If a
+  `resolved` error recurs it reopens automatically and the next triage run
+  files a fresh issue — regressions never rot silently.
+- **Setup (one-time).** Generate a token (`openssl rand -hex 32`), then:
+  1. save it as the `OPS_TOKEN` **repository secret** on GitHub (the triage
+     workflow authenticates with it);
+  2. put the same value in the box `.env` as `OPS_TOKEN=…` — easiest via
+     ops.yml → `env-set-secret` with `args=OPS_TOKEN`, which reads the value
+     straight from that `OPS_TOKEN` repo secret and recreates the backend.
+  Without the token everything is still recorded and superuser-readable;
+  only the automated issue filing is off (the workflow no-ops with a
+  warning).
+- Anti-abuse: the report endpoint is rate-limited (10/min/IP), payloads are
+  size-capped, the frontend dedupes per page load, and groups cap stored
+  events at 25 — a crash loop can't flood the table or the issue tracker
+  (one group = one issue).
+
 ## 9. Remote ops without SSH (`ops.yml`)
 
 `.github/workflows/ops.yml` exposes the routine box operations from this
@@ -368,7 +406,7 @@ destructive actions require.
 | `alembic-downgrade` ⚠️ | revision | §3 migration downgrade |
 | `preview-teardown` ⚠️ | PR number | §7 manual preview teardown (incl. label-based leftover cleanup) |
 | `env-set` ⚠️ | `KEY=value` | set a **non-secret** `.env` var, recreate `<service>` |
-| `env-set-secret` ⚠️ | `KEY` | set a secret `.env` var; value comes from the `OPS_ENV_VALUE` repo secret |
+| `env-set-secret` ⚠️ | `KEY` | set a secret `.env` var; value from the repo secret named `KEY`, else `OPS_ENV_VALUE` |
 | `env-unset` ⚠️ | `KEY` | remove a `.env` var, recreate `<service>` |
 
 ⚠️ = requires the `confirm` checkbox.
@@ -380,12 +418,14 @@ there are two paths:
 
 - **Non-secret values** (`ENVIRONMENT`, `SENTRY_DSN=` to clear it, …):
   `env-set` with `args: KEY=value`.
-- **Secrets** (SMTP password, `VAPID_PRIVATE_KEY`, …): first store the value
-  in the repo secret **`OPS_ENV_VALUE`** (GitHub → Settings → Secrets and
-  variables → Actions — works from a phone browser), then dispatch
-  `env-set-secret` with `args: KEY`. GitHub masks the value everywhere; the
-  workflow never prints it. You can overwrite `OPS_ENV_VALUE` for each use —
-  it's a scratch slot, not a registry.
+- **Secrets** (SMTP password, `VAPID_PRIVATE_KEY`, …): store the value in a
+  repo secret (GitHub → Settings → Secrets and variables → Actions — works
+  from a phone browser), then dispatch `env-set-secret` with `args: KEY`.
+  The workflow prefers a repo secret **named after the key itself** (e.g.
+  `args: OPS_TOKEN` reads the `OPS_TOKEN` secret — one value, kept in one
+  place), and falls back to the generic **`OPS_ENV_VALUE`** scratch slot
+  for keys you don't want to keep as repo secrets. GitHub masks the value
+  everywhere; the workflow never prints it.
 
 All three env actions make a timestamped `.env` backup on the box first
 (keeping the last 5, listed by `env-list`), then recreate the `service`

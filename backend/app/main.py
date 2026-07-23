@@ -1,3 +1,4 @@
+import functools
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -11,7 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
 from app.api.routes import share
-from app.core import usage
+from app.core import errortrack, usage
 from app.core.config import settings
 from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX
 
@@ -36,6 +37,30 @@ app = FastAPI(
     generate_unique_id_function=custom_generate_unique_id,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def capture_unhandled_errors(request: Request, call_next):  # type: ignore[no-untyped-def]
+    # Last-resort telemetry: HTTPExceptions are turned into responses deeper
+    # in the stack and never reach this middleware, so anything caught here
+    # is a genuine unhandled 500. Record it (grouped by fingerprint, in the
+    # errors table a superuser / the triage workflow reads) and re-raise so
+    # the default 500 handling is unchanged. The DB write runs in the
+    # threadpool to keep the event loop free.
+    try:
+        return await call_next(request)
+    except Exception as exc:
+        # Bind eagerly (not a lambda): Python unsets `exc` when the except
+        # block ends, so a late-called closure would see an undefined name.
+        record = functools.partial(
+            errortrack.record_exception,
+            exc,
+            method=request.method,
+            path=request.url.path,
+            user_agent=request.headers.get("User-Agent", "")[:512],
+        )
+        await anyio.to_thread.run_sync(record)
+        raise
 
 
 @app.middleware("http")

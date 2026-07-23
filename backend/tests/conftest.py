@@ -10,6 +10,8 @@ from app.core.db import engine, init_db
 from app.main import app
 from app.models import (
     Comment,
+    ErrorEvent,
+    ErrorGroup,
     Feedback,
     HornHonk,
     PushSubscription,
@@ -36,6 +38,8 @@ def db() -> Generator[Session]:
         # mid-suite test may have mutated.
         for model in (
             Comment,
+            ErrorEvent,
+            ErrorGroup,
             Feedback,
             HornHonk,
             PushSubscription,

@@ -52,6 +52,10 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str
     SENTRY_DSN: HttpUrl | None = None
+    # Bearer-ish token for automation (the error-triage workflow) to read
+    # and update /telemetry/errors without a superuser account. Empty =
+    # header auth disabled; superuser JWTs always work.
+    OPS_TOKEN: str = ""
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str

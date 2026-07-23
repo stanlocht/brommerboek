@@ -90,7 +90,14 @@ jobs:
           ACTION: ${{ inputs.action }}
           ARGS: ${{ inputs.args }}
           CONFIRM: ${{ inputs.confirm }}
-          SECRET_VALUE: ${{ secrets.OPS_ENV_VALUE }}
+          # env-set-secret value resolution: a repo secret named after the
+          # key itself (e.g. args=OPS_TOKEN reads secrets.OPS_TOKEN) wins,
+          # falling back to the generic OPS_ENV_VALUE carrier. Dynamic
+          # lookup on a non-secret args (PR number, SHA) is just empty.
+          # Dynamic lookup provisions the secrets context to the runner
+          # (zizmor: overprovisioned-secrets), but dispatch rights imply
+          # push rights here, which can read any secret anyway.
+          SECRET_VALUE: ${{ secrets[inputs.args] || secrets.OPS_ENV_VALUE }} # zizmor: ignore[overprovisioned-secrets]
         run: |
           set -eu
           die() { echo "::error::$1"; exit 1; }
@@ -115,8 +122,8 @@ jobs:
               echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*=.*$' || die "args must be KEY=value (KEY in CAPS_WITH_UNDERSCORES). For secret values use env-set-secret."
               echo "::warning::env-set values are visible in the run metadata — use env-set-secret for anything sensitive" ;;
             env-set-secret)
-              echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*$' || die "args must be just the KEY; the value is read from the OPS_ENV_VALUE repo secret"
-              [ -n "$SECRET_VALUE" ] || die "set the OPS_ENV_VALUE repository secret first (Settings → Secrets and variables → Actions), then re-run" ;;
+              echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*$' || die "args must be just the KEY; the value is read from a repo secret named after it, or from OPS_ENV_VALUE"
+              [ -n "$SECRET_VALUE" ] || die "create a repository secret named $ARGS (or the generic OPS_ENV_VALUE) first (Settings → Secrets and variables → Actions), then re-run" ;;
             env-unset)
               echo "$ARGS" | grep -Eq '^[A-Z][A-Z0-9_]*$' || die "args must be the KEY to remove" ;;
           esac
@@ -129,7 +136,12 @@ jobs:
           SERVICE: ${{ inputs.service }}
           ARGS: ${{ inputs.args }}
           # Only used by env-set-secret; GitHub masks it in any log output.
-          SECRET_VALUE: ${{ secrets.OPS_ENV_VALUE }}
+          # Same resolution as the validate step: secret named after the
+          # key, falling back to the OPS_ENV_VALUE carrier.
+          # Dynamic lookup provisions the secrets context to the runner
+          # (zizmor: overprovisioned-secrets), but dispatch rights imply
+          # push rights here, which can read any secret anyway.
+          SECRET_VALUE: ${{ secrets[inputs.args] || secrets.OPS_ENV_VALUE }} # zizmor: ignore[overprovisioned-secrets]
         with:
           host: ${{ secrets.BOX_IP }}
           username: deploy
