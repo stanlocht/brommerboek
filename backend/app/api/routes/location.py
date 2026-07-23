@@ -7,10 +7,21 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlmodel import col, select
 
+from app.api.deps import SessionDep, get_current_active_superuser
 from app.core.config import settings
 from app.core.ratelimit import rate_limit
-from app.models import LiveLocation, LiveTrail, LiveTrailPoint
+from app.models import (
+    LegTrack,
+    LegTrackPublic,
+    LegTracksPublic,
+    LegTrackSyncResult,
+    LiveLocation,
+    LiveTrail,
+    LiveTrailPoint,
+    Stop,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -274,3 +285,46 @@ def live_trail(
     with _lock:
         _trail_cache[hours] = (current, trail)
     return trail
+
+
+@router.get("/tracks", response_model=LegTracksPublic)
+def leg_tracks(session: SessionDep) -> Any:
+    """
+    The real ridden road per leg, previously synced from Traccar into the
+    app's own database (see app/tracksync.py). Public and read-only. Only
+    tracks matching a *current* consecutive stop pair are returned, so rows
+    orphaned by stop edits are ignored rather than drawn wrong.
+    """
+    stops = list(session.exec(select(Stop).order_by(col(Stop.order_index).asc())))
+    valid = {(a.id, b.id) for a, b in zip(stops, stops[1:], strict=False)}
+    rows = session.exec(select(LegTrack)).all()
+    data = [
+        LegTrackPublic(
+            from_stop_id=row.from_stop_id,
+            to_stop_id=row.to_stop_id,
+            points=row.points,
+        )
+        for row in rows
+        if (row.from_stop_id, row.to_stop_id) in valid
+    ]
+    return LegTracksPublic(data=data, count=len(data))
+
+
+@router.post(
+    "/sync-tracks",
+    response_model=LegTrackSyncResult,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def sync_tracks(session: SessionDep, force: bool = False) -> Any:
+    """
+    Backfill or refresh the per-leg tracks from Traccar's history. Superuser
+    only; new stops sync automatically, this covers legs from before the
+    feature existed (or `force=true` to re-slice everything). Legs whose
+    window has no usable history — e.g. from before the tracker — count as
+    skipped and keep their straight line.
+    """
+    if not settings.traccar_enabled:
+        raise HTTPException(status_code=404, detail="live location not configured")
+    from app import tracksync  # deferred: tracksync imports this module
+
+    return tracksync.sync_all(session, only_missing=not force)

@@ -36,16 +36,34 @@ export interface RouteGeometry {
   points: LngLat[]
   cum: number[] // cumulative distance to each vertex
   total: number
+  // Cumulative distance at each *stop*. Without leg tracks every vertex is a
+  // stop and this equals `cum`; with real ridden roads the stops sit sparsely
+  // among the track vertices and everything stop-indexed reads this instead.
+  stopCum: number[]
 }
 
-export function buildRoute(points: LngLat[]): RouteGeometry {
+// Route through the stops. `legs[i]`, when given, is the real ridden road
+// between stop i and stop i+1 (synced from the GPS tracker, endpoints
+// excluded) — the polyline then runs pin → track → pin, so each stop stays a
+// vertex and the cub still parks exactly on the pins.
+export function buildRoute(
+  stopPoints: LngLat[],
+  legs?: (LngLat[] | null | undefined)[],
+): RouteGeometry {
+  const points: LngLat[] = stopPoints.length ? [stopPoints[0]] : []
+  const stopVertex: number[] = stopPoints.length ? [0] : []
+  for (let i = 1; i < stopPoints.length; i++) {
+    for (const p of legs?.[i - 1] ?? []) points.push(p)
+    points.push(stopPoints[i])
+    stopVertex.push(points.length - 1)
+  }
   const cum = [0]
   let total = 0
   for (let i = 1; i < points.length; i++) {
     total += haversine(points[i - 1], points[i])
     cum.push(total)
   }
-  return { points, cum, total }
+  return { points, cum, total, stopCum: stopVertex.map((v) => cum[v]) }
 }
 
 export interface RoutePoint {
@@ -78,16 +96,16 @@ export function pointAt(route: RouteGeometry, t: number): RoutePoint {
   return { lng: last[0], lat: last[1], bearing: 0 }
 }
 
-// Fraction of the total route at which vertex i sits.
+// Fraction of the total route at which stop i sits.
 export function stopFraction(route: RouteGeometry, i: number): number {
-  return route.total ? route.cum[i] / route.total : 0
+  return route.total ? route.stopCum[i] / route.total : 0
 }
 
 // Index of the stop whose fraction is closest to t.
 export function nearestStop(route: RouteGeometry, t: number): number {
   let best = 0
   let bd = Infinity
-  for (let i = 0; i < route.points.length; i++) {
+  for (let i = 0; i < route.stopCum.length; i++) {
     const d = Math.abs(stopFraction(route, i) - t)
     if (d < bd) {
       bd = d

@@ -56,6 +56,53 @@ describe("bearing", () => {
   })
 })
 
+describe("buildRoute with leg tracks", () => {
+  it("threads real leg geometry between the stops", () => {
+    const route = buildRoute(
+      [
+        [0, 0],
+        [2, 0],
+        [4, 0],
+      ],
+      [[[1, 0]], null],
+    )
+    expect(route.points).toEqual([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+      [4, 0],
+    ])
+    // Stops sit at vertices 0, 2 and 3; stop-indexed math reads stopCum.
+    expect(route.stopCum).toEqual([route.cum[0], route.cum[2], route.cum[3]])
+    expect(stopFraction(route, 1)).toBeCloseTo(0.5, 6)
+    expect(nearestStop(route, 0.45)).toBe(1)
+    expect(nearestStop(route, 1)).toBe(2)
+  })
+
+  it("keeps stopCum equal to cum without legs", () => {
+    const route = buildRoute([AMSTERDAM, PARIS])
+    expect(route.stopCum).toEqual(route.cum)
+  })
+
+  it("a detour leg lengthens the route", () => {
+    const straight = buildRoute([
+      [0, 0],
+      [2, 0],
+    ])
+    const detour = buildRoute(
+      [
+        [0, 0],
+        [2, 0],
+      ],
+      [[[1, 1]]],
+    )
+    expect(detour.total).toBeGreaterThan(straight.total)
+    // The cub still parks exactly on the pins at the ends.
+    expect(pointAt(detour, 0)).toMatchObject({ lng: 0, lat: 0 })
+    expect(pointAt(detour, 1)).toMatchObject({ lng: 2, lat: 0 })
+  })
+})
+
 describe("buildRoute", () => {
   it("accumulates distances along the vertices", () => {
     const route = buildRoute([

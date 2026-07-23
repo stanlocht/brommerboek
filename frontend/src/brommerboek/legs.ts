@@ -22,10 +22,10 @@ export function legInfo(
   route: RouteGeometry,
   t: number,
 ): LegInfo | null {
-  if (stops.length < 2 || stops.length !== route.points.length) return null
+  if (stops.length < 2 || stops.length !== route.stopCum.length) return null
   const dist = Math.max(0, Math.min(1, t)) * route.total
   let i = 1
-  while (i < stops.length - 1 && dist > route.cum[i]) i++
+  while (i < stops.length - 1 && dist > route.stopCum[i]) i++
   const from = stops[i - 1]
   const to = stops[i]
   const km =

@@ -44,7 +44,9 @@ function cubTransform(bearing: number): string {
   return `rotate(${phi.toFixed(1)}deg)${mirror}`
 }
 
-function routeGeoJSON(stops: Stop[]) {
+// The drawn route line follows the same geometry the cub drives — real
+// ridden roads where leg tracks exist, straight pin-to-pin lines elsewhere.
+function routeGeoJSON(points: RouteGeometry["points"]) {
   return {
     type: "FeatureCollection",
     features: [
@@ -52,7 +54,7 @@ function routeGeoJSON(stops: Stop[]) {
         type: "Feature",
         geometry: {
           type: "LineString",
-          coordinates: stops.map((s) => [s.lng, s.lat]),
+          coordinates: points,
         },
         properties: {},
       },
@@ -125,6 +127,11 @@ export default function VintageMap({
   const onReplayGestureRef = useRef(onReplayGesture)
   onReplayGestureRef.current = onReplayGesture
   const camBearingRef = useRef(0)
+  // Latest geometry for the init load handler: the real ridden roads can
+  // arrive before or after the style loads, so init reads through this ref
+  // and the redraw effect below covers every later change.
+  const routeRef = useRef(route)
+  routeRef.current = route
   // Set on replay exit so the next progress sync skips the camera — the exit
   // easeTo below owns the restore and must not be cancelled.
   const skipFollowRef = useRef(false)
@@ -160,7 +167,10 @@ export default function VintageMap({
 
     map.on("load", () => {
       // route line: cream casing + red dashed line
-      map.addSource("route", { type: "geojson", data: routeGeoJSON(stops) })
+      map.addSource("route", {
+        type: "geojson",
+        data: routeGeoJSON(routeRef.current.points),
+      })
       map.addLayer({
         id: "route-casing",
         type: "line",
@@ -293,6 +303,18 @@ export default function VintageMap({
       for (const m of markers) m.remove()
     }
   }, [flags, flagsClickable, stops])
+
+  // --- route line redraw -----------------------------------------------------
+  // The route source is created at init from routeRef; this keeps it in sync
+  // when the geometry changes afterwards (leg tracks loading in).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !readyRef.current) return
+    const source = map.getSource("route") as
+      | maplibregl.GeoJSONSource
+      | undefined
+    source?.setData(routeGeoJSON(route.points))
+  }, [route])
 
   // --- breadcrumb trail ------------------------------------------------------
   // A dotted teal line of the tracker's recent positions, slotted beneath the

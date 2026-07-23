@@ -121,3 +121,12 @@ export interface LiveTrailPoint {
   lng: number
   fix_time: string | null
 }
+
+// Real ridden road of one leg, synced from Traccar's history — mirror of the
+// backend `LegTrackPublic`. `points` are [lng, lat] pairs in GeoJSON order,
+// endpoints near (not on) the two stops' pins.
+export interface LegTrackData {
+  from_stop_id: string
+  to_stop_id: string
+  points: [number, number][]
+}

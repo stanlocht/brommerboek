@@ -3,6 +3,7 @@
 
 import type { TripStats } from "./trip"
 import type {
+  LegTrackData,
   LiveLocation,
   LiveTrailPoint,
   MapFlag,
@@ -26,6 +27,7 @@ const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
 const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
 const LIVE_LOCATION_URL = `${BASE}/api/v1/location/live`
 const LIVE_TRAIL_URL = `${BASE}/api/v1/location/trail`
+const LEG_TRACKS_URL = `${BASE}/api/v1/location/tracks`
 const PUSH_PUBLIC_KEY_URL = `${BASE}/api/v1/push/public-key`
 const PUSH_SUBSCRIBE_URL = `${BASE}/api/v1/push/subscribe`
 const WEATHER_SUGGEST_URL = `${BASE}/api/v1/weather/suggest`
@@ -117,6 +119,19 @@ export async function fetchLiveTrail(): Promise<LiveTrailPoint[] | null> {
     if (!res.ok) return null
     const body = (await res.json()) as { points: LiveTrailPoint[] }
     return body.points
+  } catch {
+    return null
+  }
+}
+
+// Real ridden roads per leg (synced server-side from Traccar). Null means
+// the route falls back to straight stop-to-stop lines.
+export async function fetchLegTracks(): Promise<LegTrackData[] | null> {
+  try {
+    const res = await fetch(LEG_TRACKS_URL)
+    if (!res.ok) return null
+    const body = (await res.json()) as { data: LegTrackData[]; count: number }
+    return body.data
   } catch {
     return null
   }

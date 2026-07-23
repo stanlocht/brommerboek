@@ -485,3 +485,16 @@ easy to parse from the run log.
   line under the route. It reads Traccar's own position history, so no extra
   storage or forwarding config is involved; retention follows the Traccar
   server's database.
+
+  **Real ridden roads** (`legtrack` table): the red route line and the cub's
+  drive follow the actual GPS track per leg where one is synced, straight
+  pin-to-pin lines elsewhere. Matching is time-first (the stops' dates bound
+  the Traccar history window), then the leg is sliced at the track points
+  nearest to each pin — pins are never moved. Posting a new stop syncs its
+  surrounding legs automatically in the background (`app/tracksync.py`); to
+  backfill older legs, POST `/api/v1/location/sync-tracks` as superuser
+  (`?force=true` re-slices everything). Tracks live in the app's own
+  Postgres — ≤500 points per leg — so they survive any Traccar cleanup, and
+  legs from before the tracker simply keep their straight lines. Since the
+  Traccar database is now the source of ride geometry, keep a backup routine
+  on that server too.

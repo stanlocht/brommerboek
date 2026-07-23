@@ -34,7 +34,9 @@ with five screens plus overlays:
   `.env`, see `docs/RUNBOOK.md` §10), a pulsing marker shows where the Cub is
   right now, a dotted teal **breadcrumb trail** traces the last 24 h of riding,
   and the header gets a "LIVE · zojuist" / "laatst gezien X geleden" chip. The
-  backend proxies Traccar so its credentials stay server-side.
+  backend proxies Traccar so its credentials stay server-side. Legs with
+  synced GPS history render (and the cub drives) the **real ridden roads**
+  instead of straight pin-to-pin lines.
 - **Stempelmuur (Stamp wall)** — perforated passport ovals, one per country.
 - **Wrapped recap** — big stat cards with a regeneratable highlight line.
 - **Reis-highlight (Reel)** — a storyboard mockup of an auto-generated highlight

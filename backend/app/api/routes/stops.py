@@ -8,6 +8,7 @@ from sqlmodel import col, func, select
 from app import crud
 from app.api.deps import SessionDep, get_current_active_superuser
 from app.core import push
+from app.core.config import settings
 from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
 from app.geo import haversine_km
 from app.models import (
@@ -161,6 +162,12 @@ def create_stop(
         body=stop.title,
         url=f"/?stop={stop.id}",
     )
+    if settings.traccar_enabled:
+        # Pull the leg's real ridden road from Traccar after the response;
+        # a backdated stop also re-slices the leg it split.
+        from app import tracksync  # deferred: avoids a route-import cycle
+
+        background_tasks.add_task(tracksync.sync_for_stop, stop.id)
     return stop
 
 
