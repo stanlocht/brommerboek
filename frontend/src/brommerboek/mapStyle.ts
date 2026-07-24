@@ -15,8 +15,8 @@ export const GLYPHS =
 
 // palette
 const PAPER = "#e7d9b6"
-const SEA = "#a9c6cb"
-const WATERLINE = "#9fbcc0"
+const SEA = "#c94f4f"
+const WATERLINE = "#b84545"
 const WOOD = "#aebb86"
 const GRASS = "#c4cc9e"
 const ICE = "#eae4d6"
@@ -28,7 +28,7 @@ const OCHRE_LIGHT = "#d8b06a"
 const OCHRE_MINOR = "#d9c08a"
 const BROWN = "#9c6b3a"
 const INK = "#5a4a30"
-const SEA_INK = "#5f8b93"
+const SEA_INK = "#7a2e2e"
 
 const LABEL_FONT = ["Noto Sans Italic"]
 const nameField: unknown = ["coalesce", ["get", "name:nl"], ["get", "name"]]
