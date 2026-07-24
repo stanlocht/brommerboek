@@ -25,6 +25,21 @@ OpenAPI.TOKEN = async () => {
 
 installGlobalErrorReporting()
 
+// A deploy replaces the hashed chunk files, so a client that kept an old
+// index.html open fails its next lazy-route import ("'text/html' is not a
+// valid JavaScript MIME type" / a 404). Reloading picks up the new index.html
+// with the new hashes. The timestamp guard makes sure a genuinely broken
+// asset can't reload-loop: within a minute of a reload the error is left to
+// the route error boundary instead.
+window.addEventListener("vite:preloadError", (event) => {
+  const KEY = "bb-chunk-reload-at"
+  const last = Number(sessionStorage.getItem(KEY) ?? 0)
+  if (Date.now() - last < 60_000) return
+  sessionStorage.setItem(KEY, String(Date.now()))
+  event.preventDefault()
+  window.location.reload()
+})
+
 const handleApiError = (error: Error) => {
   if (error instanceof ApiError && [401, 403].includes(error.status)) {
     localStorage.removeItem("access_token")
