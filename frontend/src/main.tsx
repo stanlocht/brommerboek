@@ -33,6 +33,17 @@ const handleApiError = (error: Error) => {
   }
   // Everything else used to vanish silently; now it lands in the backend's
   // error telemetry (deduped client- and server-side).
+  // A bare "ApiError: Bad Request" is untriageable — put the endpoint in the
+  // context so reports name the failing call. Path only: query strings can
+  // carry tokens, and their variety would defeat server-side deduping.
+  if (error instanceof ApiError) {
+    let path = error.url
+    try {
+      path = new URL(error.url, window.location.origin).pathname
+    } catch {}
+    reportError(error, `query ${error.request.method} ${path}`)
+    return
+  }
   reportError(error, "query")
 }
 const queryClient = new QueryClient({
