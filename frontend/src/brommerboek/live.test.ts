@@ -4,6 +4,7 @@ import {
   LIVE_FRESH_MINUTES,
   liveAgeLabel,
   liveAgeMinutes,
+  trailGeoJSON,
 } from "./live"
 
 const NOW = Date.parse("2026-07-20T15:00:00Z")
@@ -58,5 +59,20 @@ describe("liveAgeLabel", () => {
 
   it("falls back for missing timestamps", () => {
     expect(liveAgeLabel(null, NOW)).toBe("onbekend")
+  })
+})
+
+describe("trailGeoJSON", () => {
+  it("builds a lng/lat LineString from the breadcrumbs", () => {
+    const fc = trailGeoJSON([
+      { lat: 52.3, lng: 4.9, fix_time: null },
+      { lat: 51.9, lng: 4.4, fix_time: null },
+    ])
+    const geometry = fc.features[0].geometry as GeoJSON.LineString
+    expect(geometry.type).toBe("LineString")
+    expect(geometry.coordinates).toEqual([
+      [4.9, 52.3],
+      [4.4, 51.9],
+    ])
   })
 })

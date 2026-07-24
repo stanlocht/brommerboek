@@ -10,7 +10,13 @@ import { legInfo, legLabel } from "./legs"
 import { isLiveFresh, liveAgeLabel } from "./live"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import type { TripStats } from "./trip"
-import type { LiveLocation, MapFlag, MapFlagKind, Stop } from "./types"
+import type {
+  LiveLocation,
+  LiveTrailPoint,
+  MapFlag,
+  MapFlagKind,
+  Stop,
+} from "./types"
 import VintageMap from "./VintageMap"
 
 function frac(e: ReactPointerEvent<HTMLDivElement>): number {
@@ -121,6 +127,7 @@ export default function MapScreen({
   flags,
   onFlagClick,
   live,
+  trail,
   onAdd,
   onLogin,
   replaying = false,
@@ -154,6 +161,8 @@ export default function MapScreen({
   // Last GPS fix of the Cub (Traccar via the backend); null/absent means no
   // tracker — the live marker and chip simply don't render.
   live?: LiveLocation | null
+  // Recent GPS breadcrumbs for the dotted trail on the map.
+  trail?: LiveTrailPoint[] | null
   onAdd?: () => void
   onLogin: () => void
   // "Rij de reis" replay: while true the header/preview/scrubber/FAB chrome
@@ -185,6 +194,7 @@ export default function MapScreen({
         flags={flags}
         onFlagClick={onFlagClick}
         live={live}
+        trail={trail}
         replaying={replaying}
         replayFollow={replayFollow}
         replayReduced={replayReduced}

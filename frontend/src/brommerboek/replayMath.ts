@@ -62,7 +62,7 @@ export function buildTimeline(
     if (i > 0) {
       // A zero-distance leg (next stop at the same spot) has nothing to
       // drive — skip straight to the stop instead of idling for LEG_MIN_MS.
-      const meters = route.cum[i] - route.cum[i - 1]
+      const meters = route.stopCum[i] - route.stopCum[i - 1]
       const dur = reduced || meters <= 0 ? 0 : legDurationMs(meters)
       segments.push({ kind: "drive", index: i, start: t, end: t + dur })
       t += dur
@@ -119,21 +119,26 @@ export function sampleTimeline(
   }
 }
 
-// Leg index + within-leg distance fraction at route fraction t.
+// Leg index (between stops) + within-leg distance fraction at route
+// fraction t. Legs run stop-to-stop even when the geometry between them is
+// a many-vertex real ridden road.
 export function legAt(
   route: RouteGeometry,
   t: number,
 ): { index: number; frac: number } {
-  const { cum, total } = route
-  if (cum.length < 2 || total === 0) return { index: 0, frac: 0 }
+  const { stopCum, total } = route
+  if (stopCum.length < 2 || total === 0) return { index: 0, frac: 0 }
   const dist = Math.max(0, Math.min(1, t)) * total
-  for (let i = 1; i < cum.length; i++) {
-    if (dist <= cum[i] || i === cum.length - 1) {
-      const len = cum[i] - cum[i - 1] || 1
-      return { index: i - 1, frac: Math.min(1, (dist - cum[i - 1]) / len) }
+  for (let i = 1; i < stopCum.length; i++) {
+    if (dist <= stopCum[i] || i === stopCum.length - 1) {
+      const len = stopCum[i] - stopCum[i - 1] || 1
+      return {
+        index: i - 1,
+        frac: Math.min(1, (dist - stopCum[i - 1]) / len),
+      }
     }
   }
-  return { index: cum.length - 2, frac: 1 }
+  return { index: stopCum.length - 2, frac: 1 }
 }
 
 // Odometer reading per stop: real km values wherever the odometer moved

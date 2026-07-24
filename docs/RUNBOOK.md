@@ -476,4 +476,25 @@ easy to parse from the run log.
   unreachable the endpoint keeps serving the last fix it saw since the backend
   started (and 503s only when it never saw one). A fix older than 10 minutes
   renders greyed-out as "laatst gezien …" — tracker off, no coverage, or the
-  Cub is parked somewhere indoors.
+  Cub is parked somewhere indoors. A scheme-less base URL defaults to
+  `https://`.
+
+  `GET /api/v1/location/trail?hours=24` (1–48) additionally serves the
+  **breadcrumb trail**: Traccar's stored positions for the window, thinned to
+  ≤400 points and cached for 5 minutes, drawn on the map as a dotted teal
+  line under the route. It reads Traccar's own position history, so no extra
+  storage or forwarding config is involved; retention follows the Traccar
+  server's database.
+
+  **Real ridden roads** (`legtrack` table): the red route line and the cub's
+  drive follow the actual GPS track per leg where one is synced, straight
+  pin-to-pin lines elsewhere. Matching is time-first (the stops' dates bound
+  the Traccar history window), then the leg is sliced at the track points
+  nearest to each pin — pins are never moved. Posting a new stop syncs its
+  surrounding legs automatically in the background (`app/tracksync.py`); to
+  backfill older legs, POST `/api/v1/location/sync-tracks` as superuser
+  (`?force=true` re-slices everything). Tracks live in the app's own
+  Postgres — ≤500 points per leg — so they survive any Traccar cleanup, and
+  legs from before the tracker simply keep their straight lines. Since the
+  Traccar database is now the source of ride geometry, keep a backup routine
+  on that server too.

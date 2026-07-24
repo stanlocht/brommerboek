@@ -3,16 +3,18 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
-from sqlmodel import col, func, select
+from sqlmodel import col, delete, func, select
 
 from app import crud
 from app.api.deps import SessionDep, get_current_active_superuser
 from app.core import push
+from app.core.config import settings
 from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
 from app.geo import haversine_km
 from app.models import (
     Comment,
     HornHonk,
+    LegTrack,
     MediaCaptionUpdate,
     Message,
     Stop,
@@ -161,6 +163,12 @@ def create_stop(
         body=stop.title,
         url=f"/?stop={stop.id}",
     )
+    if settings.traccar_enabled:
+        # Pull the leg's real ridden road from Traccar after the response;
+        # a backdated stop also re-slices the leg it split.
+        from app import tracksync  # deferred: avoids a route-import cycle
+
+        background_tasks.add_task(tracksync.sync_for_stop, stop.id)
     return stop
 
 
@@ -169,14 +177,29 @@ def create_stop(
     response_model=StopPublic,
     dependencies=[Depends(get_current_active_superuser)],
 )
-def update_stop(*, session: SessionDep, id: uuid.UUID, stop_in: StopUpdate) -> Any:
+def update_stop(
+    *,
+    session: SessionDep,
+    id: uuid.UUID,
+    stop_in: StopUpdate,
+    background_tasks: BackgroundTasks,
+) -> Any:
     """
     Partially update a stop. Superusers only.
     """
     db_stop = session.get(Stop, id)
     if not db_stop:
         raise HTTPException(status_code=404, detail="Stop not found")
-    return crud.update_stop(session=session, db_stop=db_stop, stop_in=stop_in)
+    updated = crud.update_stop(session=session, db_stop=db_stop, stop_in=stop_in)
+    if settings.traccar_enabled and (
+        {"date", "lat", "lng"} & stop_in.model_dump(exclude_unset=True).keys()
+    ):
+        # A new date or pin reshapes the surrounding legs — re-slice their
+        # ridden roads in the background.
+        from app import tracksync  # deferred: avoids a route-import cycle
+
+        background_tasks.add_task(tracksync.sync_for_stop, updated.id)
+    return updated
 
 
 @router.post(
@@ -312,16 +335,34 @@ def delete_stop_media(*, session: SessionDep, id: uuid.UUID, index: int) -> Any:
     response_model=Message,
     dependencies=[Depends(get_current_active_superuser)],
 )
-def delete_stop(*, session: SessionDep, id: uuid.UUID) -> Any:
+def delete_stop(
+    *, session: SessionDep, id: uuid.UUID, background_tasks: BackgroundTasks
+) -> Any:
     """
-    Delete a stop and any media files attached to it.
+    Delete a stop and any media files attached to it. The two legs around it
+    merge into one; its ridden-road tracks are dropped and the merged leg is
+    re-sliced in the background.
     """
     db_stop = session.get(Stop, id)
     if not db_stop:
         raise HTTPException(status_code=404, detail="Stop not found")
+    next_stop = session.exec(
+        select(Stop)
+        .where(col(Stop.order_index) > db_stop.order_index)
+        .order_by(col(Stop.order_index).asc())
+    ).first()
     stop_dir = MEDIA_ROOT / str(id)
     if stop_dir.exists():
         shutil.rmtree(stop_dir, ignore_errors=True)
+    session.execute(
+        delete(LegTrack).where(
+            (col(LegTrack.to_stop_id) == id) | (col(LegTrack.from_stop_id) == id)
+        )
+    )
     session.delete(db_stop)
     session.commit()
+    if settings.traccar_enabled and next_stop is not None:
+        from app import tracksync  # deferred: avoids a route-import cycle
+
+        background_tasks.add_task(tracksync.sync_for_stop, next_stop.id)
     return Message(message="Stop deleted")

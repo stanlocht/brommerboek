@@ -8,13 +8,19 @@ from app.api.routes import location
 from app.api.routes.location import (
     CACHE_TTL_SECONDS,
     LOCATION_RATE_LIMIT,
+    TRAIL_CACHE_TTL_SECONDS,
+    TRAIL_MAX_POINTS,
+    decimate,
     pick_position,
     to_live_location,
+    to_trail_point,
     traccar_url,
 )
 from app.core.config import settings
+from app.models import LiveTrailPoint
 
 LIVE_URL = f"{settings.API_V1_STR}/location/live"
+TRAIL_URL = f"{settings.API_V1_STR}/location/trail"
 
 TRACCAR_URL = "https://traccar.example.com"
 
@@ -222,6 +228,135 @@ def test_live_serves_last_known_fix_when_upstream_drops(
     r = client.get(LIVE_URL)
     assert r.status_code == 200
     assert r.json()["lat"] == 43.77
+
+
+def _mock_history(
+    monkeypatch: pytest.MonkeyPatch, payload: Any
+) -> list[tuple[int, Any, Any]]:
+    """Replace the Traccar history call, recording (device_id, start, end)."""
+    calls: list[tuple[int, Any, Any]] = []
+
+    def fake_history(device_id: int, start: Any, end: Any) -> Any:
+        calls.append((device_id, start, end))
+        return payload
+
+    monkeypatch.setattr(location, "fetch_history", fake_history)
+    return calls
+
+
+# ----- Trail helpers -----------------------------------------------------------
+
+
+def test_to_trail_point_skips_junk_entries() -> None:
+    assert to_trail_point({"latitude": "x", "longitude": 2.0}) is None
+    assert to_trail_point({"longitude": 2.0}) is None
+    point = to_trail_point(_position())
+    assert point is not None
+    assert (point.lat, point.lng) == (43.77, 7.49)
+
+
+def test_decimate_keeps_small_trails_and_the_endpoints() -> None:
+    small = [LiveTrailPoint(lat=float(i), lng=0.0) for i in range(5)]
+    assert decimate(small, TRAIL_MAX_POINTS) is small
+
+    big = [LiveTrailPoint(lat=float(i), lng=0.0) for i in range(1000)]
+    thinned = decimate(big, 400)
+    assert len(thinned) <= 401
+    assert thinned[0] is big[0]
+    assert thinned[-1] is big[-1]
+
+
+# ----- Trail endpoint ----------------------------------------------------------
+
+
+def test_trail_returns_sorted_points_for_configured_device(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "TRACCAR_DEVICE_ID", 7)
+    history = [
+        _position(lat=2.0, fix_time="2026-07-20T14:00:00Z"),
+        _position(lat=1.0, fix_time="2026-07-20T13:00:00Z"),
+        {"latitude": "junk", "longitude": 0},
+    ]
+    calls = _mock_history(monkeypatch, history)
+    r = client.get(TRAIL_URL)
+    assert r.status_code == 200
+    points = r.json()["points"]
+    assert [p["lat"] for p in points] == [1.0, 2.0]
+    assert calls[0][0] == 7
+
+
+def test_trail_resolves_device_id_from_latest_positions(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_fetch(monkeypatch, [_position(device_id=42)])
+    calls = _mock_history(monkeypatch, [_position(device_id=42)])
+    r = client.get(TRAIL_URL)
+    assert r.status_code == 200
+    assert calls[0][0] == 42
+
+
+def test_trail_no_device_yet_is_404(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_fetch(monkeypatch, [])
+    r = client.get(TRAIL_URL)
+    assert r.status_code == 404
+    assert r.json()["detail"] == "no position yet"
+
+
+def test_trail_not_configured_is_404(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "TRACCAR_BASE_URL", "")
+    assert client.get(TRAIL_URL).status_code == 404
+
+
+def test_trail_validates_hours(client: TestClient) -> None:
+    for hours in (0, -1, 49, "gisteren"):
+        assert client.get(TRAIL_URL, params={"hours": hours}).status_code == 422
+
+
+def test_trail_upstream_error_is_503_and_serves_stale_cache(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "TRACCAR_DEVICE_ID", 7)
+    clock = [1000.0]
+    monkeypatch.setattr(location, "now", lambda: clock[0])
+
+    def fail(*_args: Any) -> Any:
+        raise httpx.ConnectError("gone")
+
+    monkeypatch.setattr(location, "fetch_history", fail)
+    assert client.get(TRAIL_URL).status_code == 503
+
+    calls = _mock_history(monkeypatch, [_position()])
+    assert client.get(TRAIL_URL).status_code == 200
+    assert len(calls) == 1
+    # Within the TTL the cache answers; after it, a dead upstream falls back
+    # to the stale trail instead of erroring.
+    assert client.get(TRAIL_URL).status_code == 200
+    assert len(calls) == 1
+    monkeypatch.setattr(location, "fetch_history", fail)
+    clock[0] += TRAIL_CACHE_TTL_SECONDS + 1
+    r = client.get(TRAIL_URL)
+    assert r.status_code == 200
+    assert len(r.json()["points"]) == 1
+
+
+def test_trail_window_matches_hours_param(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    monkeypatch.setattr(settings, "TRACCAR_DEVICE_ID", 7)
+    frozen = datetime(2026, 7, 20, 15, 0, tzinfo=UTC)
+    monkeypatch.setattr(location, "utcnow", lambda: frozen)
+    calls = _mock_history(monkeypatch, [])
+    assert client.get(TRAIL_URL, params={"hours": 6}).status_code == 200
+    _, start, end = calls[0]
+    assert end == frozen
+    assert end - start == timedelta(hours=6)
 
 
 def test_live_endpoint_is_rate_limited(

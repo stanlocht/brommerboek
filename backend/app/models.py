@@ -256,6 +256,53 @@ class LiveLocation(SQLModel):
     fix_time: datetime | None = None
 
 
+# The breadcrumb trail: recent stored positions from Traccar, oldest first,
+# decimated server-side to a drawable size. The map renders them as a dotted
+# trail leading to the live marker.
+class LiveTrailPoint(SQLModel):
+    lat: float
+    lng: float
+    fix_time: datetime | None = None
+
+
+class LiveTrail(SQLModel):
+    points: list[LiveTrailPoint]
+
+
+# The real ridden road of one leg, synced from Traccar's position history and
+# keyed by the leg's destination stop. Stop ids are plain columns, not FKs:
+# when stops are reordered or deleted the row simply stops matching a current
+# consecutive pair and is ignored by the read endpoint (and replaced by the
+# next sync) instead of blocking the stop mutation. `points` is a decimated
+# [[lng, lat], ...] polyline in GeoJSON coordinate order.
+class LegTrack(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    from_stop_id: uuid.UUID = Field(index=True)
+    to_stop_id: uuid.UUID = Field(unique=True, index=True)
+    points: list = Field(default_factory=list, sa_column=Column(JSON))
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class LegTrackPublic(SQLModel):
+    from_stop_id: uuid.UUID
+    to_stop_id: uuid.UUID
+    points: list[list[float]]
+
+
+class LegTracksPublic(SQLModel):
+    data: list[LegTrackPublic]
+    count: int
+
+
+class LegTrackSyncResult(SQLModel):
+    synced: int
+    skipped: int
+    failed: int
+
+
 # Aggregate trip statistics for the "Wrapped" recap screen. `km` uses each
 # leg's odometer delta when both endpoints have a km value, and falls back
 # to great-circle distance otherwise. `suggested_km` is the last known

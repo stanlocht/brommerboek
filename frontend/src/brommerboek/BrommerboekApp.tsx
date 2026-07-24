@@ -7,7 +7,9 @@ import AddFlow from "./AddFlow"
 import {
   createStop,
   deleteStop,
+  fetchLegTracks,
   fetchLiveLocation,
+  fetchLiveTrail,
   fetchMapFlags,
   fetchStats,
   fetchStops,
@@ -101,6 +103,24 @@ export default function BrommerboekApp() {
     staleTime: 30_000,
   })
 
+  // The breadcrumb trail behind the live marker. The backend caches the
+  // Traccar history query for 5 minutes, so polling faster buys nothing.
+  const { data: liveTrail } = useQuery({
+    queryKey: ["liveTrail"],
+    queryFn: fetchLiveTrail,
+    refetchInterval: 300_000,
+    staleTime: 240_000,
+  })
+
+  // Real ridden roads per leg. They change only when a stop lands (the
+  // backend syncs in the background right after), so a slow poll plus the
+  // invalidation on stop create keeps them current.
+  const { data: legTracks } = useQuery({
+    queryKey: ["legTracks"],
+    queryFn: fetchLegTracks,
+    refetchInterval: 300_000,
+  })
+
   // Clicking a flag (admins only) opens the editor for that kind; saving a
   // picked place moves the flag there and relabels it after the place.
   const [editFlagKind, setEditFlagKind] = useState<MapFlagKind | null>(null)
@@ -141,11 +161,23 @@ export default function BrommerboekApp() {
     [],
   )
 
-  const route = useMemo(
-    () =>
-      buildRoute((stops ?? []).map((s) => [s.lng, s.lat] as [number, number])),
-    [stops],
-  )
+  // Route geometry: real ridden roads where a leg track exists (matched on
+  // both endpoints so reordered stops never get a stale track), straight
+  // pin-to-pin lines everywhere else.
+  const route = useMemo(() => {
+    const list = stops ?? []
+    const byLeg = new Map<string, [number, number][]>()
+    for (const t of legTracks ?? []) {
+      byLeg.set(`${t.from_stop_id}→${t.to_stop_id}`, t.points)
+    }
+    const legs = list
+      .slice(1)
+      .map((s, i) => byLeg.get(`${list[i].id}→${s.id}`) ?? null)
+    return buildRoute(
+      list.map((s) => [s.lng, s.lat] as [number, number]),
+      legs,
+    )
+  }, [stops, legTracks])
 
   const replay = useReplay({
     stops: stops ?? [],
@@ -220,6 +252,12 @@ export default function BrommerboekApp() {
     },
     onSuccess: async ({ failed }) => {
       jumpLast.current = true
+      // The backend syncs the new leg's ridden road in the background right
+      // after the stop lands; re-ask for the tracks once it has had a moment.
+      setTimeout(
+        () => qc.invalidateQueries({ queryKey: ["legTracks"] }),
+        10_000,
+      )
       // Prefix match — invalidates both ["stops"] and ["stops", "stats"].
       await qc.invalidateQueries({ queryKey: ["stops"] })
       setAddOpen(false)
@@ -238,6 +276,11 @@ export default function BrommerboekApp() {
     mutationFn: ({ id, patch }: { id: string; patch: NewStop }) =>
       updateStop(id, patch),
     onSuccess: async () => {
+      // Date/pin edits re-slice the surrounding ridden roads server-side.
+      setTimeout(
+        () => qc.invalidateQueries({ queryKey: ["legTracks"] }),
+        10_000,
+      )
       await qc.invalidateQueries({ queryKey: ["stops"] })
       setEditStop(null)
       flash("✓ Stop bijgewerkt")
@@ -251,6 +294,12 @@ export default function BrommerboekApp() {
       // The current activeIndex may now be past the tail; reset before the
       // list refetches so we don't briefly render an out-of-range stop.
       initedRef.current = false
+      // Deleting merges the two legs around the stop; the server re-slices
+      // the merged ridden road in the background.
+      setTimeout(
+        () => qc.invalidateQueries({ queryKey: ["legTracks"] }),
+        10_000,
+      )
       await qc.invalidateQueries({ queryKey: ["stops"] })
       setEditStop(null)
       flash("✓ Stop verwijderd")
@@ -478,6 +527,7 @@ export default function BrommerboekApp() {
         }}
         flags={mapFlags}
         live={liveLocation}
+        trail={liveTrail}
         onFlagClick={
           canEdit
             ? (kind) => {
