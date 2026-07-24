@@ -6,7 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { ReactionsService } from "@/client"
+import { ReactionsService, UsersService } from "@/client"
 import { isLoggedIn } from "@/hooks/useAuth"
 import { fetchHonks, toggleHonk as toggleHonkApi } from "./api"
 import LoginPrompt from "./LoginPrompt"
@@ -32,6 +32,15 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     queryKey: ["stops", stopId, "comments"],
     queryFn: () => ReactionsService.readComments({ stopId }),
   })
+  // The backend lets superusers delete any comment; mirror that in the UI.
+  // Query only fires when a token is present so a signed-out viewer never
+  // triggers a 401 → login redirect.
+  const { data: me } = useQuery({
+    queryKey: ["currentUser"],
+    queryFn: UsersService.readUserMe,
+    enabled: isLoggedIn(),
+  })
+  const isAdmin = !!me?.is_superuser
   const honksQ = useQuery({
     queryKey: ["stops", stopId, "honks"],
     queryFn: () => fetchHonks(stopId),
@@ -354,7 +363,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
                   {dateLabelNL(c.created_at)}
                 </span>
               )}
-              {c.is_mine && (
+              {(c.is_mine || isAdmin) && (
                 <button
                   type="button"
                   onClick={() => deleteComment.mutate(c.id)}
