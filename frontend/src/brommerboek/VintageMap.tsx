@@ -6,14 +6,14 @@
 
 import maplibregl from "maplibre-gl"
 import "maplibre-gl/dist/maplibre-gl.css"
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { RouteGeometry } from "./geo"
 import { pointAt } from "./geo"
 import { cubSvgString, flagSvgString, WRENCH_INNER } from "./icons"
 import { isLiveFresh, trailGeoJSON } from "./live"
 import { vintageStyle } from "./mapStyle"
 import { bearingDelta, dampenBearing, INTRO_MS } from "./replayMath"
-import { C, PIN_ROTS } from "./theme"
+import { C, FONT_MONO, FONT_SERIF, PIN_ROTS } from "./theme"
 import type {
   LiveLocation,
   LiveTrailPoint,
@@ -135,20 +135,31 @@ export default function VintageMap({
   // Set on replay exit so the next progress sync skips the camera — the exit
   // easeTo below owns the restore and must not be cancelled.
   const skipFollowRef = useRef(false)
+  // Machines without a working WebGL context (old GPUs, driver blocklists,
+  // sandboxed browsers) make the Map constructor throw. That's the device's
+  // limitation, not a crash — degrade to a static panel instead of letting
+  // the error boundary take down the whole page.
+  const [mapFailed, setMapFailed] = useState(false)
 
   // --- init map + layers (once) ---------------------------------------------
   // biome-ignore lint/correctness/useExhaustiveDependencies: init runs once
   useEffect(() => {
     if (!containerRef.current || stops.length === 0) return
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: vintageStyle(),
-      center: [stops[0].lng, stops[0].lat],
-      zoom: 5,
-      attributionControl: { compact: true },
-      dragRotate: false,
-      pitchWithRotate: false,
-    })
+    let map: maplibregl.Map
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: vintageStyle(),
+        center: [stops[0].lng, stops[0].lat],
+        zoom: 5,
+        attributionControl: { compact: true },
+        dragRotate: false,
+        pitchWithRotate: false,
+      })
+    } catch {
+      setMapFailed(true)
+      return
+    }
     map.touchZoomRotate.disableRotation()
     map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
@@ -483,6 +494,46 @@ export default function VintageMap({
     skipFollowRef.current = false
     syncCub(progress, !skip)
   }, [progress, dragging, replayFollow, syncCub])
+
+  if (mapFailed)
+    return (
+      <div
+        className="bb-map-canvas"
+        data-testid="map-fallback"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          padding: 20,
+          textAlign: "center",
+          background: C.paperLight,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: FONT_SERIF,
+            fontWeight: 700,
+            fontSize: 22,
+            color: C.ink,
+          }}
+        >
+          De kaart doet het hier niet
+        </div>
+        <div
+          style={{
+            fontFamily: FONT_MONO,
+            fontSize: 11,
+            color: C.sepia,
+            maxWidth: 280,
+          }}
+        >
+          dit apparaat kan geen WebGL-kaart tekenen — de rest van het
+          brommerboek werkt gewoon.
+        </div>
+      </div>
+    )
 
   return <div ref={containerRef} className="bb-map-canvas" />
 }
