@@ -1,3 +1,5 @@
+// Keep this first: API polyfills must run before any dependency code.
+import "./lib/polyfills"
 import {
   MutationCache,
   QueryCache,
