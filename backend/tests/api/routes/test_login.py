@@ -68,15 +68,34 @@ def test_recovery_password_user_not_exits(
     client: TestClient, normal_user_token_headers: dict[str, str]
 ) -> None:
     email = "jVgQr@example.com"
-    r = client.post(
-        f"{settings.API_V1_STR}/password-recovery/{email}",
-        headers=normal_user_token_headers,
-    )
+    with (
+        patch("app.core.config.settings.SMTP_HOST", "smtp.example.com"),
+        patch("app.core.config.settings.SMTP_USER", "admin@example.com"),
+    ):
+        r = client.post(
+            f"{settings.API_V1_STR}/password-recovery/{email}",
+            headers=normal_user_token_headers,
+        )
     # Should return 200 with generic message to prevent email enumeration attacks
     assert r.status_code == 200
     assert r.json() == {
         "message": "If that email is registered, we sent a password recovery link"
     }
+
+
+def test_recovery_password_emails_not_configured(
+    client: TestClient, normal_user_token_headers: dict[str, str]
+) -> None:
+    # No SMTP settings patched: recovery must answer with a clear 503, not
+    # crash on send_email's assertion — and identically for existing and
+    # unknown accounts.
+    for email in [settings.EMAIL_TEST_USER, "jVgQr@example.com"]:
+        r = client.post(
+            f"{settings.API_V1_STR}/password-recovery/{email}",
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 503
+        assert "unavailable" in r.json()["detail"]
 
 
 def test_reset_password(client: TestClient, db: Session) -> None:

@@ -64,6 +64,14 @@ def recover_password(email: str, session: SessionDep) -> Message:
     """
     Password Recovery
     """
+    # Without SMTP configured send_email can only crash, turning every
+    # recovery attempt for a real account into a 500. Checked before the user
+    # lookup so the answer is identical for every email — no enumeration.
+    if not settings.emails_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Password recovery via e-mail is temporarily unavailable",
+        )
     user = crud.get_user_by_email(session=session, email=email)
 
     # Always return the same response to prevent email enumeration attacks
