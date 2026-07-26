@@ -46,6 +46,11 @@ const handleApiError = (error: Error) => {
     window.location.href = "/login"
     return
   }
+  // The request never reached the API (visitor offline, connection dropped,
+  // page navigated away mid-flight). Nothing in this codebase to fix — and
+  // when the API itself is truly down the report can't be delivered anyway.
+  const code = (error as { code?: string }).code
+  if (code === "ERR_NETWORK" || code === "ERR_CANCELED") return
   // Everything else used to vanish silently; now it lands in the backend's
   // error telemetry (deduped client- and server-side).
   // A bare "ApiError: Bad Request" is untriageable — put the endpoint in the
@@ -56,6 +61,22 @@ const handleApiError = (error: Error) => {
     try {
       path = new URL(error.url, window.location.origin).pathname
     } catch {}
+    // Path params can be personal data (/password-recovery/{email}) — mask
+    // them, which also keeps one endpoint one fingerprint.
+    path = path
+      .split("/")
+      .map((seg) =>
+        seg.includes("@") || seg.toLowerCase().includes("%40") ? ":email" : seg,
+      )
+      .join("/")
+    // A wrong password on the login form is a user event the form already
+    // answers with a message, not a defect — don't let it fill the tracker.
+    if (
+      error.status === 400 &&
+      error.request.method === "POST" &&
+      path.endsWith("/login/access-token")
+    )
+      return
     reportError(error, `query ${error.request.method} ${path}`)
     return
   }
