@@ -176,6 +176,19 @@ export default function VintageMap({
     map.on("dragstart", gesture)
     map.on("zoomstart", gesture)
 
+    // A lost WebGL context (GPU reset, tab woken from sleep) nulls the map's
+    // style while the Map object stays alive — any getSource/addLayer in
+    // that window throws. Down tools until MapLibre has restored the style
+    // (it re-applies the lost style, our sources and layers included).
+    map.on("webglcontextlost", () => {
+      readyRef.current = false
+    })
+    map.on("webglcontextrestored", () => {
+      map.once("style.load", () => {
+        if (mapRef.current === map) readyRef.current = true
+      })
+    })
+
     map.on("load", () => {
       // route line: cream casing + red dashed line
       map.addSource("route", {
@@ -320,7 +333,10 @@ export default function VintageMap({
   // when the geometry changes afterwards (leg tracks loading in).
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !readyRef.current) return
+    // The style re-check catches the webglcontextlost window (#68): the
+    // event that clears readyRef only fires after MapLibre already nulled
+    // map.style.
+    if (!map || !readyRef.current || !map.style) return
     const source = map.getSource("route") as
       | maplibregl.GeoJSONSource
       | undefined
@@ -338,7 +354,8 @@ export default function VintageMap({
     const map = mapRef.current
     if (!map || !trail || trail.length < 2) return
     const apply = () => {
-      if (mapRef.current !== map) return
+      // Second check as in the route effect: no style, no sources (#68).
+      if (mapRef.current !== map || !map.style) return
       const source = map.getSource("live-trail") as
         | maplibregl.GeoJSONSource
         | undefined
