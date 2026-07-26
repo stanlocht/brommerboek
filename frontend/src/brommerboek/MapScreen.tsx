@@ -243,7 +243,7 @@ export default function MapScreen({
                 marginTop: 2,
               }}
             >
-              Van Mokum naar Marroko
+              Van Mokum naar Marokko
             </div>
             <Link
               to="/logboek"
