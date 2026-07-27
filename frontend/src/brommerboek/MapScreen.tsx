@@ -26,8 +26,15 @@ function frac(e: ReactPointerEvent<HTMLDivElement>): number {
 
 // "LIVE · zojuist" while the tracker reports, "laatst gezien 3 uur geleden"
 // once the fix goes stale. Re-renders itself every half minute so the age
-// keeps up between the app's polls of the backend.
-function LiveChip({ live }: { live: LiveLocation }) {
+// keeps up between the app's polls of the backend. Pressing it zooms the map
+// to the fix.
+function LiveChip({
+  live,
+  onClick,
+}: {
+  live: LiveLocation
+  onClick: () => void
+}) {
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
     const t = setInterval(() => setNowMs(Date.now()), 30_000)
@@ -36,7 +43,10 @@ function LiveChip({ live }: { live: LiveLocation }) {
   const fresh = isLiveFresh(live.fix_time, nowMs)
   const age = liveAgeLabel(live.fix_time, nowMs)
   return (
-    <span
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Zoom naar de laatste locatie van de brommer"
       style={{
         marginTop: 8,
         marginLeft: 6,
@@ -52,6 +62,8 @@ function LiveChip({ live }: { live: LiveLocation }) {
         fontSize: 10,
         letterSpacing: 1,
         color: fresh ? C.teal : C.sepia,
+        cursor: "pointer",
+        pointerEvents: "auto",
       }}
     >
       <span
@@ -65,7 +77,7 @@ function LiveChip({ live }: { live: LiveLocation }) {
         }}
       />
       {fresh ? `LIVE · ${age}` : `laatst gezien ${age}`}
-    </span>
+    </button>
   )
 }
 
@@ -175,6 +187,9 @@ export default function MapScreen({
   onReplay?: () => void
   onReplayGesture?: () => void
 }) {
+  // Bumped when the LIVE chip is pressed; VintageMap flies to the fix on
+  // every change. A counter (not a boolean) so repeat presses re-zoom.
+  const [liveFocus, setLiveFocus] = useState(0)
   const pct = `${(progress * 100).toFixed(2)}%`
   const showPreview = !dragging
   const currentStopIndex = nearestStop(route, progress)
@@ -195,6 +210,7 @@ export default function MapScreen({
         onFlagClick={onFlagClick}
         live={live}
         trail={trail}
+        liveFocus={liveFocus}
         replaying={replaying}
         replayFollow={replayFollow}
         replayReduced={replayReduced}
@@ -322,7 +338,12 @@ export default function MapScreen({
             >
               STEMPELS
             </Link>
-            {live && <LiveChip live={live} />}
+            {live && (
+              <LiveChip
+                live={live}
+                onClick={() => setLiveFocus((n) => n + 1)}
+              />
+            )}
           </div>
           <div
             style={{
