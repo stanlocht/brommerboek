@@ -1,16 +1,25 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, OptionalUser, SessionDep
 from app.core import push
+from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
 from app.core.ratelimit import rate_limit
 from app.models import (
     Comment,
-    CommentCreate,
     CommentPublic,
     CommentsPublic,
     HonkerPublic,
@@ -27,6 +36,16 @@ COMMENT_RATE_LIMIT = 10
 COMMENT_RATE_WINDOW_SECONDS = 60
 HONK_RATE_LIMIT = 30
 HONK_RATE_WINDOW_SECONDS = 60
+
+# Photos only on comments — no visitor-uploaded video to store or moderate.
+COMMENT_PHOTO_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/heic": "heic",
+}
+COMMENT_PHOTO_MAX_BYTES = 10 * 1024 * 1024  # 10 MiB — ample for a phone photo
 
 
 def _display_name(user: User) -> str:
@@ -87,11 +106,67 @@ def read_comments(
             author_name=_display_name(u),
             is_mine=me is not None and me.id == c.user_id,
             body=c.body,
+            photo=c.photo,
+            photo_thumb=c.photo_thumb,
             created_at=c.created_at,
         )
         for c, u in rows
     ]
     return CommentsPublic(data=data, count=count)
+
+
+def _save_comment_photo(stop_id: uuid.UUID, file: UploadFile) -> tuple[str, str | None]:
+    """Stream an uploaded comment photo to the media volume.
+
+    Files live under `/media/{stop_id}/comments/…` so deleting the stop
+    (which rmtree's the stop's whole media directory) also sweeps up the
+    photos of its cascade-deleted comments. Returns `(photo_url, thumb_url)`.
+    """
+    if file.content_type not in COMMENT_PHOTO_TYPES:
+        raise HTTPException(
+            status_code=415, detail=f"Unsupported photo type: {file.content_type}"
+        )
+    ext = COMMENT_PHOTO_TYPES[file.content_type]
+    comments_dir = MEDIA_ROOT / str(stop_id) / "comments"
+    comments_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    dest = comments_dir / filename
+    try:
+        size = 0
+        with dest.open("wb") as out:
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > COMMENT_PHOTO_MAX_BYTES:
+                    out.close()
+                    dest.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            "Photo too large "
+                            f"(max {COMMENT_PHOTO_MAX_BYTES // (1024 * 1024)} MiB)"
+                        ),
+                    )
+                out.write(chunk)
+    finally:
+        file.file.close()
+    photo_url = f"{MEDIA_URL_PREFIX}/{stop_id}/comments/{filename}"
+    # Same contract as stop media: a failed thumbnail never fails the upload.
+    thumb_url: str | None = None
+    thumb_path = generate_thumbnail(dest)
+    if thumb_path is not None:
+        thumb_url = f"{MEDIA_URL_PREFIX}/{stop_id}/comments/{thumb_path.name}"
+    return photo_url, thumb_url
+
+
+def _delete_comment_photo(comment: Comment) -> None:
+    """Remove a comment's photo (and thumbnail) from the media volume."""
+    for url in (comment.photo, comment.photo_thumb):
+        if url and url.startswith(f"{MEDIA_URL_PREFIX}/"):
+            path = MEDIA_ROOT / url[len(MEDIA_URL_PREFIX) + 1 :]
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 @router.post(
@@ -106,24 +181,38 @@ def create_comment(
     session: SessionDep,
     me: CurrentUser,
     stop_id: uuid.UUID,
-    comment_in: CommentCreate,
+    body: str = Form(default="", max_length=2000),
+    file: UploadFile | None = File(default=None),
     background_tasks: BackgroundTasks,
 ) -> Any:
     """
-    Leave a comment on a stop. Any active user may comment.
+    Leave a comment on a stop, optionally with a photo attached. Any active
+    user may comment. Multipart form: `body` (text) and `file` (image) —
+    at least one of the two is required.
     """
     stop = _ensure_stop(session, stop_id)
-    body = comment_in.body.strip()
-    if not body:
+    body = body.strip()
+    if not body and file is None:
         raise HTTPException(status_code=422, detail="Comment cannot be empty")
-    comment = Comment(stop_id=stop_id, user_id=me.id, body=body)
+    photo_url: str | None = None
+    photo_thumb: str | None = None
+    if file is not None:
+        photo_url, photo_thumb = _save_comment_photo(stop_id, file)
+    comment = Comment(
+        stop_id=stop_id,
+        user_id=me.id,
+        body=body,
+        photo=photo_url,
+        photo_thumb=photo_thumb,
+    )
     session.add(comment)
     session.commit()
     session.refresh(comment)
+    excerpt = _excerpt(body) if body else "📷 foto"
     background_tasks.add_task(
         push.send_to_admins,
         title=f"nieuwe reactie van {_display_name(me)}",
-        body=f"op {stop.place}: '{_excerpt(body)}'",
+        body=f"op {stop.place}: '{excerpt}'",
         url=f"/?stop={stop_id}",
     )
     return CommentPublic(
@@ -133,6 +222,8 @@ def create_comment(
         author_name=_display_name(me),
         is_mine=True,
         body=comment.body,
+        photo=comment.photo,
+        photo_thumb=comment.photo_thumb,
         created_at=comment.created_at,
     )
 
@@ -149,6 +240,7 @@ def delete_comment(
         raise HTTPException(status_code=404, detail="Comment not found")
     if comment.user_id != me.id and not me.is_superuser:
         raise HTTPException(status_code=403, detail="Not enough permissions")
+    _delete_comment_photo(comment)
     session.delete(comment)
     session.commit()
     return Message(message="Comment deleted successfully")
