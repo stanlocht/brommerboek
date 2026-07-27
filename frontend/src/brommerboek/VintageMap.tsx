@@ -23,6 +23,9 @@ import type {
 } from "./types"
 
 const FOLLOW_ZOOM = 6.3
+// Where the "zoom to the Cub" fly-to lands: close enough to name the town,
+// far enough to keep some surrounding country for orientation.
+const LIVE_ZOOM = 9.5
 // Cinematic replay camera: slightly closer than the scrub follow, pitched for
 // depth, and rotated (dampened) toward the travel bearing. Per-frame bearing
 // eases toward the target so leg changes swing gently instead of snapping.
@@ -78,6 +81,9 @@ interface Props {
   // Recent breadcrumbs (oldest first) drawn as a dotted teal trail under the
   // route; null/absent or fewer than 2 points draws nothing.
   trail?: LiveTrailPoint[] | null
+  // Increments when the user asks to see the live fix (the LIVE chip); each
+  // bump flies the camera to `live`. 0 (the initial value) never fires.
+  liveFocus?: number
   // Cinematic replay mode: while true the camera follows the cub with pitch,
   // closer zoom and dampened rotation toward the travel bearing.
   replaying?: boolean
@@ -100,6 +106,7 @@ export default function VintageMap({
   onFlagClick,
   live = null,
   trail = null,
+  liveFocus = 0,
   replaying = false,
   replayFollow = true,
   replayReduced = false,
@@ -392,6 +399,29 @@ export default function VintageMap({
     }
   }, [trail, stops])
 
+  // --- zoom to the live fix on demand ---------------------------------------
+  // Flies the camera to the last GPS fix. Reads `live` through a ref so a
+  // fresh fix arriving on its own never moves the camera — only a press does.
+  const liveRef = useRef(live)
+  liveRef.current = live
+  const focusLive = useCallback(() => {
+    const map = mapRef.current
+    const fix = liveRef.current
+    if (!map || !readyRef.current || !fix) return
+    map.flyTo({
+      center: [fix.lng, fix.lat],
+      zoom: LIVE_ZOOM,
+      pitch: 0,
+      bearing: 0,
+      duration: 1400,
+    })
+  }, [])
+  // Every liveFocus bump means the LIVE chip was pressed; 0 is the initial
+  // value and must not fire on mount.
+  useEffect(() => {
+    if (liveFocus) focusLive()
+  }, [liveFocus, focusLive])
+
   // --- live GPS marker -------------------------------------------------------
   // Like the flags: a DOM overlay recreated per update (the fix changes at
   // most once a minute), so it also survives the map rebuild on `stops`.
@@ -406,13 +436,18 @@ export default function VintageMap({
       ? "bb-live-marker"
       : "bb-live-marker bb-live-stale"
     el.innerHTML = `<div class="bb-live-ring"></div><div class="bb-live-dot"></div>`
+    el.style.cursor = "pointer"
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation()
+      focusLive()
+    })
     const marker = new maplibregl.Marker({ element: el, anchor: "center" })
       .setLngLat([live.lng, live.lat])
       .addTo(map)
     return () => {
       marker.remove()
     }
-  }, [live, stops])
+  }, [live, stops, focusLive])
 
   // --- move cub + follow camera on progress/drag ----------------------------
   // ALL camera math lives here (plus the replay enter/exit effect below).
