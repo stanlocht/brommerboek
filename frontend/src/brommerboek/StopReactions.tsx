@@ -4,13 +4,26 @@
 // the action once the login round-trip succeeds.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
-import { ReactionsService, UsersService } from "@/client"
+import { UsersService } from "@/client"
 import { isLoggedIn } from "@/hooks/useAuth"
-import { fetchHonks, toggleHonk as toggleHonkApi } from "./api"
+import {
+  createComment,
+  deleteComment as deleteCommentApi,
+  fetchComments,
+  fetchHonks,
+  mediaSrc,
+  type StopComment,
+  toggleHonk as toggleHonkApi,
+} from "./api"
+import Lightbox from "./Lightbox"
 import LoginPrompt from "./LoginPrompt"
 import { C, dateLabelNL, FONT_MONO } from "./theme"
+
+// Mirror of the backend cap — caught here so an oversized pick fails with a
+// friendly message before uploading megabytes that will be rejected anyway.
+const PHOTO_MAX_BYTES = 10 * 1024 * 1024
 
 interface StopReactionsProps {
   stopId: string
@@ -27,10 +40,29 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   const [showAllHonkers, setShowAllHonkers] = useState(false)
   // Inline error line for failed writes; cleared when a new attempt starts.
   const [actionError, setActionError] = useState("")
+  // Photo picked for the next comment, shown as a small preview until posted.
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState("")
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // Comment photo shown full-screen; null = lightbox closed.
+  const [lightboxComment, setLightboxComment] = useState<StopComment | null>(
+    null,
+  )
+
+  // Object URL for the preview <img>; revoked when replaced or on unmount.
+  useEffect(() => {
+    if (!photo) {
+      setPhotoPreview("")
+      return
+    }
+    const url = URL.createObjectURL(photo)
+    setPhotoPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [photo])
 
   const commentsQ = useQuery({
     queryKey: ["stops", stopId, "comments"],
-    queryFn: () => ReactionsService.readComments({ stopId }),
+    queryFn: () => fetchComments(stopId),
   })
   // The backend lets superusers delete any comment; mirror that in the UI.
   // Query only fires when a token is present so a signed-out viewer never
@@ -47,17 +79,20 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   })
 
   const addComment = useMutation({
-    mutationFn: (body: string) =>
-      ReactionsService.createComment({ stopId, requestBody: { body } }),
+    mutationFn: ({ body, file }: { body: string; file: File | null }) =>
+      createComment(stopId, body, file),
+    onMutate: () => setActionError(""),
     onSuccess: () => {
       setDraft("")
+      setPhoto(null)
       qc.invalidateQueries({ queryKey: ["stops", stopId, "comments"] })
     },
+    onError: () =>
+      setActionError("reactie plaatsen lukte niet — probeer het opnieuw"),
   })
 
   const deleteComment = useMutation({
-    mutationFn: (commentId: string) =>
-      ReactionsService.deleteComment({ commentId }),
+    mutationFn: (commentId: string) => deleteCommentApi(commentId),
     onMutate: () => setActionError(""),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["stops", stopId, "comments"] }),
@@ -72,15 +107,26 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     onError: () => setActionError("toeteren lukte niet — probeer het opnieuw"),
   })
 
+  const pickPhoto = (files: FileList | null) => {
+    const file = files?.[0]
+    if (!file) return
+    if (file.size > PHOTO_MAX_BYTES) {
+      setActionError("foto is te groot (max 10 MB)")
+      return
+    }
+    setActionError("")
+    setPhoto(file)
+  }
+
   const submitComment = (e: React.FormEvent) => {
     e.preventDefault()
     const body = draft.trim()
-    if (!body || addComment.isPending) return
+    if ((!body && !photo) || addComment.isPending) return
     if (!isLoggedIn()) {
       setPending("comment")
       return
     }
-    addComment.mutate(body)
+    addComment.mutate({ body, file: photo })
   }
 
   const onHonk = () => {
@@ -98,7 +144,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     if (action === "toeteren") toggleHonk.mutate()
     if (action === "comment") {
       const body = draft.trim()
-      if (body) addComment.mutate(body)
+      if (body || photo) addComment.mutate({ body, file: photo })
     }
     // Refetch personalised bits so is_mine / honked_by_me update.
     qc.invalidateQueries({ queryKey: ["stops", stopId, "comments"] })
@@ -314,11 +360,76 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
             boxSizing: "border-box",
           }}
         />
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        {photoPreview && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+            }}
+          >
+            <img
+              src={photoPreview}
+              alt="gekozen foto"
+              style={{
+                maxWidth: 120,
+                maxHeight: 120,
+                borderRadius: 6,
+                border: `1px solid ${C.borderSoft}`,
+                display: "block",
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setPhoto(null)}
+              aria-label="foto verwijderen"
+              style={{
+                fontFamily: FONT_MONO,
+                fontSize: 11,
+                color: C.red,
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              ✕ weg
+            </button>
+          </div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              pickPhoto(e.target.files)
+              // Allow re-picking the same file after removing it.
+              e.target.value = ""
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              fontFamily: FONT_MONO,
+              fontSize: 12,
+              padding: "6px 12px",
+              borderRadius: 18,
+              border: `1.5px solid ${C.ochre}`,
+              background: C.paperLight,
+              color: C.ink,
+              cursor: "pointer",
+            }}
+          >
+            📷 {photo ? "andere foto" : "foto erbij"}
+          </button>
           <button
             type="submit"
-            disabled={!draft.trim() || addComment.isPending}
+            disabled={(!draft.trim() && !photo) || addComment.isPending}
             style={{
+              marginLeft: "auto",
               fontFamily: FONT_MONO,
               fontSize: 12,
               padding: "6px 14px",
@@ -327,7 +438,8 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
               background: C.ochreDeep,
               color: C.cream,
               cursor: "pointer",
-              opacity: !draft.trim() || addComment.isPending ? 0.55 : 1,
+              opacity:
+                (!draft.trim() && !photo) || addComment.isPending ? 0.55 : 1,
             }}
           >
             {addComment.isPending ? "…" : "plaats"}
@@ -382,11 +494,46 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
                 </button>
               )}
             </div>
-            <div
-              style={{ fontSize: 14, color: C.inkSoft, whiteSpace: "pre-wrap" }}
-            >
-              {c.body}
-            </div>
+            {c.body && (
+              <div
+                style={{
+                  fontSize: 14,
+                  color: C.inkSoft,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {c.body}
+              </div>
+            )}
+            {c.photo && (
+              <button
+                type="button"
+                onClick={() => setLightboxComment(c)}
+                aria-label="foto groter bekijken"
+                style={{
+                  display: "block",
+                  padding: 0,
+                  marginTop: c.body ? 8 : 0,
+                  border: `1px solid ${C.borderSoft}`,
+                  borderRadius: 6,
+                  background: "transparent",
+                  cursor: "pointer",
+                  lineHeight: 0,
+                  overflow: "hidden",
+                }}
+              >
+                <img
+                  src={mediaSrc(c.photo_thumb ?? c.photo)}
+                  alt={`foto bij reactie van ${c.author_name}`}
+                  loading="lazy"
+                  style={{
+                    maxWidth: "min(240px, 100%)",
+                    maxHeight: 240,
+                    display: "block",
+                  }}
+                />
+              </button>
+            )}
           </div>
         ))}
         {commentsQ.data?.data.length === 0 && (
@@ -401,6 +548,22 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
           </div>
         )}
       </div>
+
+      {lightboxComment?.photo && (
+        <Lightbox
+          items={[
+            {
+              tone: "",
+              cap: "",
+              kind: "image",
+              url: lightboxComment.photo,
+              thumb: lightboxComment.photo_thumb,
+            },
+          ]}
+          initialIndex={0}
+          onClose={() => setLightboxComment(null)}
+        />
+      )}
 
       {pending && (
         <LoginPrompt

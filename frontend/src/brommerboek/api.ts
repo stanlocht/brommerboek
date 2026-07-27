@@ -23,6 +23,8 @@ const mediaUrl = (id: string) => `${BASE}/api/v1/stops/${id}/media`
 const mediaIndexUrl = (id: string, i: number) =>
   `${BASE}/api/v1/stops/${id}/media/${i}`
 const honksUrl = (id: string) => `${BASE}/api/v1/stops/${id}/honks`
+const commentsUrl = (id: string) => `${BASE}/api/v1/stops/${id}/comments`
+const commentUrl = (id: string) => `${BASE}/api/v1/comments/${id}`
 const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
 const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
 const LIVE_LOCATION_URL = `${BASE}/api/v1/location/live`
@@ -198,6 +200,61 @@ export async function updateStopMediaCaption(
   })
   if (!res.ok) throw new Error(`Failed to update caption (${res.status})`)
   return (await res.json()) as Stop
+}
+
+// ----- Comments --------------------------------------------------------------
+
+export interface StopComment {
+  id: string
+  stop_id: string
+  user_id: string
+  author_name: string
+  is_mine: boolean
+  body: string
+  // Server-relative URLs of an attached photo and its WebP thumbnail
+  // ("/media/<stop>/comments/<uuid>.jpg"); null when the comment is
+  // text-only, thumb also null when thumbnail generation failed.
+  photo: string | null
+  photo_thumb: string | null
+  created_at: string | null
+}
+
+export interface CommentsList {
+  data: StopComment[]
+  count: number
+}
+
+export async function fetchComments(id: string): Promise<CommentsList> {
+  const res = await fetch(commentsUrl(id), { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Failed to load comments (${res.status})`)
+  return (await res.json()) as CommentsList
+}
+
+// Multipart on purpose: the backend takes `body` as a form field so a photo
+// can ride along in the same request. Either part may be omitted, not both.
+export async function createComment(
+  id: string,
+  body: string,
+  photo?: File | null,
+): Promise<StopComment> {
+  const form = new FormData()
+  form.append("body", body)
+  if (photo) form.append("file", photo)
+  const res = await fetch(commentsUrl(id), {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  })
+  if (!res.ok) throw new Error(`Failed to post comment (${res.status})`)
+  return (await res.json()) as StopComment
+}
+
+export async function deleteComment(id: string): Promise<void> {
+  const res = await fetch(commentUrl(id), {
+    method: "DELETE",
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Failed to delete comment (${res.status})`)
 }
 
 export async function fetchHonks(id: string): Promise<HonkState> {

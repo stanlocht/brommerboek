@@ -287,7 +287,7 @@ def test_comment_notifies_admins_only(
     expected_name = me["full_name"] or me["email"].split("@", 1)[0]
     r = client.post(
         f"{API}/stops/{stop.id}/comments",
-        json={"body": "wat een mooie plek!"},
+        data={"body": "wat een mooie plek!"},
         headers=normal_user_token_headers,
     )
     assert r.status_code == 200
@@ -312,7 +312,7 @@ def test_long_comment_excerpted(
     body = "x" * 500
     r = client.post(
         f"{API}/stops/{stop.id}/comments",
-        json={"body": body},
+        data={"body": body},
         headers=normal_user_token_headers,
     )
     assert r.status_code == 200
@@ -377,7 +377,7 @@ def test_push_failure_never_breaks_the_request(
     monkeypatch.setattr(push_core, "webpush", broken_webpush)
     r = client.post(
         f"{API}/stops/{stop.id}/comments",
-        json={"body": "toch gelukt"},
+        data={"body": "toch gelukt"},
         headers=normal_user_token_headers,
     )
     assert r.status_code == 200

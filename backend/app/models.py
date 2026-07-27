@@ -370,10 +370,6 @@ class MapFlagsPublic(SQLModel):
 # ----------------------------------------------------------------------------
 
 
-class CommentCreate(SQLModel):
-    body: str = Field(min_length=1, max_length=2000)
-
-
 class Comment(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     stop_id: uuid.UUID = Field(
@@ -383,6 +379,11 @@ class Comment(SQLModel, table=True):
         foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
     )
     body: str = Field(sa_type=Text)
+    # Optional photo attached to the comment. Server-relative URLs into the
+    # media volume ("/media/<stop_id>/comments/<uuid>.jpg"), same convention
+    # as stop media. Thumb is None when thumbnail generation failed.
+    photo: str | None = Field(default=None, max_length=512)
+    photo_thumb: str | None = Field(default=None, max_length=512)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -398,6 +399,8 @@ class CommentPublic(SQLModel):
     author_name: str
     is_mine: bool = False
     body: str
+    photo: str | None = None
+    photo_thumb: str | None = None
     created_at: datetime | None = None
 
 

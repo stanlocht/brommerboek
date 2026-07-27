@@ -1,6 +1,9 @@
+import base64
+import io
 import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -9,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
 from app import crud
+from app.api.routes import reactions as reactions_module
 from app.core.config import settings
 from app.models import Comment, HornHonk, Stop, UserCreate
 from tests.utils.stop import create_test_stop, delete_test_stop
@@ -16,6 +20,12 @@ from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
 
 API = settings.API_V1_STR
+
+# A real, valid 1x1 transparent PNG (67 bytes).
+PNG_1PX = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+    "AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 
 
 def comments_url(stop_id: object) -> str:
@@ -35,6 +45,15 @@ def stop(db: Session) -> Generator[Stop]:
     delete_test_stop(db, stop)
 
 
+@pytest.fixture
+def media_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # The route module binds MEDIA_ROOT at import time
+    # (`from app.core.media import MEDIA_ROOT`), so patch the route module's
+    # reference — patching app.core.media would not reach the handlers.
+    monkeypatch.setattr(reactions_module, "MEDIA_ROOT", tmp_path)
+    return tmp_path
+
+
 @pytest.fixture(scope="module")
 def other_user_token_headers(client: TestClient, db: Session) -> dict[str, str]:
     email = random_email()
@@ -51,7 +70,7 @@ def _me(client: TestClient, headers: dict[str, str]) -> dict[str, Any]:
 
 
 def test_create_comment_requires_auth(client: TestClient, stop: Stop) -> None:
-    r = client.post(comments_url(stop.id), json={"body": "Mooi!"})
+    r = client.post(comments_url(stop.id), data={"body": "Mooi!"})
     assert r.status_code == 401
 
 
@@ -61,7 +80,7 @@ def test_create_and_list_comment(
     r = client.post(
         comments_url(stop.id),
         headers=normal_user_token_headers,
-        json={"body": "  Wat een tocht!  "},
+        data={"body": "  Wat een tocht!  "},
     )
     assert r.status_code == 200
     created = r.json()
@@ -69,6 +88,8 @@ def test_create_and_list_comment(
     assert created["is_mine"] is True
     assert created["author_name"]
     assert created["stop_id"] == str(stop.id)
+    assert created["photo"] is None
+    assert created["photo_thumb"] is None
 
     # The list is public: no auth needed, and is_mine is False for anonymous.
     r = client.get(comments_url(stop.id))
@@ -87,11 +108,11 @@ def test_create_comment_rejects_blank_body(
     client: TestClient, normal_user_token_headers: dict[str, str], stop: Stop
 ) -> None:
     r = client.post(
-        comments_url(stop.id), headers=normal_user_token_headers, json={"body": "   "}
+        comments_url(stop.id), headers=normal_user_token_headers, data={"body": "   "}
     )
     assert r.status_code == 422
     r = client.post(
-        comments_url(stop.id), headers=normal_user_token_headers, json={"body": ""}
+        comments_url(stop.id), headers=normal_user_token_headers, data={"body": ""}
     )
     assert r.status_code == 422
 
@@ -102,7 +123,7 @@ def test_comment_on_missing_stop(
     r = client.post(
         comments_url(uuid.uuid4()),
         headers=normal_user_token_headers,
-        json={"body": "Hallo?"},
+        data={"body": "Hallo?"},
     )
     assert r.status_code == 404
     assert client.get(comments_url(uuid.uuid4())).status_code == 404
@@ -160,9 +181,147 @@ def test_comments_pagination(
 def _post_comment(
     client: TestClient, headers: dict[str, str], stop_id: object, body: str = "Toet"
 ) -> dict[str, Any]:
-    r = client.post(comments_url(stop_id), headers=headers, json={"body": body})
+    r = client.post(comments_url(stop_id), headers=headers, data={"body": body})
     assert r.status_code == 200
     return cast(dict[str, Any], r.json())
+
+
+def _post_photo_comment(
+    client: TestClient,
+    headers: dict[str, str],
+    stop_id: object,
+    *,
+    body: str = "",
+    content: bytes = PNG_1PX,
+    content_type: str = "image/png",
+) -> Any:
+    return client.post(
+        comments_url(stop_id),
+        headers=headers,
+        data={"body": body},
+        files={"file": ("foto.png", io.BytesIO(content), content_type)},
+    )
+
+
+# ----- Comment photos ---------------------------------------------------------
+
+
+def test_create_comment_with_photo(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    r = _post_photo_comment(
+        client, normal_user_token_headers, stop.id, body="Kijk dan!"
+    )
+    assert r.status_code == 200
+    created = r.json()
+    assert created["body"] == "Kijk dan!"
+    assert created["photo"].startswith(f"/media/{stop.id}/comments/")
+    assert created["photo"].endswith(".png")
+    # The bytes landed on disk, plus a real WebP thumbnail next to them.
+    filename = created["photo"].rsplit("/", 1)[-1]
+    comments_dir = media_root / str(stop.id) / "comments"
+    assert (comments_dir / filename).read_bytes() == PNG_1PX
+    stem = filename.rsplit(".", 1)[0]
+    assert created["photo_thumb"] == f"/media/{stop.id}/comments/thumb_{stem}.webp"
+    header = (comments_dir / f"thumb_{stem}.webp").read_bytes()
+    assert header[:4] == b"RIFF" and header[8:12] == b"WEBP"
+    # The public list carries the photo too.
+    listed = client.get(comments_url(stop.id)).json()
+    assert listed["data"][0]["photo"] == created["photo"]
+    assert listed["data"][0]["photo_thumb"] == created["photo_thumb"]
+
+
+@pytest.mark.usefixtures("media_root")
+def test_create_comment_photo_only_no_body(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    r = _post_photo_comment(client, normal_user_token_headers, stop.id, body="  ")
+    assert r.status_code == 200
+    created = r.json()
+    assert created["body"] == ""
+    assert created["photo"] is not None
+
+
+def test_create_comment_photo_survives_thumbnail_failure(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    # Declared image/png but not decodable — the thumbnail step must log and
+    # move on, never fail the upload.
+    r = _post_photo_comment(
+        client, normal_user_token_headers, stop.id, content=b"not a png"
+    )
+    assert r.status_code == 200
+    created = r.json()
+    assert created["photo"] is not None
+    assert created["photo_thumb"] is None
+    assert not list(media_root.glob("**/thumb_*.webp"))
+
+
+def test_create_comment_photo_rejects_wrong_content_type(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    r = _post_photo_comment(
+        client,
+        normal_user_token_headers,
+        stop.id,
+        content=b"\x00\x00\x00\x18ftypmp42not-a-real-clip",
+        content_type="video/mp4",
+    )
+    assert r.status_code == 415
+    assert "Unsupported photo type" in r.json()["detail"]
+    assert not list(media_root.glob("**/*"))
+    assert client.get(comments_url(stop.id)).json()["count"] == 0
+
+
+def test_create_comment_photo_rejects_oversized_file(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Shrink the cap instead of streaming 10 MiB through the test client.
+    monkeypatch.setattr(reactions_module, "COMMENT_PHOTO_MAX_BYTES", 1024)
+    r = _post_photo_comment(
+        client, normal_user_token_headers, stop.id, content=b"x" * 2048
+    )
+    assert r.status_code == 413
+    assert "too large" in r.json()["detail"].lower()
+    # The partial file was cleaned up and no comment row was created.
+    comments_dir = media_root / str(stop.id) / "comments"
+    assert not comments_dir.exists() or not any(comments_dir.iterdir())
+    assert client.get(comments_url(stop.id)).json()["count"] == 0
+
+
+def test_delete_comment_removes_photo_files(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    created = _post_photo_comment(client, normal_user_token_headers, stop.id).json()
+    comments_dir = media_root / str(stop.id) / "comments"
+    original = comments_dir / created["photo"].rsplit("/", 1)[-1]
+    thumb = comments_dir / created["photo_thumb"].rsplit("/", 1)[-1]
+    assert original.exists() and thumb.exists()
+
+    r = client.delete(
+        f"{API}/comments/{created['id']}", headers=normal_user_token_headers
+    )
+    assert r.status_code == 200
+    assert not original.exists()
+    assert not thumb.exists()
 
 
 def test_delete_comment_by_author(
