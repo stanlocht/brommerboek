@@ -1,6 +1,8 @@
 import uuid
 from datetime import UTC, date, datetime
+from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, delete, select
@@ -8,12 +10,14 @@ from sqlmodel import Session, delete, select
 from app import tracksync
 from app.api.routes import location
 from app.core.config import settings
+from app.geo import haversine_km
 from app.models import LegTrack, Stop
 from app.tracksync import build_leg, leg_window, nearest_index, sync_leg
 from tests.utils.utils import get_superuser_token_headers
 
 TRACKS_URL = f"{settings.API_V1_STR}/location/tracks"
 SYNC_URL = f"{settings.API_V1_STR}/location/sync-tracks"
+RIDDEN_URL = f"{settings.API_V1_STR}/location/ridden"
 
 
 @pytest.fixture(autouse=True)
@@ -30,8 +34,13 @@ def _clean_tracks(db: Session) -> None:
     db.commit()
 
 
-def _history_entry(lat: float, lng: float, fix: str) -> dict:
-    return {"latitude": lat, "longitude": lng, "fixTime": fix}
+def _history_entry(
+    lat: float, lng: float, fix: str, total: float | None = None
+) -> dict:
+    entry: dict[str, Any] = {"latitude": lat, "longitude": lng, "fixTime": fix}
+    if total is not None:
+        entry["attributes"] = {"totalDistance": total}
+    return entry
 
 
 def _two_stops(db: Session) -> tuple[Stop, Stop]:
@@ -69,9 +78,10 @@ def test_build_leg_slices_between_pins_and_sorts_by_time(db: Session) -> None:
     ]
     leg = build_leg(history, a, b)
     assert leg is not None
-    assert leg[0] == [a.lng, a.lat]
-    assert leg[-1] == [b.lng, b.lat]
-    assert len(leg) == 3
+    points, _ = leg
+    assert points[0] == [a.lng, a.lat]
+    assert points[-1] == [b.lng, b.lat]
+    assert len(points) == 3
 
 
 def test_build_leg_unusable_windows_are_none(db: Session) -> None:
@@ -86,6 +96,45 @@ def test_build_leg_unusable_windows_are_none(db: Session) -> None:
     assert build_leg(reversed_history, a, b) is None
     with pytest.raises(ValueError):
         build_leg({"not": "a list"}, a, b)
+
+
+def test_build_leg_distance_prefers_total_distance_delta(db: Session) -> None:
+    a, b = _two_stops(db)
+    # Traccar's cumulative odometer says 120 km were ridden between the
+    # pins — regardless of how few points the window stored.
+    history = [
+        _history_entry(a.lat, a.lng, "2026-07-01T10:00:00Z", total=1_000.0),
+        _history_entry(b.lat, b.lng, "2026-07-02T12:00:00Z", total=121_000.0),
+    ]
+    leg = build_leg(history, a, b)
+    assert leg is not None
+    assert leg[1] == pytest.approx(120.0)
+
+
+def test_build_leg_distance_falls_back_to_point_sum(db: Session) -> None:
+    a, b = _two_stops(db)
+    mid = ((a.lat + b.lat) / 2, (a.lng + b.lng) / 2)
+    # No totalDistance attribute → haversine hops over the stored points.
+    history = [
+        _history_entry(a.lat, a.lng, "2026-07-01T10:00:00Z"),
+        _history_entry(mid[0], mid[1], "2026-07-01T15:00:00Z"),
+        _history_entry(b.lat, b.lng, "2026-07-02T12:00:00Z"),
+    ]
+    leg = build_leg(history, a, b)
+    assert leg is not None
+    expected = haversine_km((a.lat, a.lng), mid) + haversine_km(mid, (b.lat, b.lng))
+    assert leg[1] == pytest.approx(expected)
+
+    # A totalDistance that ran backwards (tracker odometer reset mid-window)
+    # also falls back instead of going negative.
+    reset = [
+        _history_entry(a.lat, a.lng, "2026-07-01T10:00:00Z", total=500_000.0),
+        _history_entry(mid[0], mid[1], "2026-07-01T15:00:00Z"),
+        _history_entry(b.lat, b.lng, "2026-07-02T12:00:00Z", total=1_000.0),
+    ]
+    leg = build_leg(reset, a, b)
+    assert leg is not None
+    assert leg[1] == pytest.approx(expected)
 
 
 # ----- sync_leg upsert ---------------------------------------------------------
@@ -106,6 +155,9 @@ def test_sync_leg_upserts_by_destination(
     assert len(rows) == 1
     assert rows[0].to_stop_id == b.id
     assert rows[0].points == [[a.lng, a.lat], [b.lng, b.lat]]
+    assert rows[0].distance_km == pytest.approx(
+        haversine_km((a.lat, a.lng), (b.lat, b.lng)), abs=0.1
+    )
 
     # A second sync replaces the row instead of duplicating it.
     assert sync_leg(db, a, b) is True
@@ -178,6 +230,31 @@ def test_sync_tracks_backfills_and_skips_existing(
     second = r.json()
     assert second["synced"] == 0
     assert second["skipped"] == len(stops) - 1
+
+
+@pytest.mark.usefixtures("_clean_tracks")
+def test_sync_tracks_backfills_rows_without_distance(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A row synced before the distance field existed (distance_km NULL) is
+    # treated as missing by a plain, non-force sync and gets re-measured.
+    headers = get_superuser_token_headers(client)
+    stops = list(db.exec(select(Stop).order_by(Stop.order_index)).all())
+    a, b = stops[0], stops[1]
+    db.add(
+        LegTrack(
+            from_stop_id=a.id, to_stop_id=b.id, points=[[a.lng, a.lat], [b.lng, b.lat]]
+        )
+    )
+    db.commit()
+    monkeypatch.setattr(location, "fetch_history", _pin_history(stops))
+    r = client.post(SYNC_URL, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["synced"] >= 1
+    db.expire_all()
+    row = db.exec(select(LegTrack).where(LegTrack.to_stop_id == b.id)).first()
+    assert row is not None
+    assert row.distance_km is not None
 
 
 def test_sync_tracks_requires_superuser(client: TestClient) -> None:
@@ -327,3 +404,85 @@ def test_sync_for_stop_syncs_surrounding_legs(
     tracksync.sync_for_stop(uuid.uuid4())
     monkeypatch.setattr(settings, "TRACCAR_BASE_URL", "")
     tracksync.sync_for_stop(mid.id)
+
+
+# ----- /location/ridden --------------------------------------------------------
+
+
+def _last_trip_stop(db: Session) -> Stop:
+    stops = list(db.exec(select(Stop).order_by(Stop.order_index)).all())
+    trip = [s for s in stops if s.type != "preparation"]
+    assert trip, "seeded trip expected"
+    return trip[-1]
+
+
+def test_ridden_measures_from_last_stop_pin(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    last = _last_trip_stop(db)
+    calls: list[tuple[datetime, datetime]] = []
+    # Riding in to the stop, parked at the pin, then away on the next leg.
+    history = [
+        _history_entry(
+            last.lat + 0.3, last.lng + 0.3, f"{last.date}T09:00:00Z", total=10_000.0
+        ),
+        _history_entry(last.lat, last.lng, f"{last.date}T12:00:00Z", total=30_000.0),
+        _history_entry(
+            last.lat + 0.5, last.lng + 0.5, "2024-05-20T10:00:00Z", total=95_000.0
+        ),
+    ]
+
+    def fake_history(_device: int, start: datetime, end: datetime) -> list[dict]:
+        calls.append((start, end))
+        return history
+
+    monkeypatch.setattr(location, "fetch_history", fake_history)
+    monkeypatch.setattr(
+        location, "utcnow", lambda: datetime(2024, 5, 20, 12, 0, tzinfo=UTC)
+    )
+    r = client.get(RIDDEN_URL)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["from_stop_id"] == str(last.id)
+    # Only the road after the pin counts: 95 km − 30 km on the GPS odometer.
+    assert body["km"] == pytest.approx(65.0)
+    assert body["fix_time"].startswith("2024-05-20T10:00:00")
+    # The history window opens on the stop's own day.
+    assert calls[0][0] == datetime.combine(
+        last.date, datetime.min.time(), tzinfo=UTC
+    )
+
+    # A second read within the TTL is served from cache.
+    assert client.get(RIDDEN_URL).status_code == 200
+    assert len(calls) == 1
+
+
+def test_ridden_without_usable_history_is_zero(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    last = _last_trip_stop(db)
+    monkeypatch.setattr(location, "fetch_history", lambda *_: [])
+    r = client.get(RIDDEN_URL)
+    assert r.status_code == 200
+    assert r.json() == {
+        "km": 0.0,
+        "from_stop_id": str(last.id),
+        "fix_time": None,
+    }
+
+
+def test_ridden_not_configured_is_404(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "TRACCAR_BASE_URL", "")
+    assert client.get(RIDDEN_URL).status_code == 404
+
+
+def test_ridden_upstream_error_is_503_without_cache(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*_: Any) -> Any:
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(location, "fetch_history", boom)
+    assert client.get(RIDDEN_URL).status_code == 503

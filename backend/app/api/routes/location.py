@@ -20,6 +20,7 @@ from app.models import (
     LiveLocation,
     LiveTrail,
     LiveTrailPoint,
+    RiddenSince,
     Stop,
 )
 
@@ -44,6 +45,10 @@ TRAIL_MAX_HOURS = 48
 TRAIL_CACHE_TTL_SECONDS = 300.0
 TRAIL_MAX_POINTS = 400
 
+# Kilometres ridden since the last stop feed the logbook's live total; two
+# minutes keeps the figure fresh enough while sparing the history query.
+RIDDEN_CACHE_TTL_SECONDS = 120.0
+
 # Injectable clocks so tests can control the cache TTLs and the trail window.
 now: Callable[[], float] = time.monotonic
 utcnow: Callable[[], datetime] = lambda: datetime.now(UTC)
@@ -54,13 +59,16 @@ _lock = threading.Lock()
 _cache: tuple[float, LiveLocation] | None = None
 # Per-hours-window trail cache, same keep-past-TTL fallback rationale.
 _trail_cache: dict[int, tuple[float, LiveTrail]] = {}
+# Ridden-since-last-stop cache, same keep-past-TTL fallback rationale.
+_ridden_cache: tuple[float, RiddenSince] | None = None
 
 
 def clear_cache() -> None:
-    global _cache
+    global _cache, _ridden_cache
     with _lock:
         _cache = None
         _trail_cache.clear()
+        _ridden_cache = None
 
 
 def traccar_url() -> str:
@@ -285,6 +293,54 @@ def live_trail(
     with _lock:
         _trail_cache[hours] = (current, trail)
     return trail
+
+
+@router.get(
+    "/ridden",
+    response_model=RiddenSince,
+    dependencies=[
+        Depends(
+            rate_limit(
+                "location", LOCATION_RATE_LIMIT, LOCATION_RATE_WINDOW_SECONDS
+            )
+        )
+    ],
+)
+def ridden_since_last_stop(session: SessionDep) -> Any:
+    """
+    Kilometres ridden since the trip's latest stop, measured live from
+    Traccar's history (see tracksync.ridden_since_last_stop for how the
+    start point is found). Public and read-only, same error contract as
+    /live — 404 when unconfigured or the trip has no stops yet, 503 when
+    Traccar is down and nothing was ever cached.
+    """
+    global _ridden_cache
+    if not settings.traccar_enabled:
+        raise HTTPException(status_code=404, detail="live location not configured")
+    current = now()
+    with _lock:
+        cached = _ridden_cache
+    if cached and current - cached[0] < RIDDEN_CACHE_TTL_SECONDS:
+        return cached[1]
+    from app import tracksync  # deferred: tracksync imports this module
+
+    try:
+        ridden = tracksync.ridden_since_last_stop(session)
+        if ridden is None:
+            raise HTTPException(status_code=404, detail="no stops yet")
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, ValueError, LookupError, TypeError) as exc:
+        detail = ""
+        if isinstance(exc, httpx.HTTPStatusError):
+            detail = f" body: {exc.response.text[:200]!r}"
+        logger.warning("traccar ridden fetch failed: %r%s", exc, detail)
+        if cached:
+            return cached[1]
+        raise HTTPException(status_code=503, detail="gps service unavailable")
+    with _lock:
+        _ridden_cache = (current, ridden)
+    return ridden
 
 
 @router.get("/tracks", response_model=LegTracksPublic)

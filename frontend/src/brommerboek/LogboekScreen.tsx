@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { type ReactNode, useMemo } from "react"
-import { fetchStats, fetchStops } from "./api"
+import { fetchRiddenSince, fetchStats, fetchStops } from "./api"
 import { haversine } from "./geo"
 import { CubIcon } from "./icons"
 import { buildTempChart, TEMP_CHART_PAD, type TempChart } from "./tempChart"
@@ -271,14 +271,26 @@ export default function LogboekScreen() {
   })
   const stats = statsData ?? EMPTY_STATS
 
+  // Kilometres ridden since the last stop, live from the tracker. The
+  // backend caches the Traccar history query for 2 minutes, so polling
+  // faster buys nothing. Null just leaves the plain stats total.
+  const { data: ridden } = useQuery({
+    queryKey: ["ridden"],
+    queryFn: fetchRiddenSince,
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+  })
+  const liveKm = ridden ? Math.round(ridden.km) : 0
+  const totalKm = stats.km + liveKm
+
   // Preparation posts are journal-only; every recap figure counts the trip.
   const tripStops = useMemo(
     () => stops.filter((s) => s.type !== "preparation"),
     [stops],
   )
   const d = useMemo(
-    () => derive(tripStops, stats.km, stats.days),
-    [tripStops, stats.km, stats.days],
+    () => derive(tripStops, totalKm, stats.days),
+    [tripStops, totalKm, stats.days],
   )
   // Null when fewer than 2 stops carry a temperature — then the plain
   // weather list below is shown instead.
@@ -458,7 +470,7 @@ export default function LogboekScreen() {
                   marginTop: 2,
                 }}
               >
-                {kmLabel(stats.km)}
+                {kmLabel(totalKm)}
                 <span
                   style={{
                     fontSize: 16,
@@ -470,6 +482,18 @@ export default function LogboekScreen() {
                   km
                 </span>
               </div>
+              {liveKm > 0 && (
+                <div
+                  style={{
+                    fontFamily: FONT_MONO,
+                    fontSize: 10,
+                    color: C.teal,
+                    marginTop: 4,
+                  }}
+                >
+                  waarvan {kmLabel(liveKm)} km onderweg · live
+                </div>
+              )}
             </div>
             <div style={{ textAlign: "right" }}>
               <div

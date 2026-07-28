@@ -91,12 +91,22 @@ def read_stats(session: SessionDep) -> Any:
     # from the sequence keeps them out of every figure, including the km
     # chain (a mid-sequence stop would otherwise contribute two legs).
     trip = [s for s in stops if s.type != "preparation"]
-    # Prefer odometer delta per leg when both endpoints have km; that matches
-    # the actual road distance (haversine cuts across every switchback).
+    # Per-leg distance priority: the odometer delta is ground truth when both
+    # endpoints have a reading; a leg's GPS-measured distance (synced from
+    # Traccar, see tracksync) fills in when the rider forgot to note the km;
+    # haversine is the last resort (it cuts across every switchback).
+    gps_km = {
+        (row.from_stop_id, row.to_stop_id): row.distance_km
+        for row in session.exec(select(LegTrack)).all()
+        if row.distance_km is not None
+    }
     km_total = 0.0
     for prev, cur in zip(trip, trip[1:], strict=False):
+        gps = gps_km.get((prev.id, cur.id))
         if prev.km is not None and cur.km is not None and cur.km >= prev.km:
             km_total += cur.km - prev.km
+        elif gps is not None:
+            km_total += gps
         else:
             km_total += haversine_km((prev.lat, prev.lng), (cur.lat, cur.lng))
     # Suggested km = the most recent stop's odometer reading (whatever order
