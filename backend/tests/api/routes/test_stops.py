@@ -356,3 +356,93 @@ def test_update_stop_rejects_invalid_payload(
         assert r.status_code == 422
     finally:
         delete_test_stop(db, stop)
+
+
+# ----- Same-day reorder (move up/down) ----------------------------------------
+
+
+def _route_places(client: TestClient) -> list[str]:
+    return [s["place"] for s in client.get(STOPS_URL).json()["data"]]
+
+
+def test_move_stop_swaps_same_day_neighbours(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    # Two posts on the same far-future day, added in the wrong order: the
+    # evening stop first, then the morning start. Same-day stops keep
+    # insertion order, so "up" on the morning post fixes the route.
+    evening = create_test_stop(db, place="Avondstop", date="2027-06-01")
+    morning = create_test_stop(db, place="Ochtendstart", date="2027-06-01")
+    try:
+        assert _route_places(client)[-2:] == ["Avondstop", "Ochtendstart"]
+        r = client.post(
+            f"{STOPS_URL}{morning.id}/move?direction=up",
+            headers=superuser_token_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["id"] == str(morning.id)
+        assert _route_places(client)[-2:] == ["Ochtendstart", "Avondstop"]
+
+        # "down" moves it back again.
+        r = client.post(
+            f"{STOPS_URL}{morning.id}/move?direction=down",
+            headers=superuser_token_headers,
+        )
+        assert r.status_code == 200
+        assert _route_places(client)[-2:] == ["Avondstop", "Ochtendstart"]
+    finally:
+        delete_test_stop(db, evening)
+        delete_test_stop(db, morning)
+
+
+def test_move_stop_never_crosses_into_another_day(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    # A route predecessor on an earlier day is not a same-day neighbour:
+    # moving the day's first post up (or its last post down) is a 400 and
+    # leaves the order untouched.
+    before = create_test_stop(db, place="Gisteren", date="2027-05-31")
+    first = create_test_stop(db, place="Vandaag", date="2027-06-01")
+    try:
+        baseline = _route_places(client)
+        for direction in ("up", "down"):
+            r = client.post(
+                f"{STOPS_URL}{first.id}/move?direction={direction}",
+                headers=superuser_token_headers,
+            )
+            assert r.status_code == 400
+        assert _route_places(client) == baseline
+    finally:
+        delete_test_stop(db, before)
+        delete_test_stop(db, first)
+
+
+def test_move_stop_requires_superuser(
+    client: TestClient, normal_user_token_headers: dict[str, str], db: Session
+) -> None:
+    stop = create_test_stop(db)
+    try:
+        url = f"{STOPS_URL}{stop.id}/move?direction=up"
+        assert client.post(url).status_code == 401
+        assert client.post(url, headers=normal_user_token_headers).status_code == 403
+    finally:
+        delete_test_stop(db, stop)
+
+
+def test_move_stop_validates_input(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    stop = create_test_stop(db)
+    try:
+        r = client.post(
+            f"{STOPS_URL}{uuid.uuid4()}/move?direction=up",
+            headers=superuser_token_headers,
+        )
+        assert r.status_code == 404
+        r = client.post(
+            f"{STOPS_URL}{stop.id}/move?direction=sideways",
+            headers=superuser_token_headers,
+        )
+        assert r.status_code == 422
+    finally:
+        delete_test_stop(db, stop)

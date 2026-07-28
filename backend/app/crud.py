@@ -112,6 +112,47 @@ def create_stop(
     return db_stop
 
 
+def move_stop_within_day(
+    *, session: Session, db_stop: Stop, direction: str
+) -> tuple[Stop, Stop] | None:
+    """Swap a stop with its same-day neighbour on the route.
+
+    Stops carry only a date, so same-day posts are ordered by insertion
+    (order_index is the resequence tiebreaker). This is the admin's fix for
+    posts added out of sequence: "up" moves the stop earlier in its day,
+    "down" later. Same-day stops sit consecutively on the route, so a plain
+    order_index swap is enough — every other stop keeps its (date,
+    order_index) position. Returns (moved, neighbour) or None when the stop
+    is already the first (up) or last (down) post of its day.
+    """
+    if direction == "up":
+        neighbour = session.exec(
+            select(Stop)
+            .where(Stop.date == db_stop.date)
+            .where(col(Stop.order_index) < db_stop.order_index)
+            .order_by(col(Stop.order_index).desc())
+        ).first()
+    else:
+        neighbour = session.exec(
+            select(Stop)
+            .where(Stop.date == db_stop.date)
+            .where(col(Stop.order_index) > db_stop.order_index)
+            .order_by(col(Stop.order_index).asc())
+        ).first()
+    if neighbour is None:
+        return None
+    db_stop.order_index, neighbour.order_index = (
+        neighbour.order_index,
+        db_stop.order_index,
+    )
+    session.add(db_stop)
+    session.add(neighbour)
+    session.commit()
+    session.refresh(db_stop)
+    session.refresh(neighbour)
+    return db_stop, neighbour
+
+
 def update_stop(*, session: Session, db_stop: Stop, stop_in: StopUpdate) -> Stop:
     data = stop_in.model_dump(exclude_unset=True)
     extra: dict[str, Any] = {}
