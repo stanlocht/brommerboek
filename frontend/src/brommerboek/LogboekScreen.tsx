@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { type ReactNode, useMemo } from "react"
-import { fetchRiddenSince, fetchStats, fetchStops } from "./api"
+import { fetchStats, fetchStops } from "./api"
 import { haversine } from "./geo"
 import { CubIcon } from "./icons"
 import { buildTempChart, TEMP_CHART_PAD, type TempChart } from "./tempChart"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import { EMPTY_STATS } from "./trip"
 import type { Stop } from "./types"
+import useLiveKm from "./useLiveKm"
 import { weatherLabel } from "./weather"
 
 interface CountryTally {
@@ -271,16 +272,7 @@ export default function LogboekScreen() {
   })
   const stats = statsData ?? EMPTY_STATS
 
-  // Kilometres ridden since the last stop, live from the tracker. The
-  // backend caches the Traccar history query for 2 minutes, so polling
-  // faster buys nothing. Null just leaves the plain stats total.
-  const { data: ridden } = useQuery({
-    queryKey: ["ridden"],
-    queryFn: fetchRiddenSince,
-    refetchInterval: 120_000,
-    staleTime: 60_000,
-  })
-  const liveKm = ridden ? Math.round(ridden.km) : 0
+  const liveKm = useLiveKm()
   const totalKm = stats.km + liveKm
 
   // Preparation posts are journal-only; every recap figure counts the trip.
