@@ -130,3 +130,12 @@ export interface LegTrackData {
   to_stop_id: string
   points: [number, number][]
 }
+
+// Kilometres ridden since the trip's latest stop, measured live from the
+// tracker — mirror of the backend `RiddenSince`. The logbook adds `km` on
+// top of the through-the-last-stop total for a live figure.
+export interface RiddenSince {
+  km: number
+  from_stop_id: string
+  fix_time: string | null
+}

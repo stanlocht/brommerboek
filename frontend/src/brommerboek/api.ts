@@ -10,6 +10,7 @@ import type {
   MapFlagKind,
   MapFlagPatch,
   NewStop,
+  RiddenSince,
   Stop,
   StopPatch,
   StopsResponse,
@@ -29,6 +30,7 @@ const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
 const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
 const LIVE_LOCATION_URL = `${BASE}/api/v1/location/live`
 const LIVE_TRAIL_URL = `${BASE}/api/v1/location/trail`
+const RIDDEN_URL = `${BASE}/api/v1/location/ridden`
 const LEG_TRACKS_URL = `${BASE}/api/v1/location/tracks`
 const PUSH_PUBLIC_KEY_URL = `${BASE}/api/v1/push/public-key`
 const PUSH_SUBSCRIBE_URL = `${BASE}/api/v1/push/subscribe`
@@ -121,6 +123,19 @@ export async function fetchLiveTrail(): Promise<LiveTrailPoint[] | null> {
     if (!res.ok) return null
     const body = (await res.json()) as { points: LiveTrailPoint[] }
     return body.points
+  } catch {
+    return null
+  }
+}
+
+// Kilometres ridden since the last stop, measured live from the tracker.
+// Same null-on-anything contract as fetchLiveLocation: null just means the
+// logbook shows the through-the-last-stop total without the live part.
+export async function fetchRiddenSince(): Promise<RiddenSince | null> {
+  try {
+    const res = await fetch(RIDDEN_URL)
+    if (!res.ok) return null
+    return (await res.json()) as RiddenSince
   } catch {
     return null
   }

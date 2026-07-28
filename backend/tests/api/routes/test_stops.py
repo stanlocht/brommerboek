@@ -2,10 +2,10 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, delete, select
 
 from app.core.config import settings
-from app.models import Comment, HornHonk
+from app.models import Comment, HornHonk, LegTrack, Stop
 from tests.utils.stop import create_test_stop, delete_test_stop, stop_payload
 
 STOPS_URL = f"{settings.API_V1_STR}/stops/"
@@ -119,6 +119,39 @@ def test_stats_haversine_fallback_when_km_missing(
         assert 320 < leg < 360
         assert stats["days"] == 17
     finally:
+        delete_test_stop(db, stop)
+
+
+def test_stats_gps_distance_beats_haversine_when_km_missing(
+    client: TestClient, db: Session
+) -> None:
+    # Same Roma leg without an odometer reading, but with a GPS-measured
+    # distance synced for it: the measured road wins over the great-circle
+    # estimate. An odometer-covered leg with a GPS track keeps the odometer.
+    stop = create_test_stop(
+        db, place="Roma", code="IT", lat=41.9028, lng=12.4964, date="2024-05-21"
+    )
+    prev = db.exec(
+        select(Stop)
+        .where(Stop.order_index < stop.order_index)
+        .order_by(Stop.order_index.desc())
+    ).first()
+    assert prev is not None
+    db.add(
+        LegTrack(
+            from_stop_id=prev.id,
+            to_stop_id=stop.id,
+            points=[[prev.lng, prev.lat], [stop.lng, stop.lat]],
+            distance_km=421.0,
+        )
+    )
+    db.commit()
+    try:
+        stats = client.get(f"{STOPS_URL}stats").json()
+        assert stats["km"] == 1024 + 421
+    finally:
+        db.execute(delete(LegTrack))
+        db.commit()
         delete_test_stop(db, stop)
 
 

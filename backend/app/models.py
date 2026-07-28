@@ -280,6 +280,11 @@ class LegTrack(SQLModel, table=True):
     from_stop_id: uuid.UUID = Field(index=True)
     to_stop_id: uuid.UUID = Field(unique=True, index=True)
     points: list = Field(default_factory=list, sa_column=Column(JSON))
+    # Kilometres actually ridden on this leg, measured from the full-
+    # resolution GPS history at sync time (the stored `points` are decimated
+    # for drawing and would under-measure). None on rows synced before the
+    # field existed — a plain /location/sync-tracks run backfills them.
+    distance_km: float | None = Field(default=None)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -301,6 +306,17 @@ class LegTrackSyncResult(SQLModel):
     synced: int
     skipped: int
     failed: int
+
+
+# Kilometres ridden since the trip's latest stop, measured live from Traccar
+# history (see tracksync.ridden_since_last_stop). The logbook adds `km` on
+# top of the through-the-last-stop total for a live figure. `fix_time` is the
+# newest position the measurement reaches; None when the tracker has no
+# usable history since the stop (then `km` is 0).
+class RiddenSince(SQLModel):
+    km: float
+    from_stop_id: uuid.UUID
+    fix_time: datetime | None = None
 
 
 # Aggregate trip statistics for the "Wrapped" recap screen. `km` uses each

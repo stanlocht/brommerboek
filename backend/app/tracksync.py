@@ -19,7 +19,7 @@ from app.api.routes import location
 from app.core.config import settings
 from app.core.db import engine
 from app.geo import haversine_km
-from app.models import LegTrack, LegTrackSyncResult, Stop
+from app.models import LegTrack, LegTrackSyncResult, RiddenSince, Stop
 
 logger = logging.getLogger(__name__)
 
@@ -50,42 +50,88 @@ def nearest_index(coords: list[list[float]], lat: float, lng: float) -> int:
     return best
 
 
-def build_leg(
-    history: Any, from_stop: Stop, to_stop: Stop
-) -> list[list[float]] | None:
-    """The leg polyline from a Traccar history payload; None when unusable.
+def parse_history(
+    history: Any,
+) -> list[tuple[datetime | None, float, float, float | None]]:
+    """Usable (fix_time, lat, lng, total_distance_m) entries, oldest first.
 
-    None covers legs that predate the tracker (no history), and windows where
-    the track never runs origin→destination (e.g. the tracker was off).
+    `total_distance_m` is Traccar's cumulative odometer attribute when the
+    position carries one — the most accurate GPS distance source available.
     """
     if not isinstance(history, list):
         raise ValueError("history payload is not a list")
-    entries = [
-        (location._parse_time(pos.get("fixTime")), pos["latitude"], pos["longitude"])
-        for pos in history
-        if isinstance(pos, dict)
-        and isinstance(pos.get("latitude"), int | float)
-        and isinstance(pos.get("longitude"), int | float)
-    ]
+    entries = []
+    for pos in history:
+        if not isinstance(pos, dict):
+            continue
+        lat = pos.get("latitude")
+        lng = pos.get("longitude")
+        if not isinstance(lat, int | float) or not isinstance(lng, int | float):
+            continue
+        attrs = pos.get("attributes")
+        total = attrs.get("totalDistance") if isinstance(attrs, dict) else None
+        if not isinstance(total, int | float):
+            total = None
+        entries.append((location._parse_time(pos.get("fixTime")), lat, lng, total))
     floor = datetime.min.replace(tzinfo=UTC)
     entries.sort(key=lambda e: e[0] or floor)
-    coords = [[lng, lat] for _, lat, lng in entries]
+    return entries
+
+
+def slice_km(
+    entries: list[tuple[datetime | None, float, float, float | None]],
+    i0: int,
+    i1: int,
+) -> float:
+    """Kilometres ridden over entries[i0..i1].
+
+    Prefers the delta of Traccar's cumulative `totalDistance`: it counts the
+    road even through gaps in the stored points. Falls back to summing the
+    haversine hops between points when either end lacks the attribute — or
+    when the delta is negative (tracker odometer reset mid-window).
+    """
+    d0 = entries[i0][3]
+    d1 = entries[i1][3]
+    if d0 is not None and d1 is not None and d1 >= d0:
+        return (d1 - d0) / 1000.0
+    total = 0.0
+    for j in range(i0, i1):
+        _, lat_a, lng_a, _ = entries[j]
+        _, lat_b, lng_b, _ = entries[j + 1]
+        total += haversine_km((lat_a, lng_a), (lat_b, lng_b))
+    return total
+
+
+def build_leg(
+    history: Any, from_stop: Stop, to_stop: Stop
+) -> tuple[list[list[float]], float] | None:
+    """The leg polyline and its ridden kilometres from a Traccar history
+    payload; None when unusable.
+
+    None covers legs that predate the tracker (no history), and windows where
+    the track never runs origin→destination (e.g. the tracker was off). The
+    distance is measured on the full-resolution slice, before decimation.
+    """
+    entries = parse_history(history)
+    coords = [[lng, lat] for _, lat, lng, _ in entries]
     if len(coords) < 2:
         return None
     i0 = nearest_index(coords, from_stop.lat, from_stop.lng)
     i1 = nearest_index(coords, to_stop.lat, to_stop.lng)
     if i1 <= i0:
         return None
-    return location.decimate(coords[i0 : i1 + 1], MAX_LEG_POINTS)
+    points = location.decimate(coords[i0 : i1 + 1], MAX_LEG_POINTS)
+    return points, slice_km(entries, i0, i1)
 
 
 def sync_leg(session: Session, from_stop: Stop, to_stop: Stop) -> bool:
     """Fetch, slice and upsert one leg's track. True when a track was stored."""
     device_id = location.resolve_device_id()
     start, end = leg_window(from_stop.date, to_stop.date)
-    points = build_leg(location.fetch_history(device_id, start, end), from_stop, to_stop)
-    if points is None:
+    leg = build_leg(location.fetch_history(device_id, start, end), from_stop, to_stop)
+    if leg is None:
         return False
+    points, distance_km = leg
     row = session.exec(
         select(LegTrack).where(LegTrack.to_stop_id == to_stop.id)
     ).first()
@@ -94,6 +140,7 @@ def sync_leg(session: Session, from_stop: Stop, to_stop: Stop) -> bool:
     else:
         row.from_stop_id = from_stop.id
         row.points = points
+    row.distance_km = round(distance_km, 1)
     session.add(row)
     session.commit()
     return True
@@ -114,7 +161,14 @@ def sync_all(session: Session, only_missing: bool = True) -> LegTrackSyncResult:
     stops = _ordered_stops(session)
     for prev, cur in zip(stops, stops[1:], strict=False):
         row = existing.get(cur.id)
-        if only_missing and row is not None and row.from_stop_id == prev.id:
+        # A row without a distance predates the distance field — treat it as
+        # missing so a plain sync backfills the measurement.
+        if (
+            only_missing
+            and row is not None
+            and row.from_stop_id == prev.id
+            and row.distance_km is not None
+        ):
             skipped += 1
             continue
         try:
@@ -128,6 +182,36 @@ def sync_all(session: Session, only_missing: bool = True) -> LegTrackSyncResult:
                 "leg sync %s → %s failed", prev.place, cur.place, exc_info=True
             )
     return LegTrackSyncResult(synced=synced, skipped=skipped, failed=failed)
+
+
+def ridden_since_last_stop(session: Session) -> RiddenSince | None:
+    """Kilometres ridden since the route's latest stop, live from Traccar.
+
+    The start point borrows the leg-slicing trick: fetch history from the
+    stop's day onward and cut at the point nearest the stop's pin — in
+    practice where the Cub was parked at that stop. Everything after that
+    point is the current leg so far. Preparation posts don't anchor the
+    route, so the latest non-preparation stop is used. None when the trip
+    has no stops yet; a window with no usable track measures 0 km.
+    """
+    stops = [s for s in _ordered_stops(session) if s.type != "preparation"]
+    if not stops:
+        return None
+    last = stops[-1]
+    device_id = location.resolve_device_id()
+    start = datetime.combine(last.date, time.min, tzinfo=UTC)
+    entries = parse_history(
+        location.fetch_history(device_id, start, location.utcnow())
+    )
+    coords = [[lng, lat] for _, lat, lng, _ in entries]
+    if len(coords) < 2:
+        return RiddenSince(km=0.0, from_stop_id=last.id)
+    i0 = nearest_index(coords, last.lat, last.lng)
+    last_i = len(entries) - 1
+    km = slice_km(entries, i0, last_i) if i0 < last_i else 0.0
+    return RiddenSince(
+        km=round(km, 1), from_stop_id=last.id, fix_time=entries[last_i][0]
+    )
 
 
 def sync_for_stop(stop_id: uuid.UUID) -> None:
