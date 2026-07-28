@@ -20,6 +20,8 @@ from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
 from app.core.ratelimit import rate_limit
 from app.models import (
     Comment,
+    CommentHonk,
+    CommentHonkPublic,
     CommentPublic,
     CommentsPublic,
     HonkerPublic,
@@ -98,6 +100,28 @@ def read_comments(
         .limit(limit)
     )
     rows = session.exec(statement).all()
+    # Toeter tallies for just this page of comments, in two grouped/targeted
+    # queries instead of one per comment.
+    comment_ids = [c.id for c, _ in rows]
+    honk_counts: dict[uuid.UUID, int] = {}
+    my_honks: set[uuid.UUID] = set()
+    if comment_ids:
+        honk_counts = dict(
+            session.exec(
+                select(CommentHonk.comment_id, func.count())
+                .where(col(CommentHonk.comment_id).in_(comment_ids))
+                .group_by(col(CommentHonk.comment_id))
+            ).all()
+        )
+        if me is not None:
+            my_honks = set(
+                session.exec(
+                    select(CommentHonk.comment_id).where(
+                        col(CommentHonk.comment_id).in_(comment_ids),
+                        CommentHonk.user_id == me.id,
+                    )
+                ).all()
+            )
     data = [
         CommentPublic(
             id=c.id,
@@ -109,6 +133,8 @@ def read_comments(
             photo=c.photo,
             photo_thumb=c.photo_thumb,
             created_at=c.created_at,
+            honk_count=honk_counts.get(c.id, 0),
+            honked_by_me=c.id in my_honks,
         )
         for c, u in rows
     ]
@@ -339,3 +365,73 @@ def toggle_honk(
             # the unique constraint already guarantees the desired state.
             session.rollback()
     return _honk_state(session, me, stop_id)
+
+
+# ----- Comment honks (toeter a reactie) ---------------------------------------
+
+
+def _comment_honk_state(
+    session: SessionDep, me: User, comment_id: uuid.UUID
+) -> CommentHonkPublic:
+    count = session.exec(
+        select(func.count())
+        .select_from(CommentHonk)
+        .where(CommentHonk.comment_id == comment_id)
+    ).one()
+    mine = session.exec(
+        select(CommentHonk).where(
+            CommentHonk.comment_id == comment_id, CommentHonk.user_id == me.id
+        )
+    ).first()
+    return CommentHonkPublic(
+        comment_id=comment_id, count=count, honked_by_me=mine is not None
+    )
+
+
+@router.post(
+    "/comments/{comment_id}/honks",
+    response_model=CommentHonkPublic,
+    dependencies=[
+        # Shares the stop-honk bucket: one toeter budget, wherever you honk.
+        Depends(rate_limit("honks", HONK_RATE_LIMIT, HONK_RATE_WINDOW_SECONDS))
+    ],
+)
+def toggle_comment_honk(
+    session: SessionDep,
+    me: CurrentUser,
+    comment_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+) -> Any:
+    """
+    Toggle the caller's horn honk on a comment.
+    """
+    comment = session.get(Comment, comment_id)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    existing = session.exec(
+        select(CommentHonk).where(
+            CommentHonk.comment_id == comment_id, CommentHonk.user_id == me.id
+        )
+    ).first()
+    if existing:
+        session.delete(existing)
+        session.commit()
+    else:
+        stop = session.get(Stop, comment.stop_id)
+        honk = CommentHonk(comment_id=comment_id, user_id=me.id)
+        session.add(honk)
+        try:
+            session.commit()
+            # Only a freshly created honk notifies — removals stay silent.
+            excerpt = _excerpt(comment.body) if comment.body else "📷 foto"
+            background_tasks.add_task(
+                push.send_to_admins,
+                title=f"{_display_name(me)} toetert op een reactie 📯",
+                body=f"bij {stop.place}: '{excerpt}'" if stop else f"'{excerpt}'",
+                url=f"/?stop={comment.stop_id}",
+            )
+        except IntegrityError:
+            # Lost a race with another concurrent honk from the same user —
+            # the unique constraint already guarantees the desired state.
+            session.rollback()
+    return _comment_honk_state(session, me, comment_id)

@@ -15,6 +15,7 @@ import {
   fetchHonks,
   mediaSrc,
   type StopComment,
+  toggleCommentHonk as toggleCommentHonkApi,
   toggleHonk as toggleHonkApi,
 } from "./api"
 import Lightbox from "./Lightbox"
@@ -29,7 +30,9 @@ interface StopReactionsProps {
   stopId: string
 }
 
-type PendingAction = null | "comment" | "toeteren"
+// The comment-toeter variant carries the comment id so the click can be
+// replayed after the login round-trip.
+type PendingAction = null | "comment" | "toeteren" | { commentToeter: string }
 
 export default function StopReactions({ stopId }: StopReactionsProps) {
   const qc = useQueryClient()
@@ -107,6 +110,14 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     onError: () => setActionError("toeteren lukte niet — probeer het opnieuw"),
   })
 
+  const toggleCommentHonk = useMutation({
+    mutationFn: (commentId: string) => toggleCommentHonkApi(commentId),
+    onMutate: () => setActionError(""),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["stops", stopId, "comments"] }),
+    onError: () => setActionError("toeteren lukte niet — probeer het opnieuw"),
+  })
+
   const pickPhoto = (files: FileList | null) => {
     const file = files?.[0]
     if (!file) return
@@ -138,6 +149,15 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     toggleHonk.mutate()
   }
 
+  const onCommentHonk = (commentId: string) => {
+    if (toggleCommentHonk.isPending) return
+    if (!isLoggedIn()) {
+      setPending({ commentToeter: commentId })
+      return
+    }
+    toggleCommentHonk.mutate(commentId)
+  }
+
   const onLoggedIn = () => {
     const action = pending
     setPending(null)
@@ -145,6 +165,9 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     if (action === "comment") {
       const body = draft.trim()
       if (body || photo) addComment.mutate({ body, file: photo })
+    }
+    if (action !== null && typeof action === "object") {
+      toggleCommentHonk.mutate(action.commentToeter)
     }
     // Refetch personalised bits so is_mine / honked_by_me update.
     qc.invalidateQueries({ queryKey: ["stops", stopId, "comments"] })
@@ -534,6 +557,34 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
                 />
               </button>
             )}
+            <div style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={() => onCommentHonk(c.id)}
+                aria-pressed={c.honked_by_me}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "3px 10px",
+                  borderRadius: 14,
+                  border: `1px solid ${c.honked_by_me ? C.red : C.borderSoft}`,
+                  background: c.honked_by_me ? "#f7edd6" : "transparent",
+                  color: c.honked_by_me ? C.red : C.sepia,
+                  fontFamily: FONT_MONO,
+                  fontSize: 11,
+                  cursor: "pointer",
+                }}
+              >
+                <span aria-hidden style={{ fontSize: 12 }}>
+                  📯
+                </span>
+                <span>{c.honked_by_me ? "getoeterd" : "toeter"}</span>
+                {c.honk_count > 0 && (
+                  <span style={{ opacity: 0.75 }}>· {c.honk_count}</span>
+                )}
+              </button>
+            </div>
           </div>
         ))}
         {commentsQ.data?.data.length === 0 && (
@@ -567,7 +618,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
 
       {pending && (
         <LoginPrompt
-          intent={pending}
+          intent={pending === "comment" ? "comment" : "toeteren"}
           onClose={() => setPending(null)}
           onSuccess={onLoggedIn}
         />

@@ -418,6 +418,10 @@ class CommentPublic(SQLModel):
     photo: str | None = None
     photo_thumb: str | None = None
     created_at: datetime | None = None
+    # Toeter tally on the comment itself, embedded so the list needs no
+    # follow-up request per comment.
+    honk_count: int = 0
+    honked_by_me: bool = False
 
 
 class CommentsPublic(SQLModel):
@@ -459,6 +463,33 @@ class HonkPublic(SQLModel):
     # popular stop shipping a giant payload; when longer, `count` is still
     # the true total.
     honkers: list[HonkerPublic] = Field(default_factory=list)
+
+
+class CommentHonk(SQLModel, table=True):
+    # Same toggle semantics as HornHonk, but on a comment.
+    __table_args__ = (
+        UniqueConstraint("comment_id", "user_id", name="uq_honk_comment_user"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    comment_id: uuid.UUID = Field(
+        foreign_key="comment.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class CommentHonkPublic(SQLModel):
+    # Comments carry just a tally, no honkers list — the per-comment button
+    # only needs the count and the viewer's own state.
+    comment_id: uuid.UUID
+    count: int
+    honked_by_me: bool
 
 
 # ----------------------------------------------------------------------------

@@ -9,12 +9,12 @@ from typing import Any, cast
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app import crud
 from app.api.routes import reactions as reactions_module
 from app.core.config import settings
-from app.models import Comment, HornHonk, Stop, UserCreate
+from app.models import Comment, CommentHonk, HornHonk, Stop, UserCreate
 from tests.utils.stop import create_test_stop, delete_test_stop
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
@@ -34,6 +34,10 @@ def comments_url(stop_id: object) -> str:
 
 def honks_url(stop_id: object) -> str:
     return f"{API}/stops/{stop_id}/honks"
+
+
+def comment_honks_url(comment_id: object) -> str:
+    return f"{API}/comments/{comment_id}/honks"
 
 
 @pytest.fixture
@@ -425,6 +429,114 @@ def test_honk_on_missing_stop(
         client.post(honks_url(uuid.uuid4()), headers=normal_user_token_headers)
     ).status_code == 404
     assert client.get(honks_url(uuid.uuid4())).status_code == 404
+
+
+# ----- Comment honks ------------------------------------------------------------
+
+
+def test_comment_honk_requires_auth(
+    client: TestClient, normal_user_token_headers: dict[str, str], stop: Stop
+) -> None:
+    comment = _post_comment(client, normal_user_token_headers, stop.id)
+    r = client.post(comment_honks_url(comment["id"]))
+    assert r.status_code == 401
+
+
+def test_comment_honk_toggle_on_off(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    other_user_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    comment = _post_comment(client, normal_user_token_headers, stop.id)
+    # A fresh comment starts without honks.
+    assert comment["honk_count"] == 0
+    assert comment["honked_by_me"] is False
+
+    # Toggle on.
+    r = client.post(comment_honks_url(comment["id"]), headers=other_user_token_headers)
+    assert r.status_code == 200
+    state = r.json()
+    assert state["comment_id"] == comment["id"]
+    assert state["count"] == 1
+    assert state["honked_by_me"] is True
+
+    # The comment list embeds the tally; anonymous viewers see the count but
+    # never honked_by_me, and the honker sees their own state.
+    anon = client.get(comments_url(stop.id)).json()["data"][0]
+    assert anon["honk_count"] == 1
+    assert anon["honked_by_me"] is False
+    mine = client.get(comments_url(stop.id), headers=other_user_token_headers).json()
+    assert mine["data"][0]["honked_by_me"] is True
+
+    # The comment author honks too.
+    r = client.post(comment_honks_url(comment["id"]), headers=normal_user_token_headers)
+    assert r.json()["count"] == 2
+
+    # Toggle off for the second user.
+    r = client.post(comment_honks_url(comment["id"]), headers=other_user_token_headers)
+    assert r.status_code == 200
+    state = r.json()
+    assert state["count"] == 1
+    assert state["honked_by_me"] is False
+
+
+def test_comment_honk_on_missing_comment(
+    client: TestClient, normal_user_token_headers: dict[str, str]
+) -> None:
+    r = client.post(comment_honks_url(uuid.uuid4()), headers=normal_user_token_headers)
+    assert r.status_code == 404
+
+
+def test_comment_honk_unique_constraint(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    db: Session,
+    stop: Stop,
+) -> None:
+    comment = _post_comment(client, normal_user_token_headers, stop.id)
+    comment_id = uuid.UUID(comment["id"])
+    me = _me(client, normal_user_token_headers)
+    user_id = uuid.UUID(me["id"])
+    db.add(CommentHonk(comment_id=comment_id, user_id=user_id))
+    db.commit()
+    db.add(CommentHonk(comment_id=comment_id, user_id=user_id))
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+    # And through the API the toggle keeps it at one honk max: the seeded
+    # honk means the next toggle switches it off.
+    listed = client.get(comments_url(stop.id), headers=normal_user_token_headers)
+    assert listed.json()["data"][0]["honk_count"] == 1
+    state = client.post(
+        comment_honks_url(comment_id), headers=normal_user_token_headers
+    ).json()
+    assert state["count"] == 0
+    assert state["honked_by_me"] is False
+
+
+def test_delete_comment_removes_its_honks(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    db: Session,
+    stop: Stop,
+) -> None:
+    comment = _post_comment(client, normal_user_token_headers, stop.id)
+    r = client.post(comment_honks_url(comment["id"]), headers=normal_user_token_headers)
+    assert r.json()["count"] == 1
+    r = client.delete(
+        f"{API}/comments/{comment['id']}", headers=normal_user_token_headers
+    )
+    assert r.status_code == 200
+    # The honk row went with the comment (FK ON DELETE CASCADE).
+    assert (
+        db.exec(
+            select(CommentHonk).where(
+                CommentHonk.comment_id == uuid.UUID(comment["id"])
+            )
+        ).first()
+        is None
+    )
 
 
 def test_honk_unique_constraint(
