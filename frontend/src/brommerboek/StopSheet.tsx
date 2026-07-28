@@ -144,15 +144,26 @@ function GalleryTile({
 export default function StopSheet({
   cur,
   canEdit,
+  canMoveUp = false,
+  canMoveDown = false,
+  moving = false,
   onClose,
   onShare,
   onEdit,
+  onMove,
 }: {
   cur: Stop
   canEdit: boolean
+  // Same-day reorder (admin): whether a same-day neighbour exists before/
+  // after this stop on the route. Posts carry no time, so this is the only
+  // way to fix two same-day posts added in the wrong order.
+  canMoveUp?: boolean
+  canMoveDown?: boolean
+  moving?: boolean
   onClose: () => void
   onShare: () => void
   onEdit: () => void
+  onMove?: (direction: "up" | "down") => void
 }) {
   const kmText = cur.km != null ? `${cur.km} km` : "— km"
   const weatherText = weatherLabel(cur.weather_condition, cur.weather_temp)
@@ -234,6 +245,40 @@ export default function StopSheet({
             gap: 8,
           }}
         >
+          {canEdit && (canMoveUp || canMoveDown) && (
+            <>
+              <button
+                type="button"
+                onClick={() => onMove?.("up")}
+                disabled={!canMoveUp || moving}
+                aria-label="Eerder op de dag"
+                title="Eerder op de dag"
+                style={{
+                  ...headerButton,
+                  padding: "0 12px",
+                  opacity: canMoveUp && !moving ? 1 : 0.4,
+                  cursor: canMoveUp && !moving ? "pointer" : "default",
+                }}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                onClick={() => onMove?.("down")}
+                disabled={!canMoveDown || moving}
+                aria-label="Later op de dag"
+                title="Later op de dag"
+                style={{
+                  ...headerButton,
+                  padding: "0 12px",
+                  opacity: canMoveDown && !moving ? 1 : 0.4,
+                  cursor: canMoveDown && !moving ? "pointer" : "default",
+                }}
+              >
+                ↓
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={onShare}

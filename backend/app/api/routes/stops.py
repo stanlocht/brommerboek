@@ -1,6 +1,6 @@
 import shutil
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlmodel import col, delete, func, select
@@ -210,6 +210,46 @@ def update_stop(
 
         background_tasks.add_task(tracksync.sync_for_stop, updated.id)
     return updated
+
+
+@router.post(
+    "/{id}/move",
+    response_model=StopPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def move_stop(
+    *,
+    session: SessionDep,
+    id: uuid.UUID,
+    direction: Literal["up", "down"],
+    background_tasks: BackgroundTasks,
+) -> Any:
+    """
+    Swap a stop with its same-day neighbour on the route ("up" = earlier in
+    the day, "down" = later). Posts carry a date but no time, so this is the
+    admin's fix for two same-day posts added in the wrong order. Superusers
+    only. 400 when the stop is already at that edge of its day.
+    """
+    db_stop = session.get(Stop, id)
+    if not db_stop:
+        raise HTTPException(status_code=404, detail="Stop not found")
+    swapped = crud.move_stop_within_day(
+        session=session, db_stop=db_stop, direction=direction
+    )
+    if swapped is None:
+        edge = "first" if direction == "up" else "last"
+        raise HTTPException(
+            status_code=400, detail=f"Stop is already the {edge} of its day"
+        )
+    moved, neighbour = swapped
+    if settings.traccar_enabled:
+        # The swap reshapes three legs (into, between and out of the pair);
+        # re-slicing around both stops covers them all.
+        from app import tracksync  # deferred: avoids a route-import cycle
+
+        background_tasks.add_task(tracksync.sync_for_stop, moved.id)
+        background_tasks.add_task(tracksync.sync_for_stop, neighbour.id)
+    return moved
 
 
 @router.post(

@@ -13,6 +13,7 @@ import {
   fetchMapFlags,
   fetchStats,
   fetchStops,
+  moveStop,
   updateMapFlag,
   updateStop,
   uploadStopMedia,
@@ -286,6 +287,25 @@ export default function BrommerboekApp() {
       flash("✓ Stop bijgewerkt")
     },
     onError: () => flash("Kon de wijziging niet opslaan"),
+  })
+
+  const moveMut = useMutation({
+    mutationFn: ({ id, direction }: { id: string; direction: "up" | "down" }) =>
+      moveStop(id, direction),
+    onSuccess: async (_moved, { direction }) => {
+      // The stop shifted one route position; follow it so the sheet keeps
+      // showing the same post after the list refetches.
+      setActiveIndex((i) => (direction === "up" ? Math.max(0, i - 1) : i + 1))
+      // Swapping neighbours reshapes the ridden roads around both stops;
+      // the server re-slices them in the background.
+      setTimeout(
+        () => qc.invalidateQueries({ queryKey: ["legTracks"] }),
+        10_000,
+      )
+      await qc.invalidateQueries({ queryKey: ["stops"] })
+      flash("✓ Volgorde aangepast")
+    },
+    onError: () => flash("Kon de volgorde niet aanpassen"),
   })
 
   const deleteMut = useMutation({
@@ -563,6 +583,18 @@ export default function BrommerboekApp() {
         <StopSheet
           cur={cur}
           canEdit={canEdit}
+          canMoveUp={
+            canEdit &&
+            activeIndex > 0 &&
+            stops[activeIndex - 1].date === cur.date
+          }
+          canMoveDown={
+            canEdit &&
+            activeIndex < stops.length - 1 &&
+            stops[activeIndex + 1].date === cur.date
+          }
+          moving={moveMut.isPending}
+          onMove={(direction) => moveMut.mutate({ id: cur.id, direction })}
           onClose={() => setSheetOpen(false)}
           onShare={() => shareCurrentStop(cur)}
           onEdit={() => {

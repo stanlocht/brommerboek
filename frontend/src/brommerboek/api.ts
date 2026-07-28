@@ -167,6 +167,21 @@ export async function createStop(stop: NewStop): Promise<Stop> {
   return (await res.json()) as Stop
 }
 
+// Superuser-only: swap a stop with its same-day neighbour on the route
+// ("up" = earlier in the day, "down" = later). Posts carry no time, so this
+// is the admin's fix for same-day posts added in the wrong order.
+export async function moveStop(
+  id: string,
+  direction: "up" | "down",
+): Promise<Stop> {
+  const res = await fetch(`${stopUrl(id)}/move?direction=${direction}`, {
+    method: "POST",
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Failed to move stop (${res.status})`)
+  return (await res.json()) as Stop
+}
+
 export async function updateStop(id: string, patch: StopPatch): Promise<Stop> {
   const res = await fetch(stopUrl(id), {
     method: "PATCH",
