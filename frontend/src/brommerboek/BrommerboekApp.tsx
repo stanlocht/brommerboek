@@ -29,6 +29,7 @@ import { shareUrl, stopIdFromSearch, withoutStopParam } from "./share"
 import { C, FONT_MONO } from "./theme"
 import { EMPTY_STATS } from "./trip"
 import type { MapFlagKind, MapFlagPatch, NewStop, Stop } from "./types"
+import useLiveKm from "./useLiveKm"
 import useReplay from "./useReplay"
 
 function CenterState({
@@ -77,6 +78,9 @@ export default function BrommerboekApp() {
   // Fall back to zeros so the map keeps working when /stats fails; the flag
   // lets stat displays show a hint instead of confident zeros.
   const stats = statsData ?? EMPTY_STATS
+  // The logbook card's km total includes the live part (ridden since the
+  // last stop), matching the logbook screen's headline figure.
+  const liveKm = useLiveKm()
   // Everyone sees the same trip; only superusers get the add/edit affordances.
   // Query only fires when a token is present so a signed-out viewer never
   // triggers a 401 → login redirect.
@@ -529,7 +533,7 @@ export default function BrommerboekApp() {
       <MapScreen
         stops={stops}
         route={route}
-        stats={stats}
+        stats={{ ...stats, km: stats.km + liveKm }}
         statsUnavailable={statsUnavailable}
         cur={cur}
         progress={progress}

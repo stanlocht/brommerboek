@@ -84,7 +84,8 @@ def test_read_stops_includes_reaction_counts(
 def test_stats_match_seed_trip(client: TestClient) -> None:
     # The seeded Amsterdam → Cinque Terre trip: every stop has an odometer
     # reading (0 … 1024 km, monotonically increasing), so total km is the
-    # odometer delta; 2024-05-04 → 2024-05-19 is 15 days; NL/BE/FR/CH/IT are
+    # odometer delta; 2024-05-04 → 2024-05-19 is 16 days on the road counted
+    # inclusively (departure day is dag 1); NL/BE/FR/CH/IT are
     # 5 countries; 2 of the 10 stops are repairs.
     count = client.get(STOPS_URL).json()["count"]
     assert count == 10, "expected only the seeded stops — a test leaked a stop"
@@ -94,7 +95,7 @@ def test_stats_match_seed_trip(client: TestClient) -> None:
     assert stats == {
         "km": 1024,
         "suggested_km": 1024,
-        "days": 15,
+        "days": 16,
         "countries": 5,
         "stops": 10,
         "repairs": 2,
@@ -117,7 +118,7 @@ def test_stats_haversine_fallback_when_km_missing(
         assert stats["suggested_km"] == 1024  # last *known* odometer reading
         leg = stats["km"] - 1024
         assert 320 < leg < 360
-        assert stats["days"] == 17
+        assert stats["days"] == 18
     finally:
         delete_test_stop(db, stop)
 

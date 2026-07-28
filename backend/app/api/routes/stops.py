@@ -123,7 +123,9 @@ def read_stats(session: SessionDep) -> Any:
     days = 0
     if trip:
         dates = sorted(s.date for s in trip)
-        days = (dates[-1] - dates[0]).days
+        # Inclusive: the first day on the road is dag 1, so a trip spanning
+        # two calendar dates counts as 2 days.
+        days = (dates[-1] - dates[0]).days + 1
     return TripStats(
         km=round(km_total),
         suggested_km=suggested_km,
