@@ -71,12 +71,21 @@ const handleApiError = (error: Error) => {
         seg.includes("@") || seg.toLowerCase().includes("%40") ? ":email" : seg,
       )
       .join("/")
-    // A wrong password on the login form is a user event the form already
-    // answers with a message, not a defect — don't let it fill the tracker.
+    // Expected user events, not defects: each of these 400s is answered in
+    // the UI (wrong login password, signing up an email that already has an
+    // account, wrong current password in settings). Don't let them fill the
+    // tracker; any other status on these endpoints still reports.
+    const expected: Array<[method: string, pathEnd: string]> = [
+      ["POST", "/login/access-token"],
+      ["POST", "/users/signup"],
+      ["PATCH", "/users/me/password"],
+    ]
     if (
       error.status === 400 &&
-      error.request.method === "POST" &&
-      path.endsWith("/login/access-token")
+      expected.some(
+        ([method, pathEnd]) =>
+          error.request.method === method && path.endsWith(pathEnd),
+      )
     )
       return
     reportError(error, `query ${error.request.method} ${path}`)
