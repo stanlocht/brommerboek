@@ -16,6 +16,15 @@ const MAX_REPORTS = 15
 const reported = new Set<string>()
 let sent = 0
 
+// Flipped when the page is about to be torn down on purpose (the stale-chunk
+// reload in main.tsx): whatever errors the dying page still produces describe
+// the teardown, not a defect, and would file bogus issues.
+let suppressed = false
+
+export function suppressErrorReporting(): void {
+  suppressed = true
+}
+
 function describe(error: unknown): { message: string; stack: string } {
   if (error instanceof Error) {
     return {
@@ -30,6 +39,7 @@ export function reportError(error: unknown, context = ""): void {
   try {
     // Dev servers log to the console; only real builds phone home.
     if (!import.meta.env.PROD) return
+    if (suppressed) return
     const { message, stack } = describe(error)
     const prefixed = context ? `[${context}] ${message}` : message
     const key = `${prefixed}\n${stack.split("\n", 2).join("\n")}`

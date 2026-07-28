@@ -12,7 +12,11 @@ import ReactDOM from "react-dom/client"
 import { ApiError, OpenAPI } from "./client"
 import { ThemeProvider } from "./components/theme-provider"
 import { Toaster } from "./components/ui/sonner"
-import { installGlobalErrorReporting, reportError } from "./lib/telemetry"
+import {
+  installGlobalErrorReporting,
+  reportError,
+  suppressErrorReporting,
+} from "./lib/telemetry"
 import "./index.css"
 // Load the vintage stylesheet globally: route-based code splitting would
 // otherwise only ship it with the "/" chunk, leaving screens like /login or
@@ -33,12 +37,19 @@ installGlobalErrorReporting()
 // with the new hashes. The timestamp guard makes sure a genuinely broken
 // asset can't reload-loop: within a minute of a reload the error is left to
 // the route error boundary instead.
-window.addEventListener("vite:preloadError", (event) => {
+//
+// Deliberately NO event.preventDefault() here: preventing it makes Vite's
+// preload helper swallow the failure and resolve the import with an
+// undefined module, which the router then dereferences ("m.component") in
+// the moment before the reload lands. Let the rejection propagate — the
+// reload wins the race either way — and just keep the dying page from
+// filing telemetry about its own teardown.
+window.addEventListener("vite:preloadError", () => {
   const KEY = "bb-chunk-reload-at"
   const last = Number(sessionStorage.getItem(KEY) ?? 0)
   if (Date.now() - last < 60_000) return
   sessionStorage.setItem(KEY, String(Date.now()))
-  event.preventDefault()
+  suppressErrorReporting()
   window.location.reload()
 })
 
