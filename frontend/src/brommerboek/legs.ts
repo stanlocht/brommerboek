@@ -3,7 +3,7 @@
 // have a km reading (real road distance), fall back to great-circle.
 
 import type { RouteGeometry } from "./geo"
-import { haversine } from "./geo"
+import { haversine, legKm } from "./geo"
 import type { Stop } from "./types"
 
 export interface LegInfo {
@@ -28,10 +28,16 @@ export function legInfo(
   while (i < stops.length - 1 && dist > route.stopCum[i]) i++
   const from = stops[i - 1]
   const to = stops[i]
-  const km =
-    from.km !== null && to.km !== null && to.km >= from.km
-      ? to.km - from.km
-      : Math.round(haversine([from.lng, from.lat], [to.lng, to.lat]) / 1000)
+  // The route already follows the real ridden road wherever a leg track was
+  // synced, so its own stop-to-stop length is the GPS candidate; without a
+  // track it collapses to the straight line and changes nothing.
+  const km = Math.round(
+    legKm(
+      haversine([from.lng, from.lat], [to.lng, to.lat]) / 1000,
+      from.km !== null && to.km !== null ? to.km - from.km : null,
+      (route.stopCum[i] - route.stopCum[i - 1]) / 1000,
+    ),
+  )
   const days = Math.max(
     0,
     Math.round((Date.parse(to.date) - Date.parse(from.date)) / MS_PER_DAY),

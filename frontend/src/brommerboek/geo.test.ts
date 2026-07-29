@@ -4,7 +4,9 @@ import {
   buildRoute,
   haversine,
   type LngLat,
+  legKm,
   nearestStop,
+  odometerTrusted,
   pointAt,
   routeBounds,
   stopFraction,
@@ -13,6 +15,60 @@ import {
 // Points are [lng, lat].
 const AMSTERDAM: LngLat = [4.9041, 52.3676]
 const PARIS: LngLat = [2.3522, 48.8566]
+
+describe("odometerTrusted", () => {
+  it("accepts any delta that moved forward", () => {
+    expect(odometerTrusted(60, 78)).toBe(true)
+    expect(odometerTrusted(60, 1)).toBe(true)
+  })
+
+  it("rejects a stale reading copied from the previous stop", () => {
+    expect(odometerTrusted(62, 0)).toBe(false)
+  })
+
+  it("rejects a reading that counts down", () => {
+    expect(odometerTrusted(60, -60)).toBe(false)
+  })
+
+  it("accepts a dial that stood still between two stops at one spot", () => {
+    expect(odometerTrusted(0.2, 0)).toBe(true)
+  })
+
+  it("still rejects a countdown at one spot", () => {
+    expect(odometerTrusted(0.2, -5)).toBe(false)
+  })
+
+  it("rejects a missing reading", () => {
+    expect(odometerTrusted(60, null)).toBe(false)
+  })
+})
+
+describe("legKm", () => {
+  it("uses a believable odometer delta over everything else", () => {
+    expect(legKm(60, 78, 72)).toBe(78)
+  })
+
+  it("falls back to the ridden road when the reading is stale", () => {
+    expect(legKm(62, 0, 86)).toBe(86)
+  })
+
+  it("falls back to the ridden road when the reading counts down", () => {
+    expect(legKm(60, -60, 72)).toBe(72)
+  })
+
+  it("falls back to the ridden road when there is no reading", () => {
+    expect(legKm(62, null, 86)).toBe(86)
+  })
+
+  it("keeps the straight line when the track is shorter than it", () => {
+    // A track that doesn't span both pins under-measures the leg.
+    expect(legKm(62, null, 10)).toBe(62)
+  })
+
+  it("falls back to the straight line when nothing else is usable", () => {
+    expect(legKm(62, 0, null)).toBe(62)
+  })
+})
 
 describe("haversine", () => {
   it("returns 0 for identical points", () => {

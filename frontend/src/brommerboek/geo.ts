@@ -20,6 +20,41 @@ export function haversine(a: LngLat, b: LngLat): number {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
+// Stops nearer to each other than this count as the same spot, where an
+// odometer that hasn't moved is a true reading rather than a stale one.
+export const SAME_PLACE_KM = 1
+
+// Whether a leg's pair of odometer readings is a real measurement — the
+// mirror of the backend's `geo.odometer_trusted`. Riding between two places
+// always moves the dial forward, so a delta that stands still or counts down
+// is a data-entry failure, not a leg that wasn't ridden: the reading was
+// copied from the previous stop, or a digit was transposed. Taken at face
+// value a 0 km delta erases the whole leg.
+export function odometerTrusted(
+  crowKm: number,
+  odometerKm: number | null,
+): odometerKm is number {
+  if (odometerKm === null) return false
+  if (odometerKm > 0) return true
+  return odometerKm === 0 && crowKm <= SAME_PLACE_KM
+}
+
+// Kilometres ridden on one leg, from the most trustworthy usable source —
+// the mirror of the backend's `geo.leg_km`. The rider's odometer delta wins
+// when both stops carry a believable reading, the GPS-measured road fills in
+// when they don't, and the straight line between the pins is the last resort.
+// A track measuring less than that straight line never spanned the leg, so it
+// is passed over too.
+export function legKm(
+  crowKm: number,
+  odometerKm: number | null,
+  gpsKm: number | null,
+): number {
+  if (odometerTrusted(crowKm, odometerKm)) return odometerKm
+  if (gpsKm !== null && gpsKm >= crowKm) return gpsKm
+  return crowKm
+}
+
 // Initial great-circle bearing from a → b, in degrees clockwise from north.
 export function bearing(a: LngLat, b: LngLat): number {
   const lat1 = toRad(a[1])

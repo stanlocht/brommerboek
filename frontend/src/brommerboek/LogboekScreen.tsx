@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { type ReactNode, useMemo } from "react"
-import { fetchStats, fetchStops } from "./api"
-import { haversine } from "./geo"
+import { fetchLegTracks, fetchStats, fetchStops } from "./api"
+import { haversine, legKm } from "./geo"
 import { CubIcon } from "./icons"
 import { buildTempChart, TEMP_CHART_PAD, type TempChart } from "./tempChart"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
 import { EMPTY_STATS } from "./trip"
-import type { Stop } from "./types"
+import type { LegTrackData, Stop } from "./types"
 import useLiveKm from "./useLiveKm"
 import { weatherLabel } from "./weather"
 
@@ -33,7 +33,29 @@ interface Derived {
   weathers: { label: string; count: number }[]
 }
 
-function derive(stops: Stop[], totalKm: number, days: number): Derived {
+// Ridden kilometres per synced leg, keyed "from→to", measured off the stored
+// road geometry. The map screen gets the same figure out of the route it
+// draws; here there is no route, so the polylines are measured directly.
+function trackKm(
+  tracks: LegTrackData[] | null | undefined,
+): Map<string, number> {
+  const by = new Map<string, number>()
+  for (const t of tracks ?? []) {
+    if (t.points.length < 2) continue
+    let metres = 0
+    for (let i = 1; i < t.points.length; i++)
+      metres += haversine(t.points[i - 1], t.points[i])
+    by.set(`${t.from_stop_id}→${t.to_stop_id}`, metres / 1000)
+  }
+  return by
+}
+
+function derive(
+  stops: Stop[],
+  totalKm: number,
+  days: number,
+  gpsKm: Map<string, number>,
+): Derived {
   const byCode = new Map<string, CountryTally>()
   for (const s of stops) {
     if (!s.code) continue
@@ -55,13 +77,12 @@ function derive(stops: Stop[], totalKm: number, days: number): Derived {
   for (let i = 1; i < stops.length; i++) {
     const a = stops[i - 1]
     const b = stops[i]
-    // Prefer the odometer delta (real road distance); fall back to the
-    // straight-line haversine when either endpoint has no km value.
-    const legKm =
-      a.km != null && b.km != null && b.km >= a.km
-        ? b.km - a.km
-        : haversine([a.lng, a.lat], [b.lng, b.lat]) / 1000
-    if (!longest || legKm > longest.km) longest = { from: a, to: b, km: legKm }
+    const km = legKm(
+      haversine([a.lng, a.lat], [b.lng, b.lat]) / 1000,
+      a.km != null && b.km != null ? b.km - a.km : null,
+      gpsKm.get(`${a.id}→${b.id}`) ?? null,
+    )
+    if (!longest || km > longest.km) longest = { from: a, to: b, km }
   }
 
   const dates = stops.map((s) => s.date).sort()
@@ -271,6 +292,13 @@ export default function LogboekScreen() {
     queryFn: fetchStats,
   })
   const stats = statsData ?? EMPTY_STATS
+  // Shares the map screen's cache entry; null (no tracker) just leaves the
+  // longest leg on its odometer/straight-line measurement.
+  const { data: legTracks } = useQuery({
+    queryKey: ["legTracks"],
+    queryFn: fetchLegTracks,
+    refetchInterval: 300_000,
+  })
 
   const liveKm = useLiveKm()
   const totalKm = stats.km + liveKm
@@ -280,9 +308,10 @@ export default function LogboekScreen() {
     () => stops.filter((s) => s.type !== "preparation"),
     [stops],
   )
+  const gpsKm = useMemo(() => trackKm(legTracks), [legTracks])
   const d = useMemo(
-    () => derive(tripStops, totalKm, stats.days),
-    [tripStops, totalKm, stats.days],
+    () => derive(tripStops, totalKm, stats.days, gpsKm),
+    [tripStops, totalKm, stats.days, gpsKm],
   )
   // Null when fewer than 2 stops carry a temperature — then the plain
   // weather list below is shown instead.

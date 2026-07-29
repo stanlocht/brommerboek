@@ -10,7 +10,7 @@ from app.api.deps import SessionDep, get_current_active_superuser
 from app.core import push
 from app.core.config import settings
 from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
-from app.geo import haversine_km
+from app.geo import haversine_km, leg_km, polyline_km
 from app.models import (
     Comment,
     HornHonk,
@@ -91,24 +91,28 @@ def read_stats(session: SessionDep) -> Any:
     # from the sequence keeps them out of every figure, including the km
     # chain (a mid-sequence stop would otherwise contribute two legs).
     trip = [s for s in stops if s.type != "preparation"]
-    # Per-leg distance priority: the odometer delta is ground truth when both
-    # endpoints have a reading; a leg's GPS-measured distance (synced from
-    # Traccar, see tracksync) fills in when the rider forgot to note the km;
-    # haversine is the last resort (it cuts across every switchback).
-    gps_km = {
-        (row.from_stop_id, row.to_stop_id): row.distance_km
-        for row in session.exec(select(LegTrack)).all()
-        if row.distance_km is not None
-    }
+    # Per-leg distance priority lives in geo.leg_km. The GPS candidate is the
+    # measurement tracksync stored; rows synced before that field existed
+    # still carry the road geometry, so measuring their polyline beats
+    # dropping them (decimation makes it a mild undercount, still far closer
+    # than the straight line it would otherwise fall back to).
+    gps_km: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
+    for row in session.exec(select(LegTrack)).all():
+        measured = row.distance_km
+        if measured is None:
+            measured = polyline_km(row.points)
+        if measured is not None:
+            gps_km[(row.from_stop_id, row.to_stop_id)] = measured
     km_total = 0.0
     for prev, cur in zip(trip, trip[1:], strict=False):
-        gps = gps_km.get((prev.id, cur.id))
-        if prev.km is not None and cur.km is not None and cur.km >= prev.km:
-            km_total += cur.km - prev.km
-        elif gps is not None:
-            km_total += gps
-        else:
-            km_total += haversine_km((prev.lat, prev.lng), (cur.lat, cur.lng))
+        odometer = (
+            cur.km - prev.km if prev.km is not None and cur.km is not None else None
+        )
+        km_total += leg_km(
+            haversine_km((prev.lat, prev.lng), (cur.lat, cur.lng)),
+            odometer_km=odometer,
+            gps_km=gps_km.get((prev.id, cur.id)),
+        )
     # Suggested km = the most recent stop's odometer reading (whatever order
     # we happened to add them in — falls back to earlier stops if the latest
     # has no reading). All stops count here: a reading noted while packing is
