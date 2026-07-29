@@ -14,6 +14,7 @@ import {
 } from "./api"
 import type { PlaceHit } from "./geocode"
 import { WrenchIcon } from "./icons"
+import { notedKm } from "./odometer"
 import PlaceSearch from "./PlaceSearch"
 import { C, FONT_MONO } from "./theme"
 import type {
@@ -124,8 +125,10 @@ export default function AddFlow({
   onDelete,
   onMediaChanged,
 }: {
-  // Prefill for the km input on new stops. `null` = no prior reading —
-  // the field opens empty rather than "0".
+  // The moped's last known odometer reading, shown as a hint beside the
+  // km field so the rider can sanity-check what they read off the dial.
+  // Never pre-filled into the field — see `kmNoted` below. `null` = no
+  // prior reading anywhere on the trip.
   suggestedKm: number | null
   // When set, the flow edits an existing stop instead of creating a new
   // one, and media uploads land on it immediately.
@@ -177,15 +180,15 @@ export default function AddFlow({
   const [weatherFetch, setWeatherFetch] = useState<"idle" | "loading" | "done">(
     "idle",
   )
-  // Empty string = user hasn't filled it. Only prefill when there IS a
-  // prior reading; leaving it blank should stay blank.
-  const initialKm =
-    initialStop?.km != null
-      ? String(initialStop.km)
-      : suggestedKm != null
-        ? String(suggestedKm)
-        : ""
-  const [km, setKm] = useState<string>(initialKm)
+  // Noting the odometer is a deliberate act, so the field starts closed and
+  // empty on a new stop. It used to open pre-filled with the previous stop's
+  // reading, which quietly turned "I didn't note it today" into "same reading
+  // as yesterday" — and a leg between two equal readings measures 0 km.
+  // Editing a stop that carries a reading opens with it, ready to correct.
+  const [kmNoted, setKmNoted] = useState(initialStop?.km != null)
+  const [km, setKm] = useState<string>(
+    initialStop?.km != null ? String(initialStop.km) : "",
+  )
   const [story, setStory] = useState(initialStop?.story ?? "")
   const [broke, setBroke] = useState(initialStop?.broke ?? "")
   const [fixed, setFixed] = useState(initialStop?.fixed ?? "")
@@ -271,7 +274,6 @@ export default function AddFlow({
 
   const parsedTemp =
     weatherTemp.trim() === "" ? null : Number.parseInt(weatherTemp, 10)
-  const parsedKm = km.trim() === "" ? null : Number.parseInt(km, 10)
 
   const submit = () => {
     // The ref blocks re-entry synchronously (double-taps land before the
@@ -286,7 +288,9 @@ export default function AddFlow({
       lng: picked.lng,
       date,
       title: title.trim() || picked.place,
-      km: parsedKm !== null && Number.isFinite(parsedKm) ? parsedKm : null,
+      // Toggle off clears the reading (null), so an edit can take back a
+      // wrong one and hand the leg back to the GPS measurement.
+      km: notedKm(kmNoted, km),
       weather_temp:
         parsedTemp !== null && Number.isFinite(parsedTemp) ? parsedTemp : null,
       weather_condition: weatherCondition,
@@ -935,22 +939,103 @@ export default function AddFlow({
               </button>
             )}
             <div style={{ marginBottom: 14 }}>
-              <Field label="KM-STAND">
-                <input
-                  value={km}
-                  onChange={(e) => setKm(e.target.value.replace(/[^\d]/g, ""))}
-                  type="number"
-                  min={0}
-                  step={1}
-                  inputMode="numeric"
-                  placeholder={
-                    suggestedKm != null
-                      ? `laatste stand: ${suggestedKm}`
-                      : "laat leeg als je 'm niet weet"
-                  }
-                  style={{ ...fieldStyle, marginTop: 4, fontSize: 15 }}
-                />
-              </Field>
+              <span style={{ ...labelStyle, color: C.ochreDeep }}>
+                KM-STAND
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={kmNoted}
+                onClick={() => setKmNoted((on) => !on)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "9px 12px",
+                  border: `1.5px ${kmNoted ? "solid" : "dashed"} ${
+                    kmNoted ? C.ochre : C.borderSoft
+                  }`,
+                  borderRadius: 8,
+                  background: kmNoted ? C.paperCard : "none",
+                  fontFamily: FONT_MONO,
+                  fontSize: 12,
+                  color: kmNoted ? C.ink : C.sepia,
+                  textAlign: "left",
+                  cursor: "pointer",
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    flex: "0 0 auto",
+                    width: 16,
+                    height: 16,
+                    borderRadius: 4,
+                    border: `1.5px solid ${kmNoted ? C.ochreDeep : C.borderSoft}`,
+                    background: kmNoted ? C.ochre : "transparent",
+                    color: C.paperCard,
+                    fontSize: 11,
+                    lineHeight: "13px",
+                    textAlign: "center",
+                  }}
+                >
+                  {kmNoted ? "✓" : ""}
+                </span>
+                <span>
+                  {kmNoted
+                    ? "kilometerstand genoteerd"
+                    : "kilometerstand afgelezen? tik om te noteren"}
+                </span>
+              </button>
+              {kmNoted ? (
+                <>
+                  <input
+                    // Named by the switch row above rather than a <label>.
+                    aria-label="Kilometerstand"
+                    value={km}
+                    onChange={(e) =>
+                      setKm(e.target.value.replace(/[^\d]/g, ""))
+                    }
+                    type="number"
+                    min={0}
+                    step={1}
+                    inputMode="numeric"
+                    placeholder={
+                      suggestedKm != null
+                        ? `vorige stand: ${suggestedKm}`
+                        : "lees 'm af op de teller"
+                    }
+                    style={{ ...fieldStyle, marginTop: 8, fontSize: 15 }}
+                  />
+                  <div
+                    style={{
+                      marginTop: 6,
+                      fontFamily: FONT_MONO,
+                      fontSize: 10,
+                      color: C.sepia,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    dit wordt de vaste waarde voor deze stop — lees 'm van de
+                    teller af, neem 'm niet over van de vorige stop.
+                  </div>
+                </>
+              ) : (
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontFamily: FONT_MONO,
+                    fontSize: 10,
+                    color: C.sepia,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  zonder stand meet de tracker deze etappe zelf — prima voor de
+                  meeste dagen.
+                </div>
+              )}
             </div>
             <Field label="VERHAAL">
               <textarea

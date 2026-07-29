@@ -156,6 +156,120 @@ def test_stats_gps_distance_beats_haversine_when_km_missing(
         delete_test_stop(db, stop)
 
 
+def test_stats_ignore_an_odometer_reading_that_never_moved(
+    client: TestClient, db: Session
+) -> None:
+    # The reading was copied from the previous stop instead of re-read, so a
+    # leg that was really ridden shows a 0 km delta. Counting that delta made
+    # the whole leg vanish from the trip total; the straight line stands in.
+    # Cinque Terre (44.1350, 9.6845) → Roma is ~340 km as the crow flies.
+    stop = create_test_stop(
+        db,
+        place="Roma",
+        code="IT",
+        lat=41.9028,
+        lng=12.4964,
+        date="2024-05-21",
+        km=1024,  # same reading as Cinque Terre
+    )
+    try:
+        stats = client.get(f"{STOPS_URL}stats").json()
+        assert 320 < stats["km"] - 1024 < 360
+    finally:
+        delete_test_stop(db, stop)
+
+
+def test_stats_keep_a_still_odometer_between_stops_at_one_spot(
+    client: TestClient, db: Session
+) -> None:
+    # Two posts from the same place on the same day: nothing was ridden
+    # between them, so the unchanged reading is the truth and the leg is 0.
+    baseline = client.get(f"{STOPS_URL}stats").json()["km"]
+    stop = create_test_stop(
+        db,
+        place="Cinque Terre — avond",
+        code="IT",
+        lat=44.1350,
+        lng=9.6845,
+        date="2024-05-19",
+        km=1024,
+    )
+    try:
+        assert client.get(f"{STOPS_URL}stats").json()["km"] == baseline
+    finally:
+        delete_test_stop(db, stop)
+
+
+def test_stats_gps_track_beats_an_odometer_that_never_moved(
+    client: TestClient, db: Session
+) -> None:
+    # Same stale reading, but the leg has a GPS-measured road: that wins over
+    # the straight-line stand-in.
+    stop = create_test_stop(
+        db,
+        place="Roma",
+        code="IT",
+        lat=41.9028,
+        lng=12.4964,
+        date="2024-05-21",
+        km=1024,
+    )
+    prev = db.exec(
+        select(Stop)
+        .where(Stop.order_index < stop.order_index)
+        .order_by(Stop.order_index.desc())
+    ).first()
+    assert prev is not None
+    db.add(
+        LegTrack(
+            from_stop_id=prev.id,
+            to_stop_id=stop.id,
+            points=[[prev.lng, prev.lat], [stop.lng, stop.lat]],
+            distance_km=421.0,
+        )
+    )
+    db.commit()
+    try:
+        assert client.get(f"{STOPS_URL}stats").json()["km"] == 1024 + 421
+    finally:
+        db.execute(delete(LegTrack))
+        db.commit()
+        delete_test_stop(db, stop)
+
+
+def test_stats_measure_a_track_stored_before_the_distance_field(
+    client: TestClient, db: Session
+) -> None:
+    # Rows synced before LegTrack.distance_km existed carry no measurement,
+    # but they still carry the road. Measuring that polyline beats ignoring
+    # the track and cutting straight across (~340 km here).
+    stop = create_test_stop(
+        db, place="Roma", code="IT", lat=41.9028, lng=12.4964, date="2024-05-21"
+    )
+    prev = db.exec(
+        select(Stop)
+        .where(Stop.order_index < stop.order_index)
+        .order_by(Stop.order_index.desc())
+    ).first()
+    assert prev is not None
+    db.add(
+        LegTrack(
+            from_stop_id=prev.id,
+            to_stop_id=stop.id,
+            # An east-swinging detour, ~613 km of road.
+            points=[[prev.lng, prev.lat], [14.5, 43.0], [stop.lng, stop.lat]],
+            distance_km=None,
+        )
+    )
+    db.commit()
+    try:
+        assert 600 < client.get(f"{STOPS_URL}stats").json()["km"] - 1024 < 625
+    finally:
+        db.execute(delete(LegTrack))
+        db.commit()
+        delete_test_stop(db, stop)
+
+
 def test_stats_exclude_preparation_stops(client: TestClient, db: Session) -> None:
     # A preparation post — packing at home weeks before departure, in a
     # country not on the route — must not move a single trip figure.

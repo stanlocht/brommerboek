@@ -4,7 +4,7 @@
 // exercise everything directly.
 
 import type { RouteGeometry } from "./geo"
-import { haversine, stopFraction } from "./geo"
+import { haversine, legKm, odometerTrusted, stopFraction } from "./geo"
 import type { Stop } from "./types"
 
 export const LEG_MIN_MS = 2500
@@ -141,18 +141,27 @@ export function legAt(
   return { index: stopCum.length - 2, frac: 1 }
 }
 
-// Odometer reading per stop: real km values wherever the odometer moved
-// forward, straight-line haversine km otherwise (same fallback as the
-// logboek's leg stats).
-export function cumulativeKm(stops: Stop[]): number[] {
+// Odometer reading per stop. A believable pair of readings snaps the counter
+// straight onto the dial; otherwise it advances by the leg's measured
+// distance, using the same source order as the logboek's leg stats. Passing
+// the route lets a leg's real ridden road stand in for the straight line.
+export function cumulativeKm(stops: Stop[], route?: RouteGeometry): number[] {
   if (stops.length === 0) return []
   let running = stops[0].km ?? 0
   const out = [running]
+  const tracked = route != null && route.stopCum.length === stops.length
   for (let i = 1; i < stops.length; i++) {
     const a = stops[i - 1]
     const b = stops[i]
-    if (a.km != null && b.km != null && b.km >= a.km) running = b.km
-    else running += haversine([a.lng, a.lat], [b.lng, b.lat]) / 1000
+    const crowKm = haversine([a.lng, a.lat], [b.lng, b.lat]) / 1000
+    const odometerKm = a.km != null && b.km != null ? b.km - a.km : null
+    if (odometerTrusted(crowKm, odometerKm)) running = b.km as number
+    else
+      running += legKm(
+        crowKm,
+        null,
+        tracked ? (route.stopCum[i] - route.stopCum[i - 1]) / 1000 : null,
+      )
     out.push(running)
   }
   return out
@@ -165,7 +174,7 @@ export function kmAtProgress(
   t: number,
 ): number {
   if (stops.length === 0) return 0
-  const cum = cumulativeKm(stops)
+  const cum = cumulativeKm(stops, route)
   const { index, frac } = legAt(route, t)
   const a = cum[Math.min(index, cum.length - 1)]
   const b = cum[Math.min(index + 1, cum.length - 1)]

@@ -97,6 +97,33 @@ describe("legInfo", () => {
     expect(leg?.km).toBeLessThan(435)
   })
 
+  it("ignores two stops noted at the same odometer reading", () => {
+    // The reading was copied from the previous stop rather than re-read, so
+    // the delta is 0 for a leg that was really ridden. Taking it at face
+    // value made the leg vanish; the straight line is the floor instead.
+    const stops = [
+      makeStop({ place: "Rotterdam", lat: 51.9191, lng: 4.4896, km: 15228 }),
+      makeStop({ place: "Wortel", lat: 51.3997, lng: 4.8257, km: 15228 }),
+    ]
+    const leg = legInfo(stops, routeFor(stops), 0.5)
+    expect(leg?.km).toBeGreaterThan(55)
+  })
+
+  it("prefers the ridden road over an unbelievable odometer delta", () => {
+    // Same leg, but with the real GPS track arcing well off the straight
+    // line — the track wins over the great-circle floor.
+    const stops = [
+      makeStop({ place: "Rotterdam", lat: 51.9191, lng: 4.4896, km: 15228 }),
+      makeStop({ place: "Wortel", lat: 51.3997, lng: 4.8257, km: 15228 }),
+    ]
+    const detour = buildRoute(
+      stops.map((s) => [s.lng, s.lat] as [number, number]),
+      [[[3.5, 51.7]]],
+    )
+    const leg = legInfo(stops, detour, 0.5)
+    expect(leg?.km).toBeGreaterThan(130)
+  })
+
   it("counts the days between the two stop dates", () => {
     expect(legInfo(trip, route, 0.1)?.days).toBe(1)
     expect(legInfo(trip, route, 0.9)?.days).toBe(3)

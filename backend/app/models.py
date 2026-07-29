@@ -142,8 +142,10 @@ class StopBase(SQLModel):
     lng: float = Field(ge=-180, le=180)
     date: date
     title: str = Field(min_length=1, max_length=255)
-    # `km` is the odometer reading at this stop. Optional — a rider who forgot
-    # to note it just leaves it blank.
+    # `km` is the odometer reading at this stop, carried only when the rider
+    # deliberately noted one — most days they don't, and the leg is measured
+    # from the GPS track instead. Never inherited from the previous stop: two
+    # stops sharing a reading would measure the leg between them as 0 km.
     km: int | None = Field(default=None, ge=0)
     # Weather is split for the picker UI: a temperature in °C and one of the
     # `WEATHER_CONDITIONS` short codes (or an empty string for "unspecified").
@@ -319,10 +321,11 @@ class RiddenSince(SQLModel):
     fix_time: datetime | None = None
 
 
-# Aggregate trip statistics for the "Wrapped" recap screen. `km` uses each
-# leg's odometer delta when both endpoints have a km value, and falls back
-# to great-circle distance otherwise. `suggested_km` is the last known
-# odometer reading — the frontend prefills the next stop's km input with it.
+# Aggregate trip statistics for the "Wrapped" recap screen. `km` measures
+# each leg by geo.leg_km: a believable odometer delta first, then the leg's
+# GPS-measured road, then the great-circle line. `suggested_km` is the last
+# known odometer reading — shown to the rider as a hint next to the km field,
+# never pre-filled into it (a copied reading makes a leg measure 0 km).
 class TripStats(SQLModel):
     km: int
     suggested_km: int | None
