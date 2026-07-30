@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { RouteGeometry } from "./geo"
 import { pointAt } from "./geo"
 import { cubSvgString, flagSvgString, WRENCH_INNER } from "./icons"
-import { isLiveFresh, trailGeoJSON } from "./live"
+import { cubPoint, isLiveFresh, trailGeoJSON } from "./live"
 import { vintageStyle } from "./mapStyle"
 import { bearingDelta, dampenBearing, INTRO_MS } from "./replayMath"
 import { C, FONT_MONO, FONT_SERIF, PIN_ROTS } from "./theme"
@@ -139,6 +139,16 @@ export default function VintageMap({
   // and the redraw effect below covers every later change.
   const routeRef = useRef(route)
   routeRef.current = route
+  // The live fix and the current scrub position, read by handlers that must
+  // not re-subscribe when either changes (the map init load handler, and the
+  // fresh-fix sync that moves the Cub without touching the camera).
+  const liveRef = useRef(live)
+  liveRef.current = live
+  const progressRef = useRef(progress)
+  progressRef.current = progress
+  // The trip's newest pin: a tracker fix from before that day is the tracker
+  // lagging behind the journal, and the Cub stays on the pin.
+  const lastStopDate = stops.length ? stops[stops.length - 1].date : null
   // Set on replay exit so the next progress sync skips the camera — the exit
   // easeTo below owns the restore and must not be cancelled.
   const skipFollowRef = useRef(false)
@@ -276,11 +286,14 @@ export default function VintageMap({
 
       readyRef.current = true
 
-      // frame the whole trip — flags included (when already loaded), so the
-      // finish flag far beyond the latest stop stays in view
+      // frame the whole trip — flags and the live fix included (when already
+      // loaded), so the finish flag far beyond the latest stop stays in view
+      // and the Cub, parked on the live dot, is never framed out
       const b = new maplibregl.LngLatBounds()
       for (const s of stops) b.extend([s.lng, s.lat])
       for (const f of flagsRef.current) b.extend([f.lng, f.lat])
+      const fix = liveRef.current
+      if (fix) b.extend([fix.lng, fix.lat])
       map.fitBounds(b, {
         padding: { top: 120, bottom: 250, left: 55, right: 55 },
         duration: 0,
@@ -402,8 +415,6 @@ export default function VintageMap({
   // --- zoom to the live fix on demand ---------------------------------------
   // Flies the camera to the last GPS fix. Reads `live` through a ref so a
   // fresh fix arriving on its own never moves the camera — only a press does.
-  const liveRef = useRef(live)
-  liveRef.current = live
   const focusLive = useCallback(() => {
     const map = mapRef.current
     const fix = liveRef.current
@@ -456,7 +467,10 @@ export default function VintageMap({
       const map = mapRef.current
       const cub = cubRef.current
       if (!map || !cub || !readyRef.current) return
-      const pt = pointAt(route, t)
+      // At the end of the route the Cub parks on the live dot rather than on
+      // the last pin — `live` comes through the ref so a fix arriving on its
+      // own doesn't re-create this callback and drag the camera along.
+      const pt = cubPoint(route, t, liveRef.current, lastStopDate)
       cub.setLngLat([pt.lng, pt.lat])
       if (cubRotRef.current)
         cubRotRef.current.style.transform = cubTransform(pt.bearing)
@@ -493,8 +507,16 @@ export default function VintageMap({
         })
       }
     },
-    [route, dragging],
+    [route, dragging, lastStopDate],
   )
+
+  // A fresh fix slides the Cub over to the new dot (it is parked on it at the
+  // end of the route). Camera stays put — same rule as the live marker: only
+  // the LIVE chip moves it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `live` is the trigger; syncCub reads the fix through liveRef so the camera stays out of it
+  useEffect(() => {
+    syncCub(progressRef.current, false)
+  }, [live, syncCub])
 
   // Replay enter/exit transitions: an initial swoop down to the first stop,
   // and a smooth north-up pitch-0 restore on the way out. Declared before the
@@ -527,7 +549,7 @@ export default function VintageMap({
       }
     } else {
       skipFollowRef.current = true
-      const pt = pointAt(route, progress)
+      const pt = cubPoint(route, progress, liveRef.current, lastStopDate)
       map.easeTo({
         center: [pt.lng, pt.lat],
         zoom: FOLLOW_ZOOM,
@@ -537,7 +559,7 @@ export default function VintageMap({
         easing: (x) => 1 - (1 - x) ** 3,
       })
     }
-  }, [replaying, replayReduced, route, progress])
+  }, [replaying, replayReduced, route, progress, lastStopDate])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: replayFollow re-frames the camera when follow resumes
   useEffect(() => {
