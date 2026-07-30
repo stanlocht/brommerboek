@@ -9,9 +9,10 @@ import {
 import { createRouter, RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import ReactDOM from "react-dom/client"
-import { ApiError, OpenAPI } from "./client"
+import { OpenAPI } from "./client"
 import { ThemeProvider } from "./components/theme-provider"
 import { Toaster } from "./components/ui/sonner"
+import { classifyQueryError } from "./lib/queryErrorPolicy"
 import {
   installGlobalErrorReporting,
   reportError,
@@ -71,56 +72,19 @@ window.addEventListener("vite:preloadError", (event) => {
   window.location.reload()
 })
 
+// Errors that used to vanish silently now land in the backend's error
+// telemetry (deduped client- and server-side). Which ones deserve that, and
+// which are expected outcomes or the visitor's connectivity, is decided by
+// classifyQueryError — see its tests for the full set of rules.
 const handleApiError = (error: Error) => {
-  if (error instanceof ApiError && [401, 403].includes(error.status)) {
+  const decision = classifyQueryError(error, window.location.origin)
+  if (decision.kind === "logout") {
     localStorage.removeItem("access_token")
     window.location.href = "/login"
     return
   }
-  // The request never reached the API (visitor offline, connection dropped,
-  // page navigated away mid-flight). Nothing in this codebase to fix — and
-  // when the API itself is truly down the report can't be delivered anyway.
-  const code = (error as { code?: string }).code
-  if (code === "ERR_NETWORK" || code === "ERR_CANCELED") return
-  // Everything else used to vanish silently; now it lands in the backend's
-  // error telemetry (deduped client- and server-side).
-  // A bare "ApiError: Bad Request" is untriageable — put the endpoint in the
-  // context so reports name the failing call. Path only: query strings can
-  // carry tokens, and their variety would defeat server-side deduping.
-  if (error instanceof ApiError) {
-    let path = error.url
-    try {
-      path = new URL(error.url, window.location.origin).pathname
-    } catch {}
-    // Path params can be personal data (/password-recovery/{email}) — mask
-    // them, which also keeps one endpoint one fingerprint.
-    path = path
-      .split("/")
-      .map((seg) =>
-        seg.includes("@") || seg.toLowerCase().includes("%40") ? ":email" : seg,
-      )
-      .join("/")
-    // Expected user events, not defects: each of these 400s is answered in
-    // the UI (wrong login password, signing up an email that already has an
-    // account, wrong current password in settings). Don't let them fill the
-    // tracker; any other status on these endpoints still reports.
-    const expected: Array<[method: string, pathEnd: string]> = [
-      ["POST", "/login/access-token"],
-      ["POST", "/users/signup"],
-      ["PATCH", "/users/me/password"],
-    ]
-    if (
-      error.status === 400 &&
-      expected.some(
-        ([method, pathEnd]) =>
-          error.request.method === method && path.endsWith(pathEnd),
-      )
-    )
-      return
-    reportError(error, `query ${error.request.method} ${path}`)
-    return
-  }
-  reportError(error, "query")
+  if (decision.kind === "ignore") return
+  reportError(error, decision.context)
 }
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
