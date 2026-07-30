@@ -26,6 +26,7 @@ const mediaIndexUrl = (id: string, i: number) =>
 const honksUrl = (id: string) => `${BASE}/api/v1/stops/${id}/honks`
 const commentsUrl = (id: string) => `${BASE}/api/v1/stops/${id}/comments`
 const commentUrl = (id: string) => `${BASE}/api/v1/comments/${id}`
+const commentHonksUrl = (id: string) => `${BASE}/api/v1/comments/${id}/honks`
 const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
 const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
 const LIVE_LOCATION_URL = `${BASE}/api/v1/location/live`
@@ -247,6 +248,10 @@ export interface StopComment {
   photo: string | null
   photo_thumb: string | null
   created_at: string | null
+  // Horn-honk tally on the comment itself, embedded in the list so the UI
+  // needs no extra request per comment.
+  honk_count: number
+  honked_by_me: boolean
 }
 
 export interface CommentsList {
@@ -300,6 +305,21 @@ export async function toggleHonk(id: string): Promise<HonkState> {
   })
   if (!res.ok) throw new Error(`Failed to toggle honk (${res.status})`)
   return (await res.json()) as HonkState
+}
+
+export interface CommentHonkState {
+  comment_id: string
+  count: number
+  honked_by_me: boolean
+}
+
+export async function toggleCommentHonk(id: string): Promise<CommentHonkState> {
+  const res = await fetch(commentHonksUrl(id), {
+    method: "POST",
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Failed to toggle comment honk (${res.status})`)
+  return (await res.json()) as CommentHonkState
 }
 
 export async function deleteStop(id: string): Promise<void> {

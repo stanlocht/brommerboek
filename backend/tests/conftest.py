@@ -10,6 +10,7 @@ from app.core.db import engine, init_db
 from app.main import app
 from app.models import (
     Comment,
+    CommentHonk,
     ErrorEvent,
     ErrorGroup,
     Feedback,
@@ -39,6 +40,7 @@ def db() -> Generator[Session]:
         # order-independent and deterministic, instead of preserving rows a
         # mid-suite test may have mutated.
         for model in (
+            CommentHonk,
             Comment,
             ErrorEvent,
             ErrorGroup,
