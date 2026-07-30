@@ -38,13 +38,31 @@ installGlobalErrorReporting()
 // asset can't reload-loop: within a minute of a reload the error is left to
 // the route error boundary instead.
 //
-// Deliberately NO event.preventDefault() here: preventing it makes Vite's
-// preload helper swallow the failure and resolve the import with an
-// undefined module, which the router then dereferences ("m.component") in
-// the moment before the reload lands. Let the rejection propagate — the
-// reload wins the race either way — and just keep the dying page from
-// filing telemetry about its own teardown.
-window.addEventListener("vite:preloadError", () => {
+// preventDefault() is safe for exactly one of the two failures Vite reports
+// through this event, and unsafe for the other. Vite's preload helper reads:
+//
+//     for (const item of settledDeps) if (rejected) handlePreloadError(...)
+//     return baseModule().catch(handlePreloadError)
+//
+// and handlePreloadError only rethrows when the event wasn't prevented.
+//   - A failed CSS *dependency*: preventing the throw lets the loop fall
+//     through to baseModule(), so the route's real module still loads and
+//     the page keeps working — only the stylesheet is missing.
+//   - A failed baseModule(): preventing the throw resolves the import with
+//     undefined, which the router then dereferences ("m.component"). That
+//     was #78/#79 — so those must keep propagating.
+//
+// Either way we reload once to pick up the new deploy. The timestamp guard
+// keeps a genuinely broken asset from reload-looping; it deliberately does
+// not gate the preventDefault above, so a second CSS failure within the
+// minute still degrades gracefully instead of blanking the app.
+window.addEventListener("vite:preloadError", (event) => {
+  const payload = (event as Event & { payload?: unknown }).payload
+  const isCssDep =
+    payload instanceof Error &&
+    payload.message.startsWith("Unable to preload CSS for")
+  if (isCssDep) event.preventDefault()
+
   const KEY = "bb-chunk-reload-at"
   const last = Number(sessionStorage.getItem(KEY) ?? 0)
   if (Date.now() - last < 60_000) return
