@@ -1,17 +1,10 @@
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import StatusScreen from "@/brommerboek/StatusScreen"
-import { UsersService } from "@/client"
+import { requireSuperuser } from "@/hooks/useAuth"
 
 export const Route = createFileRoute("/status")({
   component: StatusScreen,
-  beforeLoad: async () => {
-    const user = await UsersService.readUserMe()
-    if (!user.is_superuser) {
-      throw redirect({
-        to: "/",
-      })
-    }
-  },
+  beforeLoad: requireSuperuser,
   head: () => ({
     meta: [{ title: "Brommerboek — Machinekamer" }],
   }),
