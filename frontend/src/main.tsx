@@ -13,6 +13,7 @@ import { OpenAPI } from "./client"
 import { ThemeProvider } from "./components/theme-provider"
 import { Toaster } from "./components/ui/sonner"
 import { classifyQueryError } from "./lib/queryErrorPolicy"
+import { claimStaleChunkReload } from "./lib/staleChunkReload"
 import {
   installGlobalErrorReporting,
   reportError,
@@ -53,8 +54,10 @@ installGlobalErrorReporting()
 //     undefined, which the router then dereferences ("m.component"). That
 //     was #78/#79 — so those must keep propagating.
 //
-// Either way we reload once to pick up the new deploy. The timestamp guard
-// keeps a genuinely broken asset from reload-looping; it deliberately does
+// Either way we reload once to pick up the new deploy. claimStaleChunkReload
+// owns the "have we already tried?" bookkeeping — including surviving a
+// browser that refuses storage — and never throws, because an exception here
+// would skip both the reload and the suppression below. It deliberately does
 // not gate the preventDefault above, so a second CSS failure within the
 // minute still degrades gracefully instead of blanking the app.
 window.addEventListener("vite:preloadError", (event) => {
@@ -64,10 +67,7 @@ window.addEventListener("vite:preloadError", (event) => {
     payload.message.startsWith("Unable to preload CSS for")
   if (isCssDep) event.preventDefault()
 
-  const KEY = "bb-chunk-reload-at"
-  const last = Number(sessionStorage.getItem(KEY) ?? 0)
-  if (Date.now() - last < 60_000) return
-  sessionStorage.setItem(KEY, String(Date.now()))
+  if (!claimStaleChunkReload()) return
   suppressErrorReporting()
   window.location.reload()
 })
