@@ -421,6 +421,10 @@ class CommentPublic(SQLModel):
     photo: str | None = None
     photo_thumb: str | None = None
     created_at: datetime | None = None
+    # Horn-honk tally for the comment itself, so the list renders honk
+    # buttons without a request per comment.
+    honk_count: int = 0
+    honked_by_me: bool = False
 
 
 class CommentsPublic(SQLModel):
@@ -443,6 +447,31 @@ class HornHonk(SQLModel, table=True):
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
+
+
+class CommentHonk(SQLModel, table=True):
+    # A given user can honk a comment at most once — the API toggles.
+    __table_args__ = (
+        UniqueConstraint("comment_id", "user_id", name="uq_honk_comment_user"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    comment_id: uuid.UUID = Field(
+        foreign_key="comment.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class CommentHonkPublic(SQLModel):
+    comment_id: uuid.UUID
+    count: int
+    honked_by_me: bool
 
 
 class HonkerPublic(SQLModel):
