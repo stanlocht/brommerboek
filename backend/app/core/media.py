@@ -11,8 +11,16 @@ import logging
 from pathlib import Path
 
 from PIL import Image, ImageOps
+from pillow_heif import register_heif_opener
 
 logger = logging.getLogger(__name__)
+
+# Teach Pillow to open HEIC/HEIF. The frontend re-encodes camera photos to
+# JPEG before uploading, but anything that skips that path (an older client,
+# a browser whose canvas couldn't decode the source) still arrives as HEIC —
+# and without a thumbnail the gallery falls back to the original, which no
+# browser will render.
+register_heif_opener()
 
 # Backend runs from `/app/backend/`; the media root lives at `/app/media`
 # and is mounted as a Docker volume so uploads survive container rebuilds.

@@ -1,6 +1,7 @@
 import shutil
 import uuid
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
 from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
@@ -34,11 +35,42 @@ ALLOWED_MEDIA_TYPES = {
     "image/webp": ("image", "webp"),
     "image/gif": ("image", "gif"),
     "image/heic": ("image", "heic"),
+    # Android cameras label the same container either way; without heif the
+    # upload came back 415 and the photo was silently dropped.
+    "image/heif": ("image", "heic"),
     "video/mp4": ("video", "mp4"),
     "video/quicktime": ("video", "mov"),
     "video/webm": ("video", "webm"),
 }
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MiB — plenty for phone photos/clips
+
+# Last resort when the browser sends no usable content type — some Android
+# pickers hand the page a File with an empty or generic `type`, and the
+# multipart part then carries nothing better.
+EXT_MEDIA_TYPES = {
+    ".jpg": ("image", "jpg"),
+    ".jpeg": ("image", "jpg"),
+    ".png": ("image", "png"),
+    ".webp": ("image", "webp"),
+    ".gif": ("image", "gif"),
+    ".heic": ("image", "heic"),
+    ".heif": ("image", "heic"),
+    ".mp4": ("video", "mp4"),
+    ".m4v": ("video", "mp4"),
+    ".mov": ("video", "mov"),
+    ".webm": ("video", "webm"),
+}
+
+
+def _resolve_media_type(
+    content_type: str | None, filename: str | None
+) -> tuple[str, str] | None:
+    """(kind, extension) for an upload, or None if we don't accept it."""
+    if content_type and content_type in ALLOWED_MEDIA_TYPES:
+        return ALLOWED_MEDIA_TYPES[content_type]
+    if filename:
+        return EXT_MEDIA_TYPES.get(PurePosixPath(filename).suffix.lower())
+    return None
 
 
 def _ordered_stops(session: SessionDep) -> list[Stop]:
@@ -280,11 +312,12 @@ def upload_stop_media(
     db_stop = session.get(Stop, id)
     if not db_stop:
         raise HTTPException(status_code=404, detail="Stop not found")
-    if file.content_type not in ALLOWED_MEDIA_TYPES:
+    resolved = _resolve_media_type(file.content_type, file.filename)
+    if resolved is None:
         raise HTTPException(
             status_code=415, detail=f"Unsupported media type: {file.content_type}"
         )
-    kind, ext = ALLOWED_MEDIA_TYPES[file.content_type]
+    kind, ext = resolved
     # Stream to disk, aborting if it turns out oversized.
     stop_dir = MEDIA_ROOT / str(id)
     stop_dir.mkdir(parents=True, exist_ok=True)

@@ -14,6 +14,7 @@ import {
 } from "./api"
 import type { PlaceHit } from "./geocode"
 import { WrenchIcon } from "./icons"
+import { prepareUpload, TooLargeError } from "./imagePrep"
 import { notedKm } from "./odometer"
 import PlaceSearch from "./PlaceSearch"
 import { C, FONT_MONO } from "./theme"
@@ -138,8 +139,10 @@ export default function AddFlow({
   // and create duplicate stops.
   saving?: boolean
   onClose: () => void
-  // Called when the user submits a NEW stop (no `initialStop`).
-  onCreate?: (stop: NewStop) => void
+  // Called when the user submits a NEW stop (no `initialStop`). `files`
+  // maps each local-preview blob: URL in `stop.media` to the File behind
+  // it, for the parent to upload once the stop has an id.
+  onCreate?: (stop: NewStop, files: Map<string, File>) => void
   // Called when the user submits edits to an EXISTING stop.
   onPatch?: (id: string, patch: NewStop) => void
   // Called (edit mode only) when the user confirms deletion.
@@ -196,8 +199,21 @@ export default function AddFlow({
   // stop it's just captions/placeholders that get saved with the stop.
   const [media, setMedia] = useState<MediaItem[]>(initialStop?.media ?? [])
   const [uploading, setUploading] = useState(false)
+  // What the user is waiting on right now: which file of how many, and how
+  // far its bytes have got. Without this a slow upload is indistinguishable
+  // from a dead one, which is exactly how it used to feel.
+  const [progress, setProgress] = useState<{
+    index: number
+    total: number
+    fraction: number
+    preparing: boolean
+  } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // New stops have no id yet, so their files wait here — keyed by the blob:
+  // URL of the preview that stands in for them — until `onCreate` hands the
+  // map to the parent, which uploads them against the fresh stop id.
+  const pendingFilesRef = useRef(new Map<string, File>())
   // Captions as the server last saw them (edit mode) — a blur only PATCHes
   // when the text actually changed. Indices track `media` because both are
   // refreshed together from every server response.
@@ -230,6 +246,7 @@ export default function AddFlow({
       for (const item of mediaRef.current) {
         if (item.url?.startsWith("blob:")) URL.revokeObjectURL(item.url)
       }
+      pendingFilesRef.current.clear()
     },
     [],
   )
@@ -278,7 +295,9 @@ export default function AddFlow({
   const submit = () => {
     // The ref blocks re-entry synchronously (double-taps land before the
     // parent's isPending re-render); `saving` covers the rest of the save.
-    if (!picked || saving || submitLockRef.current) return
+    // Saving mid-upload used to PATCH `media` back to the pre-upload list,
+    // quietly undoing the file that was still on its way up.
+    if (!picked || saving || uploading || submitLockRef.current) return
     submitLockRef.current = true
     const payload: NewStop = {
       place: picked.place,
@@ -304,7 +323,7 @@ export default function AddFlow({
       onPatch(initialStop.id, payload)
     } else if (onCreate) {
       handedOffRef.current = true
-      onCreate(payload)
+      onCreate(payload, pendingFilesRef.current)
     }
   }
 
@@ -354,42 +373,80 @@ export default function AddFlow({
     e.target.value = "" // allow re-selecting the same file(s)
     if (files.length === 0) return
     setUploadError(null)
-    // For an existing stop we upload straight to the server so the files
-    // live on the media volume; each response reflects the new media list.
-    // Sequential on purpose — the backend appends to the stop's media list,
-    // and parallel POSTs could interleave those read-modify-writes.
-    if (isEdit && initialStop) {
-      setUploading(true)
-      let failed = 0
-      try {
-        for (const file of files) {
-          try {
-            const updated = await uploadStopMedia(initialStop.id, file)
-            syncFromServer(updated)
-          } catch {
-            failed += 1
-          }
+    setUploading(true)
+    const problems: string[] = []
+    try {
+      for (const [i, original] of files.entries()) {
+        setProgress({
+          index: i,
+          total: files.length,
+          fraction: 0,
+          preparing: true,
+        })
+        // Shrink first, always. A 12 MP camera original is ~10 MB of upload
+        // and, once it is pointed at by an <img>, ~48 MB of decoded bitmap
+        // — enough of both to bring a modest Android phone to its knees.
+        let file: File
+        try {
+          file = await prepareUpload(original)
+        } catch (err) {
+          problems.push(
+            err instanceof TooLargeError
+              ? err.message
+              : `${original.name || "Bestand"} kon niet worden verwerkt`,
+          )
+          continue
         }
-      } finally {
-        setUploading(false)
+        setProgress({
+          index: i,
+          total: files.length,
+          fraction: 0,
+          preparing: false,
+        })
+
+        // For an existing stop we upload straight to the server so the files
+        // live on the media volume; each response reflects the new media
+        // list. Sequential on purpose — the backend appends to the stop's
+        // media list, and parallel POSTs could interleave those
+        // read-modify-writes.
+        if (isEdit && initialStop) {
+          try {
+            const updated = await uploadStopMedia(initialStop.id, file, "", {
+              onProgress: (fraction) =>
+                setProgress({
+                  index: i,
+                  total: files.length,
+                  fraction,
+                  preparing: false,
+                }),
+            })
+            syncFromServer(updated)
+          } catch (err) {
+            problems.push((err as Error).message || "Upload mislukt")
+          }
+          continue
+        }
+
+        // For a NEW stop we don't have an ID yet — stash a local-preview
+        // item so the user can see what they picked, and defer the real
+        // upload until after the stop is created (see BrommerboekApp.tsx).
+        // The preview points at the *shrunk* file, so the browser decodes a
+        // 2048px image into that 64px slot rather than the full sensor.
+        const kind: MediaItem["kind"] = file.type.startsWith("video/")
+          ? "video"
+          : "image"
+        const url = URL.createObjectURL(file)
+        // Hold the File itself. Round-tripping the preview blob back through
+        // fetch() at upload time made a second full copy of every picture in
+        // memory, and lost the lot if the tab was reclaimed in between.
+        pendingFilesRef.current.set(url, file)
+        setMedia((m) => [...m, { tone: "", cap: "", kind, url }])
       }
-      if (failed > 0) {
-        setUploadError(
-          failed === 1 ? "1 upload mislukt" : `${failed} uploads mislukt`,
-        )
-      }
-      return
+    } finally {
+      setUploading(false)
+      setProgress(null)
     }
-    // For a NEW stop we don't have an ID yet — stash local-preview items
-    // so the user can see what they picked, and defer the real upload until
-    // after the stop is created (see BrommerboekApp.tsx).
-    const items = files.map((file): MediaItem => {
-      const kind: MediaItem["kind"] = file.type.startsWith("video/")
-        ? "video"
-        : "image"
-      return { tone: "", cap: "", kind, url: URL.createObjectURL(file) }
-    })
-    setMedia((m) => [...m, ...items])
+    if (problems.length > 0) setUploadError(problems.join(" · "))
   }
 
   const onRemoveMedia = async (index: number) => {
@@ -407,7 +464,10 @@ export default function AddFlow({
       return
     }
     const url = media[index]?.url
-    if (url?.startsWith("blob:")) URL.revokeObjectURL(url)
+    if (url?.startsWith("blob:")) {
+      URL.revokeObjectURL(url)
+      pendingFilesRef.current.delete(url)
+    }
     setMedia((m) => m.filter((_, i) => i !== index))
   }
 
@@ -696,8 +756,47 @@ export default function AddFlow({
             >
               {media.length} toegevoegd
               {isEdit ? " · uploads staan direct online" : ""}
-              {uploading ? " · uploaden…" : ""}
             </div>
+            {progress && (
+              <div style={{ marginBottom: 12 }}>
+                <div
+                  style={{
+                    fontFamily: FONT_MONO,
+                    fontSize: 11,
+                    color: C.ochreDeep,
+                    marginBottom: 4,
+                  }}
+                >
+                  {progress.total > 1
+                    ? `bestand ${progress.index + 1}/${progress.total} · `
+                    : ""}
+                  {progress.preparing
+                    ? "verkleinen…"
+                    : `uploaden ${Math.round(progress.fraction * 100)}%`}
+                </div>
+                {/* A bar that actually moves is the difference between
+                    "this is slow" and "this is broken". */}
+                <div
+                  style={{
+                    height: 4,
+                    borderRadius: 2,
+                    background: C.border,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: progress.preparing
+                        ? "100%"
+                        : `${Math.round(progress.fraction * 100)}%`,
+                      background: progress.preparing ? C.border : C.ochreDeep,
+                      transition: "width .2s linear",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
             {uploadError && (
               <div
                 style={{
@@ -797,7 +896,10 @@ export default function AddFlow({
                 type="button"
                 onClick={onPickFile}
                 aria-label="Voeg foto's of video's toe"
-                disabled={uploading}
+                // Also closed once a new stop has been handed off: its file
+                // list is already snapshotted, so anything picked now would
+                // never be uploaded.
+                disabled={uploading || saving}
                 style={{
                   aspectRatio: "1",
                   alignSelf: "start",
@@ -806,11 +908,11 @@ export default function AddFlow({
                   background: "none",
                   color: "#8a6a3a",
                   fontSize: 30,
-                  cursor: uploading ? "wait" : "pointer",
+                  cursor: uploading || saving ? "wait" : "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  opacity: uploading ? 0.6 : 1,
+                  opacity: uploading || saving ? 0.6 : 1,
                 }}
               >
                 ＋
@@ -1267,7 +1369,10 @@ export default function AddFlow({
         <button
           type="button"
           onClick={next}
-          disabled={saving}
+          // Blocked during an upload too: on the last step this button
+          // PATCHes `media`, which would race the in-flight upload's own
+          // update of that same list.
+          disabled={saving || uploading}
           style={{
             flex: 1,
             padding: 14,
@@ -1278,18 +1383,20 @@ export default function AddFlow({
             fontFamily: FONT_MONO,
             fontSize: 14,
             letterSpacing: 1,
-            cursor: saving ? "wait" : "pointer",
-            opacity: saving ? 0.6 : 1,
+            cursor: saving || uploading ? "wait" : "pointer",
+            opacity: saving || uploading ? 0.6 : 1,
             boxShadow: "0 3px 0 rgba(90,30,20,.4)",
           }}
         >
           {saving
             ? "bezig met opslaan…"
-            : step < 3
-              ? "volgende ›"
-              : isEdit
-                ? "✓ opslaan"
-                : "✓ plaats stop"}
+            : uploading
+              ? "bezig met uploaden…"
+              : step < 3
+                ? "volgende ›"
+                : isEdit
+                  ? "✓ opslaan"
+                  : "✓ plaats stop"}
         </button>
       </div>
     </div>
