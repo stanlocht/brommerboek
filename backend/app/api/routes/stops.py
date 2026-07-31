@@ -1,5 +1,6 @@
 import shutil
 import uuid
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
@@ -126,10 +127,12 @@ def read_stats(session: SessionDep) -> Any:
     repairs = sum(1 for s in trip if s.type == "repair")
     days = 0
     if trip:
-        dates = sorted(s.date for s in trip)
-        # Inclusive: the first day on the road is dag 1, so a trip spanning
-        # two calendar dates counts as 2 days.
-        days = (dates[-1] - dates[0]).days + 1
+        # Days on the road run from departure until today, not until the last
+        # post: a quiet week without stops is still a week of riding. Inclusive,
+        # so the departure day is dag 1; a trip that departs tomorrow is 0.
+        # (When the rider can close a trip off, its end date replaces today.)
+        departure = min(s.date for s in trip)
+        days = max((datetime.now(UTC).date() - departure).days + 1, 0)
     return TripStats(
         km=round(km_total),
         suggested_km=suggested_km,

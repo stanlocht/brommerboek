@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +10,7 @@ from app.models import Comment, HornHonk, LegTrack, Stop
 from tests.utils.stop import create_test_stop, delete_test_stop, stop_payload
 
 STOPS_URL = f"{settings.API_V1_STR}/stops/"
+SEED_DEPARTURE = date(2024, 5, 4)  # Amsterdam, the seeded trip's first stop
 
 
 # ----- Public reads -----------------------------------------------------------
@@ -84,8 +86,8 @@ def test_read_stops_includes_reaction_counts(
 def test_stats_match_seed_trip(client: TestClient) -> None:
     # The seeded Amsterdam → Cinque Terre trip: every stop has an odometer
     # reading (0 … 1024 km, monotonically increasing), so total km is the
-    # odometer delta; 2024-05-04 → 2024-05-19 is 16 days on the road counted
-    # inclusively (departure day is dag 1); NL/BE/FR/CH/IT are
+    # odometer delta; the trip is still running, so days count from the
+    # 2024-05-04 departure to today (inclusive); NL/BE/FR/CH/IT are
     # 5 countries; 2 of the 10 stops are repairs.
     count = client.get(STOPS_URL).json()["count"]
     assert count == 10, "expected only the seeded stops — a test leaked a stop"
@@ -95,12 +97,31 @@ def test_stats_match_seed_trip(client: TestClient) -> None:
     assert stats == {
         "km": 1024,
         "suggested_km": 1024,
-        "days": 16,
+        "days": (datetime.now(UTC).date() - SEED_DEPARTURE).days + 1,
         "countries": 5,
         "stops": 10,
         "repairs": 2,
         "stamps": 5,
     }
+
+
+def test_stats_days_run_to_today_not_to_the_last_stop(
+    client: TestClient, db: Session
+) -> None:
+    # No new stop for a while doesn't freeze the counter, and a stop added
+    # today doesn't bump it either — it's departure → today, both ways.
+    expected = (datetime.now(UTC).date() - SEED_DEPARTURE).days + 1
+    assert client.get(f"{STOPS_URL}stats").json()["days"] == expected
+    stop = create_test_stop(
+        db,
+        place="Vandaag",
+        code="IT",
+        date=datetime.now(UTC).date().isoformat(),
+    )
+    try:
+        assert client.get(f"{STOPS_URL}stats").json()["days"] == expected
+    finally:
+        delete_test_stop(db, stop)
 
 
 def test_stats_haversine_fallback_when_km_missing(
@@ -118,7 +139,8 @@ def test_stats_haversine_fallback_when_km_missing(
         assert stats["suggested_km"] == 1024  # last *known* odometer reading
         leg = stats["km"] - 1024
         assert 320 < leg < 360
-        assert stats["days"] == 18
+        # A stop added after the departure date leaves the day count alone.
+        assert stats["days"] == (datetime.now(UTC).date() - SEED_DEPARTURE).days + 1
     finally:
         delete_test_stop(db, stop)
 
