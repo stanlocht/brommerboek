@@ -229,18 +229,27 @@ export default function BrommerboekApp() {
   }, [stops])
 
   const createMut = useMutation({
-    mutationFn: async (s: NewStop) => {
-      // New stops carry local-preview media whose `url` is a blob: URL that
-      // AddFlow made from the picked File. Create the stop first, then
-      // re-fetch each blob and upload it against the fresh stop id.
+    mutationFn: async ({
+      stop: s,
+      files,
+    }: {
+      stop: NewStop
+      files: Map<string, File>
+    }) => {
+      // New stops carry local-preview media whose `url` is a blob: URL
+      // standing in for a File that AddFlow already shrank and parked in
+      // `files`. Create the stop first, then upload each File against the
+      // fresh stop id. Taking the File straight from the map (rather than
+      // re-reading the blob: URL through fetch, as this used to) avoids a
+      // second full copy of every picture and survives the preview URL
+      // being revoked underneath us.
       const created = await createStop({ ...s, media: [] })
       let failed = 0
       for (const item of s.media) {
         if (item.url?.startsWith("blob:")) {
+          const file = files.get(item.url)
           try {
-            const blob = await fetch(item.url).then((r) => r.blob())
-            const ext = item.kind === "video" ? "video.mp4" : "photo.jpg"
-            const file = new File([blob], ext, { type: blob.type })
+            if (!file) throw new Error("file missing")
             await uploadStopMedia(created.id, file, item.cap)
           } catch {
             // Individual upload failures don't roll back the stop — the
@@ -250,6 +259,7 @@ export default function BrommerboekApp() {
             // AddFlow made this blob: URL for the preview; it's ours to
             // release once the upload has settled either way.
             URL.revokeObjectURL(item.url)
+            files.delete(item.url)
           }
         }
       }
@@ -269,8 +279,8 @@ export default function BrommerboekApp() {
       flash(
         failed > 0
           ? failed === 1
-            ? "Stop toegevoegd, maar 1 bestand kon niet worden geüpload"
-            : `Stop toegevoegd, maar ${failed} bestanden konden niet worden geüpload`
+            ? "Stop toegevoegd, maar 1 bestand mislukte — voeg het toe via bewerken"
+            : `Stop toegevoegd, maar ${failed} bestanden mislukten — voeg ze toe via bewerken`
           : "✓ Stop toegevoegd aan de route",
       )
     },
@@ -447,7 +457,7 @@ export default function BrommerboekApp() {
             suggestedKm={stats.suggested_km}
             saving={createMut.isPending}
             onClose={() => setAddOpen(false)}
-            onCreate={(s) => createMut.mutate(s)}
+            onCreate={(s, files) => createMut.mutate({ stop: s, files })}
           />
         )}
         {loginOpen && (
@@ -612,7 +622,7 @@ export default function BrommerboekApp() {
           suggestedKm={stats.suggested_km}
           saving={createMut.isPending}
           onClose={() => setAddOpen(false)}
-          onCreate={(s) => createMut.mutate(s)}
+          onCreate={(s, files) => createMut.mutate({ stop: s, files })}
         />
       )}
       {editStop && canEdit && (

@@ -196,10 +196,26 @@ export async function updateStop(id: string, patch: StopPatch): Promise<Stop> {
   return (await res.json()) as Stop
 }
 
+// Abort an upload that stops making progress for this long. A mobile
+// connection that drops mid-POST does not fail the request — the socket
+// just goes quiet, and `fetch` will happily wait forever, which is what
+// used to leave the edit flow stuck on "uploaden…" with no way out.
+const UPLOAD_STALL_MS = 45_000
+// Once the last byte is sent the server still has to write the file and
+// render a thumbnail, during which there is nothing to report progress on.
+const SERVER_WORK_MS = 90_000
+
+export interface UploadOptions {
+  // Fraction of the file sent so far, 0..1. Called often; keep it cheap.
+  onProgress?: (fraction: number) => void
+  signal?: AbortSignal
+}
+
 export async function uploadStopMedia(
   id: string,
   file: File,
   caption = "",
+  { onProgress, signal }: UploadOptions = {},
 ): Promise<Stop> {
   const form = new FormData()
   form.append("file", file)
@@ -207,13 +223,78 @@ export async function uploadStopMedia(
   const url = caption
     ? `${mediaUrl(id)}?caption=${encodeURIComponent(caption)}`
     : mediaUrl(id)
-  const res = await fetch(url, {
-    method: "POST",
-    headers: authHeaders(),
-    body: form,
+
+  // XHR rather than fetch: it is the only way to observe upload progress,
+  // which we need both to show a percentage and to tell a slow upload
+  // apart from a dead one.
+  return new Promise<Stop>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    let settled = false
+    let stalled = false
+
+    const arm = (ms: number) => {
+      clearTimeout(watchdog)
+      watchdog = setTimeout(() => {
+        stalled = true
+        xhr.abort()
+      }, ms)
+    }
+
+    const finish = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(watchdog)
+      signal?.removeEventListener("abort", onAbort)
+      fn()
+    }
+    const onAbort = () => xhr.abort()
+
+    xhr.upload.onprogress = (e) => {
+      arm(UPLOAD_STALL_MS)
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total)
+    }
+    xhr.upload.onload = () => {
+      onProgress?.(1)
+      arm(SERVER_WORK_MS)
+    }
+    xhr.onload = () =>
+      finish(() => {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(`Failed to upload media (${xhr.status})`))
+          return
+        }
+        try {
+          resolve(JSON.parse(xhr.responseText) as Stop)
+        } catch {
+          reject(new Error("Failed to upload media (bad response)"))
+        }
+      })
+    xhr.onerror = () =>
+      finish(() => reject(new Error("Upload mislukt — geen verbinding")))
+    xhr.onabort = () =>
+      finish(() =>
+        reject(
+          new Error(
+            stalled
+              ? "Upload vastgelopen — probeer het opnieuw"
+              : "Upload afgebroken",
+          ),
+        ),
+      )
+
+    if (signal?.aborted) {
+      reject(new Error("Upload afgebroken"))
+      return
+    }
+    signal?.addEventListener("abort", onAbort)
+
+    xhr.open("POST", url)
+    const token = localStorage.getItem("access_token") ?? ""
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`)
+    arm(UPLOAD_STALL_MS)
+    xhr.send(form)
   })
-  if (!res.ok) throw new Error(`Failed to upload media (${res.status})`)
-  return (await res.json()) as Stop
 }
 
 export async function updateStopMediaCaption(
