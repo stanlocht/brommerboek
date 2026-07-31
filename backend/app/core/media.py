@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 from PIL import Image, ImageOps
-from pillow_heif import register_heif_opener
+from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 

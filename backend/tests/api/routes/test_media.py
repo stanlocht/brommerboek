@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlmodel import Session
 
 from app.api.routes import stops as stops_module
@@ -22,6 +23,20 @@ PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     "AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 )
+
+
+def _heif_1px() -> bytes:
+    """A real HEIF file, encoded rather than pasted in as a base64 blob.
+
+    Importing the route module has already run `register_heif_opener()` (via
+    app.core.media), which is what teaches Pillow both ends of this format.
+    """
+    buf = io.BytesIO()
+    Image.new("RGB", (1, 1), (200, 30, 20)).save(buf, format="HEIF")
+    return buf.getvalue()
+
+
+HEIF_1PX = _heif_1px()
 
 
 @pytest.fixture
@@ -48,12 +63,13 @@ def _upload(
     content: bytes = PNG_1PX,
     content_type: str = "image/png",
     caption: str = "",
+    filename: str = "foto.png",
 ) -> httpx.Response:
     response: httpx.Response = client.post(
         f"{STOPS_URL}{stop_id}/media",
         headers=headers,
         params={"caption": caption} if caption else None,
-        files={"file": ("foto.png", io.BytesIO(content), content_type)},
+        files={"file": (filename, io.BytesIO(content), content_type)},
     )
     return response
 
@@ -160,6 +176,72 @@ def test_upload_media_rejects_wrong_content_type(
     assert r.status_code == 415
     assert "Unsupported media type" in r.json()["detail"]
     assert not list(media_root.glob("**/*.png"))
+
+
+@pytest.mark.usefixtures("media_root")
+@pytest.mark.parametrize("content_type", ["", "application/octet-stream"])
+def test_upload_media_falls_back_to_filename_when_type_unknown(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    content_type: str,
+) -> None:
+    # Some Android pickers hand the page a File with no usable `type`, and
+    # the multipart part then carries nothing better. Rejecting those meant
+    # silently losing the photo, so the extension gets the last word.
+    r = _upload(client, superuser_token_headers, stop.id, content_type=content_type)
+    assert r.status_code == 200
+    item = r.json()["media"][0]
+    assert item["kind"] == "image"
+    assert item["url"].endswith(".png")
+
+
+def test_upload_media_filename_cannot_override_a_declared_type(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    # The fallback above is only for "I don't know" — naming a shell script
+    # foto.png must not talk its way past the allow-list.
+    r = _upload(
+        client,
+        superuser_token_headers,
+        stop.id,
+        content=b"#!/bin/sh\necho boo",
+        content_type="text/x-shellscript",
+        filename="foto.png",
+    )
+    assert r.status_code == 415
+    assert not list(media_root.glob("**/*.png"))
+
+
+def test_upload_media_accepts_heif(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    # Android cameras label the same container image/heic or image/heif; the
+    # latter used to 415 and drop the photo.
+    r = _upload(
+        client,
+        superuser_token_headers,
+        stop.id,
+        content=HEIF_1PX,
+        content_type="image/heif",
+        filename="IMG_0001.heic",
+    )
+    assert r.status_code == 200
+    item = r.json()["media"][0]
+    assert item["kind"] == "image"
+    assert item["url"].endswith(".heic")
+    # pillow-heif lets Pillow decode it, so the gallery gets a thumbnail it
+    # can actually render instead of falling back to the HEIC original.
+    assert item["thumb"] is not None
+    stem = item["url"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    header = (media_root / str(stop.id) / f"thumb_{stem}.webp").read_bytes()
+    assert header[:4] == b"RIFF" and header[8:12] == b"WEBP"
 
 
 def test_upload_media_rejects_oversized_file(

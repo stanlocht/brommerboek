@@ -44,6 +44,12 @@ ALLOWED_MEDIA_TYPES = {
 }
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MiB — plenty for phone photos/clips
 
+# Content types that say "I don't know", as opposed to naming something we
+# don't accept. Only for these do we look at the filename — a client that
+# declares a real type is taken at its word, so a .png-named shell script
+# still gets turned away.
+UNKNOWN_MEDIA_TYPES = {"", "application/octet-stream", "binary/octet-stream"}
+
 # Last resort when the browser sends no usable content type — some Android
 # pickers hand the page a File with an empty or generic `type`, and the
 # multipart part then carries nothing better.
@@ -66,8 +72,11 @@ def _resolve_media_type(
     content_type: str | None, filename: str | None
 ) -> tuple[str, str] | None:
     """(kind, extension) for an upload, or None if we don't accept it."""
-    if content_type and content_type in ALLOWED_MEDIA_TYPES:
-        return ALLOWED_MEDIA_TYPES[content_type]
+    declared = (content_type or "").strip().lower()
+    if declared in ALLOWED_MEDIA_TYPES:
+        return ALLOWED_MEDIA_TYPES[declared]
+    if declared not in UNKNOWN_MEDIA_TYPES:
+        return None
     if filename:
         return EXT_MEDIA_TYPES.get(PurePosixPath(filename).suffix.lower())
     return None
