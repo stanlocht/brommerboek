@@ -498,3 +498,38 @@ easy to parse from the run log.
   legs from before the tracker simply keep their straight lines. Since the
   Traccar database is now the source of ride geometry, keep a backup routine
   on that server too.
+- **Uitgaande e-mail: een SMTP-relay** (Resend, Brevo, SMTP2GO, …). Brommerboek
+  verstuurt zelf niets zwaars — alleen wachtwoord-herstel, de mail bij een door
+  een admin aangemaakt account, en het testbericht hieronder — dus een gratis
+  plan is ruim voldoende. **Draai geen eigen MTA op de box**: Hetzner blokkeert
+  poort 25 standaard en een verse VPS-IP heeft geen reputatie, waardoor juist
+  de herstelmails in spam belanden. Relays luisteren op 587, dat wél open is.
+
+  Zet de records (SPF, DKIM, en bij voorkeur `_dmarc`) bij dezelfde DNS-provider
+  als het wildcard-record uit §7, en vul dan `~/brommerboek/.env`:
+
+  ```bash
+  # Leeg = e-mail uit: wachtwoord-herstel antwoordt 503 en er gaat niets uit
+  SMTP_HOST=smtp.resend.com
+  SMTP_USER=resend
+  SMTP_PASSWORD=<api key>
+  EMAILS_FROM_EMAIL=noreply@brommerboek.nl
+  # SMTP_PORT=587 en SMTP_TLS=True zijn de defaults en kloppen voor elk relay
+  # hierboven; EMAILS_FROM_NAME valt terug op PROJECT_NAME.
+  ```
+
+  daarna `dc up -d --force-recreate backend` (de env komt uit `env_file`, dus
+  een herstart alleen is niet genoeg).
+
+  **Controleren**: log in als superuser, ga naar `/admin` en gebruik de kaart
+  "✉ stuur een testbericht" — die staat standaard op je eigen adres. De kaart
+  toont het resultaat van het relay, niet alleen "verstuurd": een 503 betekent
+  dat `SMTP_HOST`/`EMAILS_FROM_EMAIL` niet gezet zijn, een 502 dat het relay de
+  mail weigerde (de reden die het teruggaf staat erbij — meestal een nog niet
+  geverifieerd domein of een afzender die niet bij het domein hoort). Check ook
+  even of de mail niet in spam landt; dat is wat SPF/DKIM/DMARC moeten
+  voorkomen. Hetzelfde endpoint is `POST /api/v1/utils/test-email/`.
+
+  PR-previews sturen nooit mail: `preview.yml` maakt `SMTP_HOST` leeg. Lokaal
+  vangt de `mailcatcher` uit `compose.dev.yml` alles op (webinterface op poort
+  1080), zodat de e2e-tests echte mail kunnen lezen zonder iets te versturen.

@@ -22,6 +22,21 @@ class EmailData:
     subject: str
 
 
+@dataclass
+class SendResult:
+    """Outcome of one SMTP hand-off.
+
+    `python-emails` never raises on a rejected message — it returns a
+    response object and leaves it to the caller to look. Callers that only
+    log (account creation, password recovery) can keep ignoring this; the
+    admin test-email endpoint reports it, because a test button that says
+    "sent" no matter what tests nothing.
+    """
+
+    success: bool
+    detail: str
+
+
 def render_email_template(*, template_name: str, context: dict[str, Any]) -> str:
     template_str = (
         Path(__file__).parent / "email-templates" / "build" / template_name
@@ -35,7 +50,7 @@ def send_email(
     email_to: str,
     subject: str = "",
     html_content: str = "",
-) -> None:
+) -> SendResult:
     assert settings.emails_enabled, "no provided configuration for email variables"
     message = emails.Message(
         subject=subject,
@@ -51,8 +66,15 @@ def send_email(
         smtp_options["user"] = settings.SMTP_USER
     if settings.SMTP_PASSWORD:
         smtp_options["password"] = settings.SMTP_PASSWORD
+    # The SMTP backend runs with fail_silently=True, so a refused recipient or
+    # an unreachable relay arrives here as a response, not an exception.
     response = message.send(to=email_to, smtp=smtp_options)
     logger.info(f"send email result: {response}")
+    if response.success:
+        return SendResult(success=True, detail=str(response.status_text or "250 OK"))
+    detail = str(response.error or response.status_text or "unknown SMTP failure")
+    logger.warning(f"send email to {email_to} failed: {detail}")
+    return SendResult(success=False, detail=detail)
 
 
 def generate_test_email(email_to: str) -> EmailData:

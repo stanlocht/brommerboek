@@ -7,6 +7,7 @@
 
 import { expect, type Page, test } from "@playwright/test"
 import { firstSuperuser, firstSuperuserPassword } from "./config.ts"
+import { findLastEmail } from "./utils/mailcatcher"
 import { createUser } from "./utils/privateApi"
 import { randomEmail, randomPassword } from "./utils/random"
 import { logInUser } from "./utils/user"
@@ -158,6 +159,56 @@ test.describe("Admin user management", () => {
     await page.getByRole("button", { name: "✓ voeg toe" }).click()
 
     await expect(page.getByText("de wachtwoorden verschillen")).toBeVisible()
+  })
+})
+
+test.describe("Admin test email", () => {
+  test("Card prefills the logged-in admin's own address", async ({ page }) => {
+    await page.goto("/admin")
+
+    await page.getByRole("button", { name: "✉ stuur een testbericht" }).click()
+
+    await expect(page.getByTestId("test-email-input")).toHaveValue(
+      firstSuperuser,
+    )
+  })
+
+  test("Address must be valid", async ({ page }) => {
+    await page.goto("/admin")
+
+    await page.getByRole("button", { name: "✉ stuur een testbericht" }).click()
+    await page.getByTestId("test-email-input").fill("invalid-email")
+    await page.getByRole("button", { name: "✓ verstuur" }).click()
+
+    await expect(page.getByText("dat lijkt geen e-mailadres")).toBeVisible()
+  })
+
+  // Requires the dev stack's mailcatcher (compose.dev.yml), which the backend
+  // is pointed at via SMTP_HOST — the same relay the reset-password spec reads.
+  test("Sends a test email to the given address", async ({ page, request }) => {
+    const email = randomEmail()
+
+    await page.goto("/admin")
+
+    await page.getByRole("button", { name: "✉ stuur een testbericht" }).click()
+    await page.getByTestId("test-email-input").fill(email)
+    await page.getByRole("button", { name: "✓ verstuur" }).click()
+
+    await expect(
+      page.getByText(`testbericht verstuurd naar ${email}`),
+    ).toBeVisible()
+    await expect(
+      page
+        .getByTestId("test-email-card")
+        .getByText(`✓ verstuurd naar ${email}`),
+    ).toBeVisible()
+
+    const emailData = await findLastEmail({
+      request,
+      filter: (e) => e.recipients.includes(`<${email}>`),
+      timeout: 5000,
+    })
+    expect(emailData.subject).toContain("Test email")
   })
 })
 

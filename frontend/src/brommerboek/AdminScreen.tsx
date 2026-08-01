@@ -11,6 +11,7 @@ import {
   type UserPublic,
   UsersService,
   type UserUpdate,
+  UtilsService,
 } from "@/client"
 import useAuth from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
@@ -342,6 +343,106 @@ function AddUserCard() {
   )
 }
 
+// Mail check for the admin: sends the backend's test template to any address,
+// prefilled with your own. Doubles as the SMTP smoke test after a relay or
+// DNS change, so the outcome is kept on the card instead of only in a toast
+// that fades before you have read it.
+function TestEmailCard({ defaultEmail }: { defaultEmail: string }) {
+  const { showSuccessToast, showErrorToast } = useCustomToast()
+  const [open, setOpen] = useState(false)
+  const [email, setEmail] = useState(defaultEmail)
+  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(
+    null,
+  )
+
+  const mutation = useMutation({
+    mutationFn: (emailTo: string) => UtilsService.testEmail({ emailTo }),
+    onSuccess: (_data, emailTo) => {
+      showSuccessToast(`testbericht verstuurd naar ${emailTo}`)
+      setStatus({ ok: true, msg: `verstuurd naar ${emailTo}` })
+    },
+    onError: handleError.bind((msg: string) => {
+      showErrorToast(msg)
+      setStatus({ ok: false, msg })
+    }),
+  })
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const to = email.trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      setStatus({ ok: false, msg: "dat lijkt geen e-mailadres" })
+      return
+    }
+    setStatus(null)
+    mutation.mutate(to)
+  }
+
+  return (
+    <div
+      data-testid="test-email-card"
+      style={{
+        background: C.paperCard,
+        border: `1.5px dashed ${C.ochre}`,
+        borderRadius: 12,
+        padding: 16,
+        transform: "rotate(-.2deg)",
+        marginBottom: 14,
+      }}
+    >
+      {open ? (
+        <>
+          <div style={{ ...labelStyle, letterSpacing: 3, marginBottom: 10 }}>
+            TESTBERICHT
+          </div>
+          <form noValidate onSubmit={submit}>
+            <Field label="STUUR NAAR">
+              <input
+                data-testid="test-email-input"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                style={fieldStyle}
+              />
+            </Field>
+            {status && (
+              <Note color={status.ok ? C.teal : C.red}>
+                {status.ok ? `✓ ${status.msg}` : status.msg}
+              </Note>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="submit"
+                disabled={mutation.isPending}
+                style={{ ...primaryBtn, opacity: mutation.isPending ? 0.6 : 1 }}
+              >
+                {mutation.isPending ? "…" : "✓ verstuur"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                disabled={mutation.isPending}
+                style={ghostBtn}
+              >
+                sluit
+              </button>
+            </div>
+          </form>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          style={{ ...ghostBtn, border: "none", padding: 0 }}
+        >
+          ✉ stuur een testbericht
+        </button>
+      )}
+    </div>
+  )
+}
+
 function UserCard({
   user,
   isCurrentUser,
@@ -607,6 +708,12 @@ export default function AdminScreen() {
           }}
         >
           <AddUserCard />
+          {/* Keyed on the email so the prefill lands once useAuth resolves —
+              the field seeds component state, which a later prop won't move. */}
+          <TestEmailCard
+            key={currentUser?.email ?? "anon"}
+            defaultEmail={currentUser?.email ?? ""}
+          />
           {users ? (
             users.data.map((user, i) => (
               <UserCard
