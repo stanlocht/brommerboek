@@ -6,6 +6,8 @@
 // Everything here must be inert on failure: reporting an error may never
 // throw, loop, or block the UI.
 
+import { isForeignStack } from "./errorProvenance"
+
 const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")
 const TELEMETRY_URL = `${BASE}/api/v1/telemetry/errors`
 
@@ -64,6 +66,15 @@ export function reportError(error: unknown, context = ""): void {
   }
 }
 
+// Uninvited code — extensions, and the in-app browsers that inject their own
+// inline scripts — throws through these same handlers. Where the stack says
+// outright that the code came from somewhere other than our bundle, it is not
+// ours to fix and only crowds the tracker.
+function isForeign(error: unknown): boolean {
+  if (!(error instanceof Error) || !error.stack) return false
+  return isForeignStack(error.stack, window.location.origin)
+}
+
 // Catch what React and TanStack never see: syntax/runtime errors outside
 // components and promise rejections nobody awaited.
 export function installGlobalErrorReporting(): void {
@@ -73,9 +84,11 @@ export function installGlobalErrorReporting(): void {
     // "Script error." with no stack or location. Nothing to act on, so
     // don't let them fill the error tracker.
     if (event.error == null && /^Script error\.?$/.test(event.message)) return
+    if (isForeign(event.error)) return
     reportError(event.error ?? event.message, "window.onerror")
   })
   window.addEventListener("unhandledrejection", (event) => {
+    if (isForeign(event.reason)) return
     reportError(event.reason, "unhandledrejection")
   })
 }
