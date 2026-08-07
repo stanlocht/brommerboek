@@ -41,6 +41,8 @@ ALLOWED_MEDIA_TYPES = {
     "video/mp4": ("video", "mp4"),
     "video/quicktime": ("video", "mov"),
     "video/webm": ("video", "webm"),
+    # Budget Android phones still record 3GPP by default.
+    "video/3gpp": ("video", "3gp"),
 }
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MiB — plenty for phone photos/clips
 
@@ -65,6 +67,7 @@ EXT_MEDIA_TYPES = {
     ".m4v": ("video", "mp4"),
     ".mov": ("video", "mov"),
     ".webm": ("video", "webm"),
+    ".3gp": ("video", "3gp"),
 }
 
 
@@ -313,14 +316,26 @@ def upload_stop_media(
     id: uuid.UUID,
     file: UploadFile = File(...),
     caption: str = "",
+    upload_id: str = "",
 ) -> Any:
     """
     Attach a photo or short video to a stop. Files land on the media volume
     under `/media/{stop_id}/…` and the stop's `media` array grows by one.
+
+    `upload_id` is the client's idempotency key. Mobile uploads drop often
+    enough that the client retries them, and a retry after a POST that
+    landed but whose reply never made it back would otherwise attach the
+    same file twice — so a key we have already stored short-circuits to the
+    stop as it stands.
     """
     db_stop = session.get(Stop, id)
     if not db_stop:
         raise HTTPException(status_code=404, detail="Stop not found")
+    if upload_id and any(
+        isinstance(item, dict) and item.get("uid") == upload_id
+        for item in db_stop.media or []
+    ):
+        return db_stop
     resolved = _resolve_media_type(file.content_type, file.filename)
     if resolved is None:
         raise HTTPException(
@@ -338,13 +353,18 @@ def upload_stop_media(
             while chunk := file.file.read(1024 * 1024):
                 size += len(chunk)
                 if size > MAX_UPLOAD_BYTES:
-                    out.close()
-                    dest.unlink(missing_ok=True)
                     raise HTTPException(
                         status_code=413,
                         detail=f"File too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB)",
                     )
                 out.write(chunk)
+    except BaseException:
+        # Anything that stops the write — the size check above, but also the
+        # client hanging up mid-body, which is the common one on a mobile
+        # uplink — leaves a partial file nothing will ever reference. Bin it
+        # rather than let the media volume silently fill with dead bytes.
+        dest.unlink(missing_ok=True)
+        raise
     finally:
         file.file.close()
     url = f"{MEDIA_URL_PREFIX}/{id}/{filename}"
@@ -357,7 +377,14 @@ def upload_stop_media(
             thumb_url = f"{MEDIA_URL_PREFIX}/{id}/{thumb_path.name}"
     media_items = list(db_stop.media or [])
     media_items.append(
-        {"tone": "", "cap": caption[:255], "kind": kind, "url": url, "thumb": thumb_url}
+        {
+            "tone": "",
+            "cap": caption[:255],
+            "kind": kind,
+            "url": url,
+            "thumb": thumb_url,
+            "uid": upload_id[:64] or None,
+        }
     )
     db_stop.media = media_items
     session.add(db_stop)

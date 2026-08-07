@@ -10,7 +10,9 @@ function fakeFile(name: string, type: string, bytes: number): File {
 }
 
 describe("prepareUpload", () => {
-  it("passes videos through untouched", async () => {
+  it("passes a video through when the browser can't re-encode it", async () => {
+    // No MediaRecorder under vitest, so prepareVideo bails and hands the
+    // original back rather than losing the clip.
     const clip = fakeFile("ride.mp4", "video/mp4", 4 * 1024 * 1024)
     expect(await prepareUpload(clip)).toBe(clip)
   })

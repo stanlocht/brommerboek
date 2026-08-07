@@ -9,6 +9,7 @@ import {
   deleteStopMedia,
   mediaSrc,
   suggestWeather,
+  UPLOAD_ATTEMPTS,
   updateStopMediaCaption,
   uploadStopMedia,
 } from "./api"
@@ -25,9 +26,15 @@ import type {
   StopType,
   WeatherCondition,
 } from "./types"
+import { MAX_VIDEO_SECONDS, pickRecordingType } from "./videoPrep"
 import { WEATHER_OPTIONS } from "./weather"
 
 const STEP_LABELS = ["LOCATIE", "MEDIA", "VERHAAL", "TYPE"]
+
+// Whether this browser can re-encode clips at all. Only promise the rider a
+// trim when we can actually deliver one — on a browser without MediaRecorder
+// clips go up as they came off the camera. Fixed for the life of the tab.
+const canShrinkVideo = pickRecordingType() !== null
 
 const labelStyle: CSSProperties = {
   fontFamily: FONT_MONO,
@@ -120,6 +127,7 @@ export default function AddFlow({
   suggestedKm,
   initialStop,
   saving = false,
+  savingStatus = null,
   onClose,
   onCreate,
   onPatch,
@@ -138,6 +146,11 @@ export default function AddFlow({
   // the submit button so a slow save (media uploads) can't be fired twice
   // and create duplicate stops.
   saving?: boolean
+  // What that save is busy with right now ("uploaden 40%"). A new stop's
+  // media only uploads *after* the stop exists, so without this the flow
+  // sits on "bezig met opslaan…" for the length of a clip upload and looks
+  // hung — which is when people force-quit and lose the file.
+  savingStatus?: string | null
   onClose: () => void
   // Called when the user submits a NEW stop (no `initialStop`). `files`
   // maps each local-preview blob: URL in `stop.media` to the File behind
@@ -199,14 +212,17 @@ export default function AddFlow({
   // stop it's just captions/placeholders that get saved with the stop.
   const [media, setMedia] = useState<MediaItem[]>(initialStop?.media ?? [])
   const [uploading, setUploading] = useState(false)
-  // What the user is waiting on right now: which file of how many, and how
-  // far its bytes have got. Without this a slow upload is indistinguishable
-  // from a dead one, which is exactly how it used to feel.
+  // What the user is waiting on right now: which file of how many, which
+  // stage it's in, and how far that stage has got. Without this a slow
+  // upload is indistinguishable from a dead one, which is exactly how it
+  // used to feel. `attempt` > 1 means the upload dropped and is being
+  // re-sent — worth saying out loud rather than looking stuck.
   const [progress, setProgress] = useState<{
     index: number
     total: number
     fraction: number
-    preparing: boolean
+    stage: "preparing" | "uploading"
+    attempt: number
   } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -377,18 +393,28 @@ export default function AddFlow({
     const problems: string[] = []
     try {
       for (const [i, original] of files.entries()) {
-        setProgress({
-          index: i,
-          total: files.length,
-          fraction: 0,
-          preparing: true,
-        })
+        const at = (
+          stage: "preparing" | "uploading",
+          fraction: number,
+          attempt = 1,
+        ) =>
+          setProgress({
+            index: i,
+            total: files.length,
+            fraction,
+            stage,
+            attempt,
+          })
+        at("preparing", 0)
         // Shrink first, always. A 12 MP camera original is ~10 MB of upload
         // and, once it is pointed at by an <img>, ~48 MB of decoded bitmap
         // — enough of both to bring a modest Android phone to its knees.
+        // A clip is worse still: minutes of uploading, or a flat refusal for
+        // being over the ceiling. Re-encoding both is what makes the upload
+        // short enough to survive a patchy mobile connection.
         let file: File
         try {
-          file = await prepareUpload(original)
+          file = await prepareUpload(original, (f) => at("preparing", f))
         } catch (err) {
           problems.push(
             err instanceof TooLargeError
@@ -397,12 +423,7 @@ export default function AddFlow({
           )
           continue
         }
-        setProgress({
-          index: i,
-          total: files.length,
-          fraction: 0,
-          preparing: false,
-        })
+        at("uploading", 0)
 
         // For an existing stop we upload straight to the server so the files
         // live on the media volume; each response reflects the new media
@@ -411,18 +432,19 @@ export default function AddFlow({
         // read-modify-writes.
         if (isEdit && initialStop) {
           try {
+            let attempt = 1
             const updated = await uploadStopMedia(initialStop.id, file, "", {
-              onProgress: (fraction) =>
-                setProgress({
-                  index: i,
-                  total: files.length,
-                  fraction,
-                  preparing: false,
-                }),
+              onProgress: (fraction) => at("uploading", fraction, attempt),
+              onRetry: (failed) => {
+                attempt = failed + 1
+                at("uploading", 0, attempt)
+              },
             })
             syncFromServer(updated)
           } catch (err) {
-            problems.push((err as Error).message || "Upload mislukt")
+            problems.push(
+              `${original.name || "Bestand"}: ${(err as Error).message || "upload mislukt"}`,
+            )
           }
           continue
         }
@@ -756,6 +778,9 @@ export default function AddFlow({
             >
               {media.length} toegevoegd
               {isEdit ? " · uploads staan direct online" : ""}
+              {canShrinkVideo
+                ? ` · video's worden ingekort tot ${MAX_VIDEO_SECONDS} sec`
+                : ""}
             </div>
             {progress && (
               <div style={{ marginBottom: 12 }}>
@@ -770,9 +795,12 @@ export default function AddFlow({
                   {progress.total > 1
                     ? `bestand ${progress.index + 1}/${progress.total} · `
                     : ""}
-                  {progress.preparing
-                    ? "verkleinen…"
+                  {progress.stage === "preparing"
+                    ? `verkleinen ${Math.round(progress.fraction * 100)}%`
                     : `uploaden ${Math.round(progress.fraction * 100)}%`}
+                  {progress.attempt > 1
+                    ? ` · poging ${progress.attempt}/${UPLOAD_ATTEMPTS}`
+                    : ""}
                 </div>
                 {/* A bar that actually moves is the difference between
                     "this is slow" and "this is broken". */}
@@ -787,10 +815,9 @@ export default function AddFlow({
                   <div
                     style={{
                       height: "100%",
-                      width: progress.preparing
-                        ? "100%"
-                        : `${Math.round(progress.fraction * 100)}%`,
-                      background: progress.preparing ? C.border : C.ochreDeep,
+                      width: `${Math.round(progress.fraction * 100)}%`,
+                      background:
+                        progress.stage === "preparing" ? C.sepia : C.ochreDeep,
                       transition: "width .2s linear",
                     }}
                   />
@@ -1389,7 +1416,7 @@ export default function AddFlow({
           }}
         >
           {saving
-            ? "bezig met opslaan…"
+            ? (savingStatus ?? "bezig met opslaan…")
             : uploading
               ? "bezig met uploaden…"
               : step < 3

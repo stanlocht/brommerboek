@@ -205,24 +205,63 @@ const UPLOAD_STALL_MS = 45_000
 // render a thumbnail, during which there is nothing to report progress on.
 const SERVER_WORK_MS = 90_000
 
+// A dropped connection on a moped trip is the normal case, not the
+// exception, so one bad moment must not cost the rider the clip. Three
+// tries with a widening pause covers a tunnel, a cell handover or a lift
+// doors' worth of no signal.
+export const UPLOAD_ATTEMPTS = 3
+const RETRY_BASE_MS = 2_000
+
+class UploadError extends Error {
+  constructor(
+    message: string,
+    // Worth sending the same bytes again, as opposed to a refusal that
+    // will refuse just as firmly next time (415, 413, 401, 404).
+    readonly retryable: boolean,
+    readonly status?: number,
+  ) {
+    super(message)
+    this.name = "UploadError"
+  }
+}
+
+/**
+ * Whether an HTTP status is worth another attempt.
+ *
+ * 408/429 and every 5xx are "the server is having a moment"; a 4xx about
+ * the file itself is a verdict, and retrying it just wastes the uplink.
+ */
+export function isRetryableStatus(status: number): boolean {
+  return status === 0 || status === 408 || status === 429 || status >= 500
+}
+
+// Idempotency key for one logical upload, held constant across retries.
+// Without it, a POST whose *response* was lost (bytes landed, connection
+// died before the reply) would be re-sent and the stop would end up with
+// the same clip twice — which is exactly how "buggy" looks from the sofa.
+function newUploadId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+}
+
 export interface UploadOptions {
   // Fraction of the file sent so far, 0..1. Called often; keep it cheap.
   onProgress?: (fraction: number) => void
+  // Called before each retry with the attempt number just failed, so the
+  // UI can say "poging 2/3" instead of looking frozen.
+  onRetry?: (attempt: number, error: Error) => void
   signal?: AbortSignal
 }
 
-export async function uploadStopMedia(
-  id: string,
+function sendOnce(
+  url: string,
   file: File,
-  caption = "",
-  { onProgress, signal }: UploadOptions = {},
+  { onProgress, signal }: UploadOptions,
 ): Promise<Stop> {
   const form = new FormData()
   form.append("file", file)
-  // The backend reads `caption` as a query parameter, not a form field.
-  const url = caption
-    ? `${mediaUrl(id)}?caption=${encodeURIComponent(caption)}`
-    : mediaUrl(id)
 
   // XHR rather than fetch: it is the only way to observe upload progress,
   // which we need both to show a percentage and to tell a slow upload
@@ -261,30 +300,38 @@ export async function uploadStopMedia(
     xhr.onload = () =>
       finish(() => {
         if (xhr.status < 200 || xhr.status >= 300) {
-          reject(new Error(`Failed to upload media (${xhr.status})`))
+          reject(
+            new UploadError(
+              `Failed to upload media (${xhr.status})`,
+              isRetryableStatus(xhr.status),
+              xhr.status,
+            ),
+          )
           return
         }
         try {
           resolve(JSON.parse(xhr.responseText) as Stop)
         } catch {
-          reject(new Error("Failed to upload media (bad response)"))
+          reject(
+            new UploadError("Failed to upload media (bad response)", false),
+          )
         }
       })
     xhr.onerror = () =>
-      finish(() => reject(new Error("Upload mislukt — geen verbinding")))
+      finish(() =>
+        reject(new UploadError("Upload mislukt — geen verbinding", true)),
+      )
     xhr.onabort = () =>
       finish(() =>
         reject(
-          new Error(
-            stalled
-              ? "Upload vastgelopen — probeer het opnieuw"
-              : "Upload afgebroken",
-          ),
+          stalled
+            ? new UploadError("Upload vastgelopen", true)
+            : new UploadError("Upload afgebroken", false),
         ),
       )
 
     if (signal?.aborted) {
-      reject(new Error("Upload afgebroken"))
+      reject(new UploadError("Upload afgebroken", false))
       return
     }
     signal?.addEventListener("abort", onAbort)
@@ -295,6 +342,54 @@ export async function uploadStopMedia(
     arm(UPLOAD_STALL_MS)
     xhr.send(form)
   })
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms)
+    function done() {
+      clearTimeout(timer)
+      signal?.removeEventListener("abort", done)
+      resolve()
+    }
+    signal?.addEventListener("abort", done)
+  })
+}
+
+export async function uploadStopMedia(
+  id: string,
+  file: File,
+  caption = "",
+  options: UploadOptions = {},
+): Promise<Stop> {
+  // The backend reads `caption` and `upload_id` as query parameters, not
+  // form fields.
+  const params = new URLSearchParams({ upload_id: newUploadId() })
+  if (caption) params.set("caption", caption)
+  const url = `${mediaUrl(id)}?${params}`
+
+  let lastError: Error = new Error("Upload mislukt")
+  for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt++) {
+    try {
+      return await sendOnce(url, file, options)
+    } catch (err) {
+      lastError = err as Error
+      const retryable = err instanceof UploadError && err.retryable
+      if (
+        !retryable ||
+        attempt === UPLOAD_ATTEMPTS ||
+        options.signal?.aborted
+      ) {
+        break
+      }
+      options.onRetry?.(attempt, lastError)
+      // Back to zero: the next attempt re-sends the whole file, and a bar
+      // that stayed at 90% while nothing moved is worse than no bar.
+      options.onProgress?.(0)
+      await wait(RETRY_BASE_MS * 2 ** (attempt - 1), options.signal)
+    }
+  }
+  throw lastError
 }
 
 export async function updateStopMediaCaption(

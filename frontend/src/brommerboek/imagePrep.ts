@@ -11,6 +11,11 @@
 // HEIF (and occasionally a File with an empty `type`), which the upload
 // endpoint used to reject or store as a file no browser can display; a
 // canvas round-trip makes all of it plain image/jpeg.
+//
+// Videos take the same trip through videoPrep, for the same reasons only
+// more so — see the note at the top of that file.
+
+import { prepareVideo } from "./videoPrep"
 
 // Longest edge after downscaling. 2048 keeps a photo sharp on a retina
 // lightbox while staying an order of magnitude under a camera original.
@@ -22,9 +27,14 @@ const JPEG_QUALITY = 0.82
 const SKIP_BELOW_BYTES = 512 * 1024
 
 // Mirrors MAX_UPLOAD_BYTES in backend/app/api/routes/stops.py. Checked
-// client-side too so an oversized clip fails instantly instead of after a
-// multi-minute upload that ends in a 413.
+// client-side too so an oversized file fails instantly instead of after a
+// multi-minute upload that ends in a 413. Videos are re-encoded down to
+// size before this applies (see videoPrep), so it now only turns away a
+// clip this browser couldn't shrink at all.
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+// Files whose name says "video" even when the picker declared no type.
+const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|3gp|3gpp|mkv|avi)$/i
 
 export class TooLargeError extends Error {
   constructor(file: File) {
@@ -90,23 +100,46 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
 }
 
 /**
- * Downscale + re-encode an image to a modest JPEG, ready to upload.
+ * Downscale + re-encode a picked file to something small enough to upload
+ * reliably: images become a modest JPEG, videos a short 720p-class clip
+ * (see videoPrep).
  *
- * Videos and small images pass through untouched. Anything the browser
- * can't decode (HEIC on a browser without HEIC support, a corrupt file)
- * also passes through untouched — the backend accepts HEIF and makes a
- * thumbnail for it, so the worst case is the old slow-but-working path
- * rather than a lost photo.
+ * Small images pass through untouched. Anything the browser can't process
+ * (HEIC on a browser without HEIC support, a corrupt file, a clip on a
+ * browser without MediaRecorder) also passes through untouched — the
+ * backend copes, so the worst case is the old slow-but-working path rather
+ * than a lost photo.
  *
+ * @param onProgress fraction 0..1 of the shrink step, for the clips where
+ * it takes long enough to be worth showing.
  * @throws TooLargeError when the file can't be brought under the server's
  * size ceiling — the only case where it's kinder to refuse up front.
  */
-export async function prepareUpload(file: File): Promise<File> {
+export async function prepareUpload(
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<File> {
+  const isVideo =
+    file.type.startsWith("video/") ||
+    (!file.type && VIDEO_EXT_RE.test(file.name))
+  if (isVideo) {
+    // Shrink first, *then* apply the ceiling. A 60 MB clip used to be
+    // refused on the spot; now it goes up as a few MB of short clip, which
+    // is what "it's fine if they're short" asks for.
+    const shrunk = await prepareVideo(
+      file,
+      onProgress,
+      file.size > MAX_UPLOAD_BYTES,
+    )
+    if (shrunk.size > MAX_UPLOAD_BYTES) throw new TooLargeError(shrunk)
+    return shrunk
+  }
+
   const isImage =
     file.type.startsWith("image/") ||
-    // Android pickers sometimes report no type at all; treat a
-    // not-obviously-video file as an image and let the decode decide.
-    (!file.type && !/\.(mp4|mov|m4v|webm|3gp)$/i.test(file.name))
+    // Android pickers sometimes report no type at all; a file that doesn't
+    // look like a video is treated as an image and the decode decides.
+    !file.type
   if (!isImage || file.size <= SKIP_BELOW_BYTES) {
     if (file.size > MAX_UPLOAD_BYTES) throw new TooLargeError(file)
     return file

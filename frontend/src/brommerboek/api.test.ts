@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest"
-import { mediaSrc } from "./api"
+import { isRetryableStatus, mediaSrc } from "./api"
 import type { MediaItem } from "./types"
+
+describe("isRetryableStatus", () => {
+  it("retries the failures that are about the moment, not the file", () => {
+    // A dropped mobile connection surfaces as status 0; 5xx/408/429 are the
+    // server having a moment. All of them are worth the same bytes again.
+    for (const status of [0, 408, 429, 500, 502, 503, 504]) {
+      expect(isRetryableStatus(status)).toBe(true)
+    }
+  })
+
+  it("does not retry a verdict on the file itself", () => {
+    // 413 too large, 415 wrong type, 401/403 not allowed, 404 no such stop —
+    // re-sending 5 MB over a mobile uplink would change none of them.
+    for (const status of [400, 401, 403, 404, 413, 415, 422]) {
+      expect(isRetryableStatus(status)).toBe(false)
+    }
+  })
+})
 
 describe("mediaSrc", () => {
   it("returns undefined for a placeholder without a file", () => {

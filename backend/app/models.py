@@ -97,6 +97,11 @@ class MediaItem(SQLModel):
     # Pre-generated WebP thumbnail next to the original (`thumb_<name>.webp`);
     # None for videos and for uploads that predate thumbnails.
     thumb: str | None = Field(default=None, max_length=512)
+    # Idempotency key the uploader sent with this file. The client retries a
+    # dropped upload with the same key, so this is what stops a POST whose
+    # reply got lost from attaching the same clip twice. None on items that
+    # predate retrying, and on media written through the stop endpoints.
+    uid: str | None = Field(default=None, max_length=64)
 
 
 # Short-code weather conditions the picker offers. Kept as a plain str field
