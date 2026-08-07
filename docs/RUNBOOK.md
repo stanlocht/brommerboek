@@ -479,7 +479,7 @@ easy to parse from the run log.
   Cub is parked somewhere indoors. A scheme-less base URL defaults to
   `https://`.
 
-  `GET /api/v1/location/trail?hours=24` (1–48) additionally serves the
+  `GET /api/v1/location/trail?hours=168` (1–168) additionally serves the
   **breadcrumb trail**: Traccar's stored positions for the window, thinned to
   ≤400 points and cached for 5 minutes, drawn on the map as a dotted teal
   line under the route. It reads Traccar's own position history, so no extra

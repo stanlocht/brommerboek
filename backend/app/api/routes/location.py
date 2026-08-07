@@ -37,11 +37,11 @@ CACHE_TTL_SECONDS = 30.0
 KNOTS_TO_KMH = 1.852
 
 # The breadcrumb trail: how far back it reaches, how often it refreshes and
-# how many points survive decimation. A day of riding at trail resolution is
-# plenty for "waar reed de brommer vandaag?"; the 5-minute cache keeps the
-# heavier history query rare.
-TRAIL_DEFAULT_HOURS = 24
-TRAIL_MAX_HOURS = 48
+# how many points survive decimation. A week of riding answers "waar reed de
+# brommer deze week?" — a multi-day trip stays on the map instead of falling
+# off it overnight; the 5-minute cache keeps the heavier history query rare.
+TRAIL_DEFAULT_HOURS = 168
+TRAIL_MAX_HOURS = 168
 TRAIL_CACHE_TTL_SECONDS = 300.0
 TRAIL_MAX_POINTS = 400
 
