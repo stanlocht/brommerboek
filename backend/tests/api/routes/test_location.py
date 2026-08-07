@@ -9,6 +9,7 @@ from app.api.routes.location import (
     CACHE_TTL_SECONDS,
     LOCATION_RATE_LIMIT,
     TRAIL_CACHE_TTL_SECONDS,
+    TRAIL_MAX_HOURS,
     TRAIL_MAX_POINTS,
     decimate,
     pick_position,
@@ -313,7 +314,7 @@ def test_trail_not_configured_is_404(
 
 
 def test_trail_validates_hours(client: TestClient) -> None:
-    for hours in (0, -1, 49, "gisteren"):
+    for hours in (0, -1, TRAIL_MAX_HOURS + 1, "gisteren"):
         assert client.get(TRAIL_URL, params={"hours": hours}).status_code == 422
 
 
@@ -357,6 +358,10 @@ def test_trail_window_matches_hours_param(
     _, start, end = calls[0]
     assert end == frozen
     assert end - start == timedelta(hours=6)
+    # Without a param the trail reaches back a full week.
+    assert client.get(TRAIL_URL).status_code == 200
+    _, start, end = calls[-1]
+    assert end - start == timedelta(days=7)
 
 
 def test_live_endpoint_is_rate_limited(

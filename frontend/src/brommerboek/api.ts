@@ -116,7 +116,7 @@ export async function fetchLiveLocation(): Promise<LiveLocation | null> {
   }
 }
 
-// Recent GPS breadcrumbs (last ~24h, decimated server-side). Same null-on-
+// Recent GPS breadcrumbs (last week, decimated server-side). Same null-on-
 // anything contract as fetchLiveLocation: no trail just means no trail drawn.
 export async function fetchLiveTrail(): Promise<LiveTrailPoint[] | null> {
   try {
