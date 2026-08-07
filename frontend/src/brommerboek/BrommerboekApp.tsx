@@ -250,7 +250,12 @@ export default function BrommerboekApp() {
           const file = files.get(item.url)
           try {
             if (!file) throw new Error("file missing")
-            await uploadStopMedia(created.id, file, item.cap)
+            // The cover flag travels with its own file rather than with a
+            // position, so the rider's pick holds whatever order these
+            // uploads land in (and whichever of them fail).
+            await uploadStopMedia(created.id, file, item.cap, {
+              cover: item.cover,
+            })
           } catch {
             // Individual upload failures don't roll back the stop — the
             // user can retry the file from the edit flow.

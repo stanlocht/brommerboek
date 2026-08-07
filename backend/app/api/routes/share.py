@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse
 
 from app.api.deps import SessionDep
 from app.core.config import settings
-from app.models import Stop
+from app.models import Stop, pick_cover
 
 # Not part of the versioned JSON API (and hidden from the OpenAPI schema):
 # this route exists for link-preview crawlers, mounted at the root just like
@@ -44,15 +44,14 @@ def _description(stop: Stop) -> str:
 
 
 def _image_url(stop: Stop) -> str | None:
-    # First media entry with a real file: prefer its thumbnail when one
-    # exists, else the full-size url. Tone-swatch placeholders have neither.
-    for item in stop.media or []:
-        if not isinstance(item, dict):
-            continue
-        url = item.get("thumb") or item.get("url")
-        if url:
-            return url if url.startswith(("http://", "https://")) else _origin() + url
-    return None
+    # The stop's cover picture (the item the rider flagged, else the first one
+    # with a file): prefer its thumbnail when one exists, else the full-size
+    # url. Tone-swatch placeholders have neither.
+    item = pick_cover(stop.media or [])
+    url = (item.get("thumb") or item.get("url")) if item else None
+    if not url:
+        return None
+    return url if url.startswith(("http://", "https://")) else _origin() + url
 
 
 def _render(stop: Stop) -> str:

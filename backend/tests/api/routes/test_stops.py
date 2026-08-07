@@ -457,6 +457,48 @@ def test_update_stop_as_superuser(
         delete_test_stop(db, stop)
 
 
+def _media(url: str, cover: bool = False) -> dict[str, object]:
+    return {"tone": "", "cap": "", "kind": "image", "url": url, "cover": cover}
+
+
+def test_create_and_update_keep_one_cover(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    # A client that flags two items gets the first one back as the cover —
+    # "one cover per stop" is settled server-side, not trusted from input.
+    r = client.post(
+        STOPS_URL,
+        headers=superuser_token_headers,
+        json=stop_payload(
+            media=[
+                _media("/media/x/a.jpg"),
+                _media("/media/x/b.jpg", cover=True),
+                _media("/media/x/c.jpg", cover=True),
+            ]
+        ),
+    )
+    assert r.status_code == 200
+    created = r.json()
+    assert [m["cover"] for m in created["media"]] == [False, True, False]
+    stop = db.get(Stop, uuid.UUID(created["id"]))
+    assert stop is not None
+    try:
+        r = client.patch(
+            f"{STOPS_URL}{created['id']}",
+            headers=superuser_token_headers,
+            json={
+                "media": [
+                    _media("/media/x/a.jpg", cover=True),
+                    _media("/media/x/b.jpg", cover=True),
+                ]
+            },
+        )
+        assert r.status_code == 200
+        assert [m["cover"] for m in r.json()["media"]] == [True, False]
+    finally:
+        delete_test_stop(db, stop)
+
+
 def test_update_stop_not_found(
     client: TestClient, superuser_token_headers: dict[str, str]
 ) -> None:

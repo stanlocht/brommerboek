@@ -14,6 +14,10 @@ export interface MediaItem {
   // Pre-generated WebP thumbnail ("/media/<stop>/thumb_<uuid>.webp"). Null
   // for videos and for uploads that predate thumbnails — fall back to `url`.
   thumb?: string | null
+  // The stop's cover picture — the one on the map card, in the replay and in
+  // share unfurls. At most one item per stop carries it; with none flagged
+  // the first item stands in (see `coverItem`).
+  cover?: boolean
 }
 
 // Short-code weather conditions the picker offers. Empty string means

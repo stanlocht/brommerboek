@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from "react"
 import { useEffect, useState } from "react"
 import type { UserPublic } from "@/client"
 import { mediaSrc } from "./api"
+import { coverItem } from "./cover"
 import FollowBell from "./FollowBell"
 import type { RouteGeometry } from "./geo"
 import { nearestStop, stopFraction } from "./geo"
@@ -394,7 +395,7 @@ export default function MapScreen({
             }}
           >
             {(() => {
-              const first = cur.media[0]
+              const first = coverItem(cur.media)
               const src = mediaSrc(first?.url)
               return (
                 <div

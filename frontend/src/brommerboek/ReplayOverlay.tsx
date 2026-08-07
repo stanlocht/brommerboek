@@ -11,6 +11,7 @@ import {
   useState,
 } from "react"
 import { mediaSrc } from "./api"
+import { coverItem } from "./cover"
 import type { RouteGeometry } from "./geo"
 import { dateAtProgress, kmAtProgress } from "./replayMath"
 import {
@@ -43,7 +44,7 @@ const pillStyle: CSSProperties = {
 }
 
 function ReplayStopCard({ stop }: { stop: Stop }) {
-  const first = stop.media[0]
+  const first = coverItem(stop.media)
   const src = mediaSrc(first?.url)
   return (
     <div

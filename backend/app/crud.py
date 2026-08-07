@@ -11,6 +11,7 @@ from app.models import (
     User,
     UserCreate,
     UserUpdate,
+    normalize_cover,
 )
 
 
@@ -90,7 +91,7 @@ def create_stop(
     if order_index is None:
         last = session.exec(select(Stop).order_by(col(Stop.order_index).desc())).first()
         order_index = (last.order_index + 1) if last else 0
-    media = [m.model_dump() for m in stop_in.media]
+    media = normalize_cover([m.model_dump() for m in stop_in.media])
     db_stop = Stop.model_validate(
         stop_in,
         update={
@@ -159,10 +160,12 @@ def update_stop(*, session: Session, db_stop: Stop, stop_in: StopUpdate) -> Stop
     # Media items arrive as MediaItem models — flatten to plain dicts for the
     # JSON column.
     if "media" in data and data["media"] is not None:
-        extra["media"] = [
-            m.model_dump() if hasattr(m, "model_dump") else dict(m)
-            for m in stop_in.media or []
-        ]
+        extra["media"] = normalize_cover(
+            [
+                m.model_dump() if hasattr(m, "model_dump") else dict(m)
+                for m in stop_in.media or []
+            ]
+        )
         data.pop("media")
     # Keep flag derived from the ISO code, same rule as create_stop.
     if "code" in data:
