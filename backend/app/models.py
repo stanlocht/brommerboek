@@ -97,6 +97,46 @@ class MediaItem(SQLModel):
     # Pre-generated WebP thumbnail next to the original (`thumb_<name>.webp`);
     # None for videos and for uploads that predate thumbnails.
     thumb: str | None = Field(default=None, max_length=512)
+    # Marks this item as the stop's cover — the picture shown on the map card,
+    # in the replay and in share unfurls. At most one item per stop carries it
+    # (see `normalize_cover`); with none flagged the first item stands in, so
+    # every stop that predates this field keeps the cover it always had.
+    cover: bool = False
+
+
+def normalize_cover(media: list[dict]) -> list[dict]:
+    """Return `media` with at most one item flagged as the cover.
+
+    The first flagged item wins; every other flag is dropped. Callers hand
+    us whatever the client sent, so this is the single place that keeps the
+    "one cover per stop" invariant.
+    """
+    out: list[dict] = []
+    seen = False
+    for item in media:
+        item = dict(item)
+        if item.get("cover"):
+            if seen:
+                item["cover"] = False
+            seen = True
+        out.append(item)
+    return out
+
+
+def pick_cover(media: list[dict]) -> dict | None:
+    """The stop's cover item: the flagged one, else the first with a file.
+
+    Falls back to the first item of any kind so a stop whose media is still
+    tone swatches keeps its placeholder colour.
+    """
+    items = [m for m in media or [] if isinstance(m, dict)]
+    for item in items:
+        if item.get("cover"):
+            return item
+    for item in items:
+        if item.get("url"):
+            return item
+    return items[0] if items else None
 
 
 # Short-code weather conditions the picker offers. Kept as a plain str field

@@ -25,6 +25,7 @@ from app.models import (
     StopsPublic,
     StopUpdate,
     TripStats,
+    normalize_cover,
 )
 
 router = APIRouter(prefix="/stops", tags=["stops"])
@@ -313,10 +314,16 @@ def upload_stop_media(
     id: uuid.UUID,
     file: UploadFile = File(...),
     caption: str = "",
+    cover: bool = False,
 ) -> Any:
     """
     Attach a photo or short video to a stop. Files land on the media volume
     under `/media/{stop_id}/…` and the stop's `media` array grows by one.
+
+    `cover=true` makes the new item the stop's cover picture, taking the flag
+    off whichever item held it — that's how a brand-new stop keeps the cover
+    the rider picked while the files were still local previews, whatever order
+    the uploads happen to land in.
     """
     db_stop = session.get(Stop, id)
     if not db_stop:
@@ -355,9 +362,19 @@ def upload_stop_media(
         thumb_path = generate_thumbnail(dest)
         if thumb_path is not None:
             thumb_url = f"{MEDIA_URL_PREFIX}/{id}/{thumb_path.name}"
-    media_items = list(db_stop.media or [])
+    media_items = [dict(m) for m in db_stop.media or []]
+    if cover:
+        for item in media_items:
+            item["cover"] = False
     media_items.append(
-        {"tone": "", "cap": caption[:255], "kind": kind, "url": url, "thumb": thumb_url}
+        {
+            "tone": "",
+            "cap": caption[:255],
+            "kind": kind,
+            "url": url,
+            "thumb": thumb_url,
+            "cover": cover,
+        }
     )
     db_stop.media = media_items
     session.add(db_stop)
@@ -392,6 +409,36 @@ def update_stop_media_caption(
         raise HTTPException(status_code=404, detail="Media index out of range")
     media_items[index]["cap"] = caption_in.cap
     db_stop.media = media_items
+    session.add(db_stop)
+    session.commit()
+    session.refresh(db_stop)
+    return db_stop
+
+
+@router.post(
+    "/{id}/media/{index}/cover",
+    response_model=StopPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def set_stop_media_cover(
+    *, session: SessionDep, id: uuid.UUID, index: int, cover: bool = True
+) -> Any:
+    """
+    Make the media item at `index` the stop's cover picture — the one shown on
+    the map card, in the replay and in share unfurls. Any other item loses the
+    flag; `cover=false` clears it, after which the first item stands in again.
+    """
+    db_stop = session.get(Stop, id)
+    if not db_stop:
+        raise HTTPException(status_code=404, detail="Stop not found")
+    # Copy the inner dicts: mutating the loaded JSON in place leaves
+    # SQLAlchemy's change detection comparing the value against itself.
+    media_items = [dict(m) for m in db_stop.media or []]
+    if not 0 <= index < len(media_items):
+        raise HTTPException(status_code=404, detail="Media index out of range")
+    for i, item in enumerate(media_items):
+        item["cover"] = cover and i == index
+    db_stop.media = normalize_cover(media_items)
     session.add(db_stop)
     session.commit()
     session.refresh(db_stop)

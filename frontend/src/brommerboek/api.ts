@@ -64,7 +64,7 @@ export interface HonkState {
 // Prefixes `/media/...` URLs (returned as server-relative) with the API base
 // so <img> / <video> tags fetch from the right origin during dev. Absolute
 // URLs — including blob:/data: local previews — pass through untouched.
-export function mediaSrc(url: string | null): string | undefined {
+export function mediaSrc(url: string | null | undefined): string | undefined {
   if (!url) return undefined
   if (/^(https?|blob|data):/.test(url)) return url
   return `${BASE}${url}`
@@ -209,20 +209,27 @@ export interface UploadOptions {
   // Fraction of the file sent so far, 0..1. Called often; keep it cheap.
   onProgress?: (fraction: number) => void
   signal?: AbortSignal
+  // Land this file as the stop's cover picture. Used when a new stop's files
+  // are uploaded after the fact: the rider marked one of the local previews,
+  // and the flag has to travel with that file rather than with its position.
+  cover?: boolean
 }
 
 export async function uploadStopMedia(
   id: string,
   file: File,
   caption = "",
-  { onProgress, signal }: UploadOptions = {},
+  { onProgress, signal, cover }: UploadOptions = {},
 ): Promise<Stop> {
   const form = new FormData()
   form.append("file", file)
-  // The backend reads `caption` as a query parameter, not a form field.
-  const url = caption
-    ? `${mediaUrl(id)}?caption=${encodeURIComponent(caption)}`
-    : mediaUrl(id)
+  // The backend reads `caption` and `cover` as query parameters, not form
+  // fields.
+  const params = new URLSearchParams()
+  if (caption) params.set("caption", caption)
+  if (cover) params.set("cover", "true")
+  const query = params.toString()
+  const url = query ? `${mediaUrl(id)}?${query}` : mediaUrl(id)
 
   // XHR rather than fetch: it is the only way to observe upload progress,
   // which we need both to show a percentage and to tell a slow upload
@@ -311,6 +318,21 @@ export async function updateStopMediaCaption(
     body: JSON.stringify({ cap }),
   })
   if (!res.ok) throw new Error(`Failed to update caption (${res.status})`)
+  return (await res.json()) as Stop
+}
+
+// Mark one media item as the stop's cover (or clear the flag with
+// `cover: false`, after which the first item stands in again).
+export async function setStopMediaCover(
+  id: string,
+  index: number,
+  cover = true,
+): Promise<Stop> {
+  const res = await fetch(
+    `${mediaIndexUrl(id, index)}/cover?cover=${cover ? "true" : "false"}`,
+    { method: "POST", headers: authHeaders() },
+  )
+  if (!res.ok) throw new Error(`Failed to set cover (${res.status})`)
   return (await res.json()) as Stop
 }
 
