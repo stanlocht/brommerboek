@@ -82,6 +82,11 @@ body:has(.bb-app) {
   color: #3a332a;
   background: #e9dcbf;
   -webkit-tap-highlight-color: transparent;
+  /* Kill double-tap-to-zoom. The shell is a fixed 100dvh box with
+     overflow: hidden, so once a stray double tap zooms the page in there is
+     nothing to scroll and the user is stranded in a cropped view. Pinch to
+     zoom is untouched — deliberate zooming still works. */
+  touch-action: manipulation;
 }
 .bb-app * {
   box-sizing: border-box;
@@ -305,6 +310,38 @@ body:has(.bb-app) {
 }
 .bb-app .maplibregl-ctrl-attrib a {
   color: #7a6f5a;
+}
+
+/* ---- form controls ------------------------------------------------------- */
+/* Mobile Safari zooms the whole page in when a text field whose computed
+   font-size is under 16px takes focus, and it does not zoom back out on blur.
+   Combined with the 100dvh / overflow: hidden shell that leaves the app stuck
+   in a magnified, panned view until the user pinches out by hand. 16px is the
+   documented threshold, so on touch devices every text-entry control gets it;
+   pointer devices keep the vintage type scale. The sizes live in inline
+   styles throughout the app, hence !important. */
+@media (pointer: coarse) {
+  :is(
+      textarea,
+      select,
+      input:not([type]),
+      input[type="text"],
+      input[type="search"],
+      input[type="email"],
+      input[type="password"],
+      input[type="tel"],
+      input[type="url"],
+      input[type="number"],
+      input[type="date"],
+      input[type="datetime-local"],
+      input[type="time"],
+      input[type="month"],
+      input[type="week"]
+    ) {
+    /* biome-ignore lint/complexity/noImportantStyles: the type scale lives in
+       inline styles, and only !important outranks those. */
+    font-size: 16px !important;
+  }
 }
 
 /* ---- textures ------------------------------------------------------------ */
