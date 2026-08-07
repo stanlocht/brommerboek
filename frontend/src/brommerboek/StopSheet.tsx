@@ -376,6 +376,10 @@ export default function StopSheet({
             lineHeight: 1.6,
             color: C.inkSoft,
             textWrap: "pretty",
+            // The story is typed in a textarea, so its blank lines and line
+            // breaks are the paragraphing — without pre-wrap they collapse
+            // into one wall of text.
+            whiteSpace: "pre-wrap",
           }}
         >
           {cur.story}
