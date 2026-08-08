@@ -6,7 +6,7 @@
 // Everything here must be inert on failure: reporting an error may never
 // throw, loop, or block the UI.
 
-import { isForeignStack } from "./errorProvenance"
+import { isAbortError, isForeignStack } from "./errorProvenance"
 
 const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")
 const TELEMETRY_URL = `${BASE}/api/v1/telemetry/errors`
@@ -75,6 +75,11 @@ function isForeign(error: unknown): boolean {
   return isForeignStack(error.stack, window.location.origin)
 }
 
+// Nothing here is a defect worth filing: not our code, or work we cancelled.
+function isNotOurDefect(error: unknown): boolean {
+  return isAbortError(error) || isForeign(error)
+}
+
 // Catch what React and TanStack never see: syntax/runtime errors outside
 // components and promise rejections nobody awaited.
 export function installGlobalErrorReporting(): void {
@@ -84,11 +89,11 @@ export function installGlobalErrorReporting(): void {
     // "Script error." with no stack or location. Nothing to act on, so
     // don't let them fill the error tracker.
     if (event.error == null && /^Script error\.?$/.test(event.message)) return
-    if (isForeign(event.error)) return
+    if (isNotOurDefect(event.error)) return
     reportError(event.error ?? event.message, "window.onerror")
   })
   window.addEventListener("unhandledrejection", (event) => {
-    if (isForeign(event.reason)) return
+    if (isNotOurDefect(event.reason)) return
     reportError(event.reason, "unhandledrejection")
   })
 }

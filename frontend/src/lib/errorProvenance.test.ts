@@ -1,7 +1,38 @@
 import { describe, expect, it } from "vitest"
-import { isForeignStack } from "./errorProvenance"
+import { isAbortError, isForeignStack } from "./errorProvenance"
 
 const ORIGIN = "https://brommerboek.nl"
+
+describe("isAbortError", () => {
+  it("recognises an abort whatever the engine calls it", () => {
+    // Issue #121 carried WebKit's wording; Chromium words it differently, so
+    // the name is the only thing worth matching on.
+    for (const message of [
+      "The operation was aborted.",
+      "signal is aborted without reason",
+      "",
+    ]) {
+      const error = new Error(message)
+      error.name = "AbortError"
+      expect(isAbortError(error)).toBe(true)
+    }
+  })
+
+  it("leaves a real error alone even if it mentions aborting", () => {
+    // The upload path rejects with a plain Error when it gives up on a
+    // stalled transfer — that one is worth knowing about.
+    expect(isAbortError(new Error("Upload afgebroken"))).toBe(false)
+    expect(isAbortError(new TypeError("The operation was aborted."))).toBe(
+      false,
+    )
+  })
+
+  it("survives a non-Error rejection", () => {
+    expect(isAbortError("AbortError")).toBe(false)
+    expect(isAbortError(null)).toBe(false)
+    expect(isAbortError(undefined)).toBe(false)
+  })
+})
 
 describe("isForeignStack", () => {
   describe("keeps reporting", () => {
