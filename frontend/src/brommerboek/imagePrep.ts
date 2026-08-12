@@ -26,6 +26,17 @@ const SKIP_BELOW_BYTES = 512 * 1024
 // multi-minute upload that ends in a 413.
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
+// Extensions the phone pickers hand back for clips. Only consulted when the
+// File carries no `type` at all — the same fallback the upload endpoints
+// apply server-side.
+const VIDEO_EXT = /\.(mp4|mov|m4v|webm|3gp)$/i
+
+/** Whether a picked file is a clip rather than a picture. */
+export function isVideoFile(file: File): boolean {
+  if (file.type) return file.type.startsWith("video/")
+  return VIDEO_EXT.test(file.name)
+}
+
 export class TooLargeError extends Error {
   constructor(file: File) {
     super(
@@ -106,7 +117,7 @@ export async function prepareUpload(file: File): Promise<File> {
     file.type.startsWith("image/") ||
     // Android pickers sometimes report no type at all; treat a
     // not-obviously-video file as an image and let the decode decide.
-    (!file.type && !/\.(mp4|mov|m4v|webm|3gp)$/i.test(file.name))
+    (!file.type && !VIDEO_EXT.test(file.name))
   if (!isImage || file.size <= SKIP_BELOW_BYTES) {
     if (file.size > MAX_UPLOAD_BYTES) throw new TooLargeError(file)
     return file

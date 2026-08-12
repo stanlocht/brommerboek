@@ -438,11 +438,15 @@ class Comment(SQLModel, table=True):
         foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
     )
     body: str = Field(sa_type=Text)
-    # Optional photo attached to the comment. Server-relative URLs into the
-    # media volume ("/media/<stop_id>/comments/<uuid>.jpg"), same convention
-    # as stop media. Thumb is None when thumbnail generation failed.
+    # Optional photo or short video attached to the comment. Server-relative
+    # URLs into the media volume ("/media/<stop_id>/comments/<uuid>.jpg"),
+    # same convention as stop media. Thumb is None for videos (no ffmpeg on
+    # board, same as stop media) and when thumbnail generation failed.
     photo: str | None = Field(default=None, max_length=512)
     photo_thumb: str | None = Field(default=None, max_length=512)
+    # "image" or "video" — which element the client renders for `photo`.
+    # Every attachment that predates video comments is a photo.
+    media_kind: str = Field(default="image", max_length=16)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -460,6 +464,8 @@ class CommentPublic(SQLModel):
     body: str
     photo: str | None = None
     photo_thumb: str | None = None
+    # "image" or "video"; meaningless when `photo` is None.
+    media_kind: Literal["image", "video"] = "image"
     created_at: datetime | None = None
     # Horn-honk tally for the comment itself, so the list renders honk
     # buttons without a request per comment.
