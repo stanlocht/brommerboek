@@ -198,12 +198,13 @@ def _post_photo_comment(
     body: str = "",
     content: bytes = PNG_1PX,
     content_type: str = "image/png",
+    filename: str = "foto.png",
 ) -> Any:
     return client.post(
         comments_url(stop_id),
         headers=headers,
         data={"body": body},
-        files={"file": ("foto.png", io.BytesIO(content), content_type)},
+        files={"file": (filename, io.BytesIO(content), content_type)},
     )
 
 
@@ -230,12 +231,14 @@ def test_create_comment_with_photo(
     assert (comments_dir / filename).read_bytes() == PNG_1PX
     stem = filename.rsplit(".", 1)[0]
     assert created["photo_thumb"] == f"/media/{stop.id}/comments/thumb_{stem}.webp"
+    assert created["media_kind"] == "image"
     header = (comments_dir / f"thumb_{stem}.webp").read_bytes()
     assert header[:4] == b"RIFF" and header[8:12] == b"WEBP"
     # The public list carries the photo too.
     listed = client.get(comments_url(stop.id)).json()
     assert listed["data"][0]["photo"] == created["photo"]
     assert listed["data"][0]["photo_thumb"] == created["photo_thumb"]
+    assert listed["data"][0]["media_kind"] == "image"
 
 
 @pytest.mark.usefixtures("media_root")
@@ -279,11 +282,12 @@ def test_create_comment_photo_rejects_wrong_content_type(
         client,
         normal_user_token_headers,
         stop.id,
-        content=b"\x00\x00\x00\x18ftypmp42not-a-real-clip",
-        content_type="video/mp4",
+        content=b"%PDF-1.4 not a picture",
+        content_type="application/pdf",
+        filename="handleiding.pdf",
     )
     assert r.status_code == 415
-    assert "Unsupported photo type" in r.json()["detail"]
+    assert "Unsupported media type" in r.json()["detail"]
     assert not list(media_root.glob("**/*"))
     assert client.get(comments_url(stop.id)).json()["count"] == 0
 
@@ -553,3 +557,113 @@ def test_delete_comment_removes_its_honks(
         select(CommentHonk).where(CommentHonk.comment_id == uuid.UUID(comment["id"]))
     ).all()
     assert remaining == []
+
+
+# ----- Comment videos ---------------------------------------------------------
+
+# Enough of an MP4 header to be a plausible clip; nothing decodes it, the
+# backend only streams the bytes to disk.
+MP4_STUB = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 32
+
+
+def test_create_comment_with_video(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    r = _post_photo_comment(
+        client,
+        normal_user_token_headers,
+        stop.id,
+        body="Moet je horen!",
+        content=MP4_STUB,
+        content_type="video/mp4",
+        filename="clip.mp4",
+    )
+    assert r.status_code == 200
+    created = r.json()
+    assert created["media_kind"] == "video"
+    assert created["photo"].startswith(f"/media/{stop.id}/comments/")
+    assert created["photo"].endswith(".mp4")
+    # No ffmpeg on board, so a clip carries no thumbnail — and none is written.
+    assert created["photo_thumb"] is None
+    filename = created["photo"].rsplit("/", 1)[-1]
+    comments_dir = media_root / str(stop.id) / "comments"
+    assert (comments_dir / filename).read_bytes() == MP4_STUB
+    assert not list(media_root.glob("**/thumb_*.webp"))
+    # The public list reports the kind, so clients know to render a player.
+    listed = client.get(comments_url(stop.id)).json()
+    assert listed["data"][0]["media_kind"] == "video"
+    assert listed["data"][0]["photo"] == created["photo"]
+
+
+@pytest.mark.usefixtures("media_root")
+def test_create_comment_video_from_extension_when_type_unknown(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    # Some Android pickers hand the page a File with no usable type; the
+    # filename is the fallback (same rule as stop media).
+    r = _post_photo_comment(
+        client,
+        normal_user_token_headers,
+        stop.id,
+        content=MP4_STUB,
+        content_type="application/octet-stream",
+        filename="VID_20260812.mov",
+    )
+    assert r.status_code == 200
+    created = r.json()
+    assert created["media_kind"] == "video"
+    assert created["photo"].endswith(".mov")
+
+
+def test_create_comment_video_rejects_oversized_file(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Clips get their own, larger budget — shrink it rather than streaming
+    # 25 MiB through the test client.
+    monkeypatch.setattr(reactions_module, "COMMENT_VIDEO_MAX_BYTES", 1024)
+    r = _post_photo_comment(
+        client,
+        normal_user_token_headers,
+        stop.id,
+        content=b"x" * 2048,
+        content_type="video/mp4",
+        filename="clip.mp4",
+    )
+    assert r.status_code == 413
+    assert "too large" in r.json()["detail"].lower()
+    comments_dir = media_root / str(stop.id) / "comments"
+    assert not comments_dir.exists() or not any(comments_dir.iterdir())
+    assert client.get(comments_url(stop.id)).json()["count"] == 0
+
+
+def test_delete_comment_removes_video_file(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    created = _post_photo_comment(
+        client,
+        normal_user_token_headers,
+        stop.id,
+        content=MP4_STUB,
+        content_type="video/mp4",
+        filename="clip.mp4",
+    ).json()
+    clip = media_root / str(stop.id) / "comments" / created["photo"].rsplit("/", 1)[-1]
+    assert clip.exists()
+
+    r = client.delete(
+        f"{API}/comments/{created['id']}", headers=normal_user_token_headers
+    )
+    assert r.status_code == 200
+    assert not clip.exists()

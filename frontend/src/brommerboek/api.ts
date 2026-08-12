@@ -345,11 +345,14 @@ export interface StopComment {
   author_name: string
   is_mine: boolean
   body: string
-  // Server-relative URLs of an attached photo and its WebP thumbnail
+  // Server-relative URLs of an attached photo or clip and its WebP thumbnail
   // ("/media/<stop>/comments/<uuid>.jpg"); null when the comment is
-  // text-only, thumb also null when thumbnail generation failed.
+  // text-only, thumb also null for videos (the backend makes no video
+  // thumbnails) and when thumbnail generation failed.
   photo: string | null
   photo_thumb: string | null
+  // Which element renders `photo`; "image" on every text-only comment.
+  media_kind: "image" | "video"
   created_at: string | null
   // Horn-honk tally on the comment itself, embedded in the list so the UI
   // needs no extra request per comment.
@@ -369,15 +372,16 @@ export async function fetchComments(id: string): Promise<CommentsList> {
 }
 
 // Multipart on purpose: the backend takes `body` as a form field so a photo
-// can ride along in the same request. Either part may be omitted, not both.
+// or a short clip can ride along in the same request. Either part may be
+// omitted, not both.
 export async function createComment(
   id: string,
   body: string,
-  photo?: File | null,
+  file?: File | null,
 ): Promise<StopComment> {
   const form = new FormData()
   form.append("body", body)
-  if (photo) form.append("file", photo)
+  if (file) form.append("file", file)
   const res = await fetch(commentsUrl(id), {
     method: "POST",
     headers: authHeaders(),

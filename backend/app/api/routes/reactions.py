@@ -16,7 +16,12 @@ from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, OptionalUser, SessionDep
 from app.core import push
-from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
+from app.core.media import (
+    MEDIA_ROOT,
+    MEDIA_URL_PREFIX,
+    generate_thumbnail,
+    resolve_media_type,
+)
 from app.core.ratelimit import rate_limit
 from app.models import (
     Comment,
@@ -39,15 +44,16 @@ COMMENT_RATE_WINDOW_SECONDS = 60
 HONK_RATE_LIMIT = 30
 HONK_RATE_WINDOW_SECONDS = 60
 
-# Photos only on comments — no visitor-uploaded video to store or moderate.
-COMMENT_PHOTO_TYPES = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/gif": "gif",
-    "image/heic": "heic",
-}
+# Comments take the same photo and video formats as stop media
+# (`resolve_media_type`), each kind on its own budget — a clip is simply a
+# bigger file than a picture, and refusing it at the photo cap would turn
+# every ordinary phone clip away.
 COMMENT_PHOTO_MAX_BYTES = 10 * 1024 * 1024  # 10 MiB — ample for a phone photo
+COMMENT_VIDEO_MAX_BYTES = 25 * 1024 * 1024  # 25 MiB — a short clip, as on stops
+
+
+def _max_bytes(kind: str) -> int:
+    return COMMENT_VIDEO_MAX_BYTES if kind == "video" else COMMENT_PHOTO_MAX_BYTES
 
 
 def _display_name(user: User) -> str:
@@ -70,6 +76,11 @@ def _excerpt(body: str) -> str:
     if len(body) <= COMMENT_EXCERPT_LENGTH:
         return body
     return body[: COMMENT_EXCERPT_LENGTH - 1].rstrip() + "…"
+
+
+def _media_excerpt(media_kind: str) -> str:
+    """Stand-in for the body of a comment that is only an attachment."""
+    return "🎬 video" if media_kind == "video" else "📷 foto"
 
 
 # ----- Comments --------------------------------------------------------------
@@ -132,6 +143,7 @@ def read_comments(
             body=c.body,
             photo=c.photo,
             photo_thumb=c.photo_thumb,
+            media_kind=c.media_kind,
             created_at=c.created_at,
             honk_count=honk_counts.get(c.id, 0),
             honked_by_me=c.id in my_honks,
@@ -141,18 +153,22 @@ def read_comments(
     return CommentsPublic(data=data, count=count)
 
 
-def _save_comment_photo(stop_id: uuid.UUID, file: UploadFile) -> tuple[str, str | None]:
-    """Stream an uploaded comment photo to the media volume.
+def _save_comment_media(
+    stop_id: uuid.UUID, file: UploadFile
+) -> tuple[str, str, str | None]:
+    """Stream an uploaded comment photo or video to the media volume.
 
     Files live under `/media/{stop_id}/comments/…` so deleting the stop
     (which rmtree's the stop's whole media directory) also sweeps up the
-    photos of its cascade-deleted comments. Returns `(photo_url, thumb_url)`.
+    media of its cascade-deleted comments. Returns `(kind, url, thumb_url)`.
     """
-    if file.content_type not in COMMENT_PHOTO_TYPES:
+    resolved = resolve_media_type(file.content_type, file.filename)
+    if resolved is None:
         raise HTTPException(
-            status_code=415, detail=f"Unsupported photo type: {file.content_type}"
+            status_code=415, detail=f"Unsupported media type: {file.content_type}"
         )
-    ext = COMMENT_PHOTO_TYPES[file.content_type]
+    kind, ext = resolved
+    max_bytes = _max_bytes(kind)
     comments_dir = MEDIA_ROOT / str(stop_id) / "comments"
     comments_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{uuid.uuid4().hex}.{ext}"
@@ -162,30 +178,29 @@ def _save_comment_photo(stop_id: uuid.UUID, file: UploadFile) -> tuple[str, str 
         with dest.open("wb") as out:
             while chunk := file.file.read(1024 * 1024):
                 size += len(chunk)
-                if size > COMMENT_PHOTO_MAX_BYTES:
+                if size > max_bytes:
                     out.close()
                     dest.unlink(missing_ok=True)
                     raise HTTPException(
                         status_code=413,
-                        detail=(
-                            "Photo too large "
-                            f"(max {COMMENT_PHOTO_MAX_BYTES // (1024 * 1024)} MiB)"
-                        ),
+                        detail=f"File too large (max {max_bytes // (1024 * 1024)} MiB)",
                     )
                 out.write(chunk)
     finally:
         file.file.close()
     photo_url = f"{MEDIA_URL_PREFIX}/{stop_id}/comments/{filename}"
-    # Same contract as stop media: a failed thumbnail never fails the upload.
+    # Same contract as stop media: videos keep thumb None (no ffmpeg on
+    # board), and a failed thumbnail never fails the upload.
     thumb_url: str | None = None
-    thumb_path = generate_thumbnail(dest)
-    if thumb_path is not None:
-        thumb_url = f"{MEDIA_URL_PREFIX}/{stop_id}/comments/{thumb_path.name}"
-    return photo_url, thumb_url
+    if kind == "image":
+        thumb_path = generate_thumbnail(dest)
+        if thumb_path is not None:
+            thumb_url = f"{MEDIA_URL_PREFIX}/{stop_id}/comments/{thumb_path.name}"
+    return kind, photo_url, thumb_url
 
 
-def _delete_comment_photo(comment: Comment) -> None:
-    """Remove a comment's photo (and thumbnail) from the media volume."""
+def _delete_comment_media(comment: Comment) -> None:
+    """Remove a comment's photo/video (and thumbnail) from the media volume."""
     for url in (comment.photo, comment.photo_thumb):
         if url and url.startswith(f"{MEDIA_URL_PREFIX}/"):
             path = MEDIA_ROOT / url[len(MEDIA_URL_PREFIX) + 1 :]
@@ -212,9 +227,9 @@ def create_comment(
     background_tasks: BackgroundTasks,
 ) -> Any:
     """
-    Leave a comment on a stop, optionally with a photo attached. Any active
-    user may comment. Multipart form: `body` (text) and `file` (image) —
-    at least one of the two is required.
+    Leave a comment on a stop, optionally with a photo or short video
+    attached. Any active user may comment. Multipart form: `body` (text) and
+    `file` (image or video) — at least one of the two is required.
     """
     stop = _ensure_stop(session, stop_id)
     body = body.strip()
@@ -222,19 +237,21 @@ def create_comment(
         raise HTTPException(status_code=422, detail="Comment cannot be empty")
     photo_url: str | None = None
     photo_thumb: str | None = None
+    media_kind = "image"
     if file is not None:
-        photo_url, photo_thumb = _save_comment_photo(stop_id, file)
+        media_kind, photo_url, photo_thumb = _save_comment_media(stop_id, file)
     comment = Comment(
         stop_id=stop_id,
         user_id=me.id,
         body=body,
         photo=photo_url,
         photo_thumb=photo_thumb,
+        media_kind=media_kind,
     )
     session.add(comment)
     session.commit()
     session.refresh(comment)
-    excerpt = _excerpt(body) if body else "📷 foto"
+    excerpt = _excerpt(body) if body else _media_excerpt(media_kind)
     background_tasks.add_task(
         push.send_to_admins,
         title=f"nieuwe reactie van {_display_name(me)}",
@@ -250,6 +267,7 @@ def create_comment(
         body=comment.body,
         photo=comment.photo,
         photo_thumb=comment.photo_thumb,
+        media_kind=comment.media_kind,
         created_at=comment.created_at,
     )
 
@@ -266,7 +284,7 @@ def delete_comment(
         raise HTTPException(status_code=404, detail="Comment not found")
     if comment.user_id != me.id and not me.is_superuser:
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    _delete_comment_photo(comment)
+    _delete_comment_media(comment)
     session.delete(comment)
     session.commit()
     return Message(message="Comment deleted successfully")
@@ -420,7 +438,11 @@ def toggle_comment_honk(
         try:
             session.commit()
             # Only a freshly created honk notifies — removals stay silent.
-            excerpt = _excerpt(comment.body) if comment.body else "📷 foto"
+            excerpt = (
+                _excerpt(comment.body)
+                if comment.body
+                else _media_excerpt(comment.media_kind)
+            )
             background_tasks.add_task(
                 push.send_to_admins,
                 title=f"{_display_name(me)} toetert bij een reactie 📯",
