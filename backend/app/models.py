@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import EmailStr, field_validator
 from sqlalchemy import JSON, DateTime, Text, UniqueConstraint
@@ -419,6 +419,46 @@ class MapFlagPublic(MapFlagBase):
 class MapFlagsPublic(SQLModel):
     data: list[MapFlagPublic]
     count: int
+
+
+# ----------------------------------------------------------------------------
+# Trip info (the headline above the map).
+#
+# One row, one field for now: the title everyone reads on the home screen.
+# Reads are public; only a superuser can rewrite it. Like the map flags the
+# row is created lazily, so a fresh database serves the default below.
+# ----------------------------------------------------------------------------
+
+TRIP_INFO_ID = "trip"
+DEFAULT_TRIP_TITLE = "Van Mokum naar Marokko"
+# The header renders the title on one line at 23px; longer than this and it
+# starts wrapping over the logbook card.
+TRIP_TITLE_MAX_LENGTH = 60
+
+
+class TripInfoBase(SQLModel):
+    title: str = Field(
+        default=DEFAULT_TRIP_TITLE, min_length=1, max_length=TRIP_TITLE_MAX_LENGTH
+    )
+
+
+class TripInfo(TripInfoBase, table=True):
+    id: str = Field(default=TRIP_INFO_ID, primary_key=True, max_length=16)
+
+
+class TripInfoUpdate(SQLModel):
+    title: str = Field(min_length=1, max_length=TRIP_TITLE_MAX_LENGTH)
+
+    # Runs before the length checks so surrounding whitespace never counts
+    # against the limit — and a title of only spaces is rejected as empty.
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, v: Any) -> Any:
+        return v.strip() if isinstance(v, str) else v
+
+
+class TripInfoPublic(TripInfoBase):
+    pass
 
 
 # ----------------------------------------------------------------------------
