@@ -11,6 +11,7 @@ from app.api.routes import (
     status,
     stops,
     telemetry,
+    trip,
     users,
     utils,
     weather,
@@ -30,6 +31,7 @@ api_router.include_router(weather.router)
 api_router.include_router(feedback.router)
 api_router.include_router(status.router)
 api_router.include_router(telemetry.router)
+api_router.include_router(trip.router)
 
 
 if settings.ENVIRONMENT == "local":

@@ -105,6 +105,12 @@ export interface MapFlag {
 
 export type MapFlagPatch = Partial<Omit<MapFlag, "kind">>
 
+// The trip's headline above the map — mirror of the backend `TripInfoPublic`.
+// Everyone reads the same one; superusers can rewrite it from the header.
+export interface TripInfo {
+  title: string
+}
+
 // Last known GPS fix of the Cub — mirror of the backend `LiveLocation`,
 // which proxies the Traccar tracker. `fix_time` is an ISO timestamp; the
 // helpers in live.ts turn it into a "laatst gezien" label and a staleness

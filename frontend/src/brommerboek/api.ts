@@ -14,6 +14,7 @@ import type {
   Stop,
   StopPatch,
   StopsResponse,
+  TripInfo,
 } from "./types"
 
 const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")
@@ -29,6 +30,7 @@ const commentUrl = (id: string) => `${BASE}/api/v1/comments/${id}`
 const commentHonksUrl = (id: string) => `${BASE}/api/v1/comments/${id}/honks`
 const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
 const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
+const TRIP_URL = `${BASE}/api/v1/trip/`
 const LIVE_LOCATION_URL = `${BASE}/api/v1/location/live`
 const LIVE_TRAIL_URL = `${BASE}/api/v1/location/trail`
 const RIDDEN_URL = `${BASE}/api/v1/location/ridden`
@@ -461,6 +463,28 @@ export async function updateMapFlag(
   })
   if (!res.ok) throw new Error(`Failed to move flag (${res.status})`)
   return (await res.json()) as MapFlag
+}
+
+// ----- Trip info (the headline above the map) --------------------------------
+
+export async function fetchTripInfo(): Promise<TripInfo> {
+  const res = await fetch(TRIP_URL)
+  if (!res.ok) throw new Error(`Failed to load trip info (${res.status})`)
+  return (await res.json()) as TripInfo
+}
+
+// Superuser-only: rename the trip.
+export async function updateTripTitle(title: string): Promise<TripInfo> {
+  const res = await fetch(TRIP_URL, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ title }),
+  })
+  if (!res.ok) throw new Error(`Failed to rename trip (${res.status})`)
+  return (await res.json()) as TripInfo
 }
 
 // ----- Feedback / bug reports ("storingsdienst") -----------------------------
