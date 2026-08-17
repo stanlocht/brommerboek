@@ -7,6 +7,7 @@ import { coverItem } from "./cover"
 import FollowBell from "./FollowBell"
 import type { RouteGeometry } from "./geo"
 import { nearestStop, stopFraction } from "./geo"
+import { BoatIcon } from "./icons"
 import { legInfo, legLabel } from "./legs"
 import { isLiveFresh, liveAgeLabel } from "./live"
 import { C, dateLabelNL, FONT_MONO, FONT_SERIF, kmLabel } from "./theme"
@@ -501,6 +502,18 @@ export default function MapScreen({
                 )}
                 {cur.type === "preparation" && (
                   <span style={{ color: C.ochre }}>· VOORBEREIDING</span>
+                )}
+                {cur.ferry && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 3,
+                      color: C.teal,
+                    }}
+                  >
+                    · <BoatIcon size={11} color={C.teal} /> VEERBOOT
+                  </span>
                 )}
               </div>
               <div

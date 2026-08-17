@@ -21,6 +21,7 @@ function makeStop(partial: Partial<Stop>): Stop {
     weather_temp: null,
     weather_condition: "",
     type: "stop",
+    ferry: false,
     story: "",
     broke: null,
     fixed: null,

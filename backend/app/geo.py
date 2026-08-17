@@ -68,6 +68,7 @@ def leg_km(
     *,
     odometer_km: float | None = None,
     gps_km: float | None = None,
+    ferry: bool = False,
 ) -> float:
     """Kilometres ridden on one leg, from the most trustworthy usable source.
 
@@ -75,9 +76,16 @@ def leg_km(
     reading, the GPS-measured road fills in when they don't, and the straight
     line between the two pins is the last resort. A track measuring less than
     that straight line never spanned the leg, so it is passed over too.
+
+    A ferry leg was crossed, not ridden: the dial stands still on the boat, so
+    without a reading of its own the crossing adds nothing to the trip's
+    kilometres — neither the sea miles between the two ports nor the GPS
+    track, which recorded the boat's course rather than a road.
     """
     if odometer_km is not None and odometer_trusted(crow_km, odometer_km):
         return odometer_km
+    if ferry:
+        return 0.0
     if gps_km is not None and gps_km >= crow_km:
         return gps_km
     return crow_km

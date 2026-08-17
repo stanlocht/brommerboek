@@ -109,6 +109,9 @@ def read_stats(session: SessionDep) -> Any:
             haversine_km((prev.lat, prev.lng), (cur.lat, cur.lng)),
             odometer_km=odometer,
             gps_km=gps_km.get((prev.id, cur.id)),
+            # The stop the rider stepped off the boat at carries the flag, so
+            # the crossing counts as sailed, not ridden.
+            ferry=cur.ferry,
         )
     # Suggested km = the most recent stop's odometer reading (whatever order
     # we happened to add them in — falls back to earlier stops if the latest
