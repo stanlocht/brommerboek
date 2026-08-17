@@ -3,22 +3,36 @@ import { buildRoute, haversine } from "./geo"
 import {
   bearingDelta,
   buildTimeline,
+  cubFacing,
   cumulativeKm,
-  dampenBearing,
   dateAtProgress,
   kmAtProgress,
+  kmFromCum,
   LEG_MAX_MS,
   LEG_MIN_MS,
   legAt,
   legDurationMs,
-  MAX_CAM_TURN_DEG,
+  MAX_STOP_PHOTOS,
+  PHOTO_DWELL_MS,
+  photoIndexAt,
+  replayPhotos,
   STOP_PAUSE_MS,
   STOP_PAUSE_STORY_MS,
   sampleTimeline,
   stampCrossings,
   stopPauseMs,
 } from "./replayMath"
-import type { Stop } from "./types"
+import type { MediaItem, Stop } from "./types"
+
+function pic(over: Partial<MediaItem> = {}): MediaItem {
+  return {
+    tone: "",
+    cap: "",
+    kind: "image",
+    url: `/media/x/${Math.random().toString(36).slice(2)}.jpg`,
+    ...over,
+  }
+}
 
 function makeStop(over: Partial<Stop>): Stop {
   return {
@@ -108,6 +122,59 @@ describe("stopPauseMs", () => {
   it("ignores whitespace-only stories", () => {
     expect(stopPauseMs(makeStop({ story: "   " }))).toBe(STOP_PAUSE_MS)
   })
+
+  it("gives every extra picture its own dwell", () => {
+    const stop = makeStop({ media: [pic(), pic(), pic()] })
+    expect(stopPauseMs(stop)).toBe(STOP_PAUSE_STORY_MS + 2 * PHOTO_DWELL_MS)
+  })
+
+  it("does not stretch past the pictures the replay actually shows", () => {
+    const many = makeStop({ media: Array.from({ length: 9 }, () => pic()) })
+    expect(stopPauseMs(many)).toBe(
+      STOP_PAUSE_STORY_MS + (MAX_STOP_PHOTOS - 1) * PHOTO_DWELL_MS,
+    )
+  })
+})
+
+describe("replayPhotos", () => {
+  it("puts the rider's cover first and keeps gallery order after it", () => {
+    const a = pic({ url: "/a.jpg" })
+    const b = pic({ url: "/b.jpg", cover: true })
+    const c = pic({ url: "/c.jpg" })
+    expect(replayPhotos({ media: [a, b, c] })).toEqual([b, a, c])
+  })
+
+  it("skips colour swatches that carry no file", () => {
+    const real = pic({ url: "/a.jpg" })
+    const swatch = pic({ tone: "#c9a24e", url: null })
+    expect(replayPhotos({ media: [swatch, real] })).toEqual([real])
+  })
+
+  it("caps the slideshow", () => {
+    const media = Array.from({ length: 7 }, () => pic())
+    expect(replayPhotos({ media })).toHaveLength(MAX_STOP_PHOTOS)
+    expect(replayPhotos({ media }, 2)).toHaveLength(2)
+  })
+
+  it("returns nothing for a stop without media", () => {
+    expect(replayPhotos({ media: [] })).toEqual([])
+  })
+})
+
+describe("photoIndexAt", () => {
+  it("splits the pause evenly between the pictures", () => {
+    expect(photoIndexAt(3, 0)).toBe(0)
+    expect(photoIndexAt(3, 0.33)).toBe(0)
+    expect(photoIndexAt(3, 0.34)).toBe(1)
+    expect(photoIndexAt(3, 0.9)).toBe(2)
+  })
+
+  it("never runs past the last picture", () => {
+    expect(photoIndexAt(3, 1)).toBe(2)
+    expect(photoIndexAt(3, 5)).toBe(2)
+    expect(photoIndexAt(1, 0.99)).toBe(0)
+    expect(photoIndexAt(0, 0.5)).toBe(0)
+  })
 })
 
 describe("buildTimeline", () => {
@@ -173,8 +240,15 @@ describe("sampleTimeline", () => {
       kind: "stop",
       stopIndex: 0,
       progress: 0,
+      frac: 0,
       done: false,
     })
+  })
+
+  it("reports how far through a stop's pause it is", () => {
+    const pause = tl.segments[0]
+    const mid = sampleTimeline(tl, ROUTE, (pause.start + pause.end) / 2)
+    expect(mid.frac).toBeCloseTo(0.5, 6)
   })
 
   it("is done at the last stop past the total", () => {
@@ -278,6 +352,14 @@ describe("kmAtProgress", () => {
   it("returns 0 for no stops", () => {
     expect(kmAtProgress([], buildRoute([]), 0.5)).toBe(0)
   })
+
+  it("matches the pre-built-table form the replay header uses", () => {
+    const cum = cumulativeKm(STOPS, ROUTE)
+    for (const t of [0, 1 / 6, 0.5, 2 / 3, 1]) {
+      expect(kmFromCum(cum, ROUTE, t)).toBe(kmAtProgress(STOPS, ROUTE, t))
+    }
+    expect(kmFromCum([], ROUTE, 0.5)).toBe(0)
+  })
 })
 
 describe("dateAtProgress", () => {
@@ -346,16 +428,28 @@ describe("stampCrossings", () => {
   })
 })
 
-describe("dampenBearing", () => {
-  it("keeps small headings as-is", () => {
-    expect(dampenBearing(10)).toBe(10)
-    expect(dampenBearing(350)).toBe(-10)
+describe("cubFacing", () => {
+  it("faces the way the route clearly goes", () => {
+    expect(cubFacing(90, -1)).toBe(1)
+    expect(cubFacing(270, 1)).toBe(-1)
   })
 
-  it("caps the turn at the maximum in both directions", () => {
-    expect(dampenBearing(90)).toBe(MAX_CAM_TURN_DEG)
-    expect(dampenBearing(270)).toBe(-MAX_CAM_TURN_DEG)
-    expect(dampenBearing(181)).toBe(-MAX_CAM_TURN_DEG)
+  it("keeps its facing through near-north and near-south headings", () => {
+    expect(cubFacing(0, -1)).toBe(-1)
+    expect(cubFacing(5, 1)).toBe(1)
+    expect(cubFacing(180, 1)).toBe(1)
+    expect(cubFacing(184, -1)).toBe(-1)
+  })
+
+  it("does not flip back and forth across a wobbling northbound leg", () => {
+    let facing: 1 | -1 = 1
+    for (const b of [2, 358, 6, 352, 1, 359]) facing = cubFacing(b, facing)
+    expect(facing).toBe(1)
+  })
+
+  it("normalises headings outside 0..360", () => {
+    expect(cubFacing(-90, 1)).toBe(-1)
+    expect(cubFacing(450, -1)).toBe(1)
   })
 })
 

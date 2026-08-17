@@ -1,19 +1,25 @@
 // Overlay chrome for the "rij de reis" replay: rolling km/date header strip,
-// compact stop cards, passport border stamps, skip/stop controls and the end
-// card. The root is pointer-transparent so map gestures still reach MapLibre;
-// only the controls themselves catch input.
+// compact stop cards with a little slideshow of the stop's pictures, passport
+// border stamps, playback controls and the end card. The root is
+// pointer-transparent so map gestures still reach MapLibre; only the controls
+// themselves catch input.
 
 import {
   type CSSProperties,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
 import { mediaSrc } from "./api"
-import { coverItem } from "./cover"
 import type { RouteGeometry } from "./geo"
-import { dateAtProgress, kmAtProgress } from "./replayMath"
+import {
+  cumulativeKm,
+  dateAtProgress,
+  kmFromCum,
+  replayPhotos,
+} from "./replayMath"
 import {
   C,
   dateLabelNL,
@@ -23,7 +29,7 @@ import {
   PIN_ROTS,
 } from "./theme"
 import type { TripStats } from "./trip"
-import type { Stop } from "./types"
+import type { MediaItem, Stop } from "./types"
 import type { ReplayHandle } from "./useReplay"
 
 const pillStyle: CSSProperties = {
@@ -43,9 +49,144 @@ const pillStyle: CSSProperties = {
   pointerEvents: "auto",
 }
 
-function ReplayStopCard({ stop }: { stop: Stop }) {
-  const first = coverItem(stop.media)
-  const src = mediaSrc(first?.url)
+// Same pill, squared off for a single glyph (pause, sound).
+const iconPillStyle: CSSProperties = {
+  ...pillStyle,
+  width: 40,
+  padding: 0,
+  justifyContent: "center",
+  fontSize: 14,
+}
+
+// The stop's pictures, crossfading one into the next while the cub waits.
+// Every picture is mounted from the start (there are at most a handful) so the
+// browser has them decoded before their turn comes — a fade never lands on a
+// blank frame.
+function ReplayPhotos({
+  photos,
+  index,
+  paused,
+}: {
+  photos: MediaItem[]
+  index: number
+  paused: boolean
+}) {
+  const cur = Math.max(0, Math.min(index, photos.length - 1))
+  const active = photos[cur]
+  const videosRef = useRef<(HTMLVideoElement | null)[]>([])
+  // Only the picture on screen plays — four clips decoding at once is exactly
+  // the kind of background work that makes the map stutter — and pausing the
+  // replay pauses the clip with it.
+  useEffect(() => {
+    videosRef.current.forEach((v, i) => {
+      if (!v) return
+      if (i === cur && !paused) {
+        // Autoplay can still be refused; a frozen first frame is fine.
+        void v.play().catch(() => {})
+      } else {
+        v.pause()
+      }
+    })
+  }, [cur, paused])
+  return (
+    <div
+      style={{
+        position: "relative",
+        height: 146,
+        borderRadius: 8,
+        overflow: "hidden",
+        background: "#000",
+        border: "3px solid #fff",
+        boxShadow: "0 1px 3px rgba(0,0,0,.2)",
+      }}
+    >
+      {photos.map((m, i) => (
+        <div
+          key={m.url ?? i}
+          className="bb-replay-photo"
+          style={{ opacity: i === cur ? 1 : 0 }}
+        >
+          {m.kind === "video" ? (
+            <video
+              ref={(el) => {
+                videosRef.current[i] = el
+              }}
+              src={mediaSrc(m.url)}
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <img
+              src={mediaSrc(m.thumb ?? m.url)}
+              alt=""
+              decoding="async"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          )}
+        </div>
+      ))}
+      {active?.cap && (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            padding: "14px 8px 6px",
+            background: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.55))",
+            color: "#f6efdc",
+            fontFamily: FONT_MONO,
+            fontSize: 10,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {active.cap}
+        </div>
+      )}
+      {photos.length > 1 && (
+        <div
+          style={{
+            position: "absolute",
+            top: 7,
+            right: 7,
+            display: "flex",
+            gap: 4,
+          }}
+        >
+          {photos.map((m, i) => (
+            <span
+              key={m.url ?? i}
+              style={{
+                width: 5,
+                height: 5,
+                borderRadius: "50%",
+                background: i === cur ? "#f6efdc" : "rgba(246,239,220,.4)",
+                boxShadow: "0 0 2px rgba(0,0,0,.5)",
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ReplayStopCard({
+  stop,
+  photoIndex,
+  paused,
+}: {
+  stop: Stop
+  photoIndex: number
+  paused: boolean
+}) {
+  const photos = replayPhotos(stop)
+  const tone = stop.media[0]?.tone || "#c9a24e"
   return (
     <div
       className="bb-fadeup"
@@ -55,7 +196,8 @@ function ReplayStopCard({ stop }: { stop: Stop }) {
         right: 14,
         bottom: 84,
         display: "flex",
-        gap: 12,
+        flexDirection: "column",
+        gap: 9,
         background: C.paperCard,
         border: `1.5px solid ${C.border}`,
         borderRadius: 12,
@@ -64,41 +206,22 @@ function ReplayStopCard({ stop }: { stop: Stop }) {
         transform: "rotate(-.5deg)",
       }}
     >
-      <div
-        style={{
-          width: 56,
-          height: 56,
-          borderRadius: 7,
-          flex: "none",
-          border: "3px solid #fff",
-          boxShadow: "0 1px 3px rgba(0,0,0,.2)",
-          overflow: "hidden",
-          background: src
-            ? "#000"
-            : `linear-gradient(150deg,rgba(255,255,255,.28),rgba(0,0,0,.3)),${
-                first?.tone || "#c9a24e"
-              }`,
-        }}
-      >
-        {src && first?.kind !== "video" && (
-          <img
-            src={mediaSrc(first?.thumb ?? first?.url)}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      {photos.length > 0 ? (
+        <ReplayPhotos photos={photos} index={photoIndex} paused={paused} />
+      ) : (
+        stop.media.length > 0 && (
+          <div
+            style={{
+              height: 56,
+              borderRadius: 8,
+              border: "3px solid #fff",
+              boxShadow: "0 1px 3px rgba(0,0,0,.2)",
+              background: `linear-gradient(150deg,rgba(255,255,255,.28),rgba(0,0,0,.3)),${tone}`,
+            }}
           />
-        )}
-        {src && first?.kind === "video" && (
-          <video
-            src={src}
-            muted
-            playsInline
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        )}
-      </div>
-      <div style={{ minWidth: 0, flex: 1 }}>
+        )
+      )}
+      <div style={{ minWidth: 0 }}>
         <div
           style={{
             display: "flex",
@@ -209,7 +332,7 @@ export default function ReplayOverlay({
     if (hideTimer.current) clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => setControlsVisible(false), 3200)
   }, [])
-  // Any tap or drag anywhere brings the skip/stop controls back for a bit.
+  // Any tap or drag anywhere brings the playback controls back for a bit.
   useEffect(() => {
     poke()
     const onDown = () => poke()
@@ -221,7 +344,10 @@ export default function ReplayOverlay({
   }, [poke])
 
   const driving = replay.phase !== "done"
-  const kmNow = kmAtProgress(stops, route, progress)
+  // The odometer table is the same for the whole replay — build it once
+  // instead of on every animation frame's re-render.
+  const cum = useMemo(() => cumulativeKm(stops, route), [stops, route])
+  const kmNow = kmFromCum(cum, route, progress)
   const dateNow = dateAtProgress(stops, route, progress)
   const stampRot = replay.stamp
     ? PIN_ROTS[replay.stamp.index % PIN_ROTS.length]
@@ -301,6 +427,8 @@ export default function ReplayOverlay({
         <ReplayStopCard
           key={stops[replay.stopIndex].id}
           stop={stops[replay.stopIndex]}
+          photoIndex={replay.photoIndex}
+          paused={replay.paused}
         />
       )}
 
@@ -371,8 +499,9 @@ export default function ReplayOverlay({
         </div>
       )}
 
-      {/* skip / stop controls */}
-      {driving && controlsVisible && (
+      {/* playback controls — kept on screen while paused so the way back in
+          is never hidden behind a tap */}
+      {driving && (controlsVisible || replay.paused) && (
         <div
           className="bb-fadein"
           style={{
@@ -382,9 +511,30 @@ export default function ReplayOverlay({
             right: 0,
             display: "flex",
             justifyContent: "center",
-            gap: 10,
+            flexWrap: "wrap",
+            gap: 8,
           }}
         >
+          <button
+            type="button"
+            onClick={replay.togglePause}
+            aria-label={replay.paused ? "verder rijden" : "pauzeer"}
+            style={iconPillStyle}
+          >
+            {replay.paused ? "▶" : "⏸"}
+          </button>
+          <button
+            type="button"
+            onClick={replay.toggleMute}
+            aria-label={replay.muted ? "muziek aan" : "muziek uit"}
+            style={{
+              ...iconPillStyle,
+              color: replay.muted ? C.sepia : C.teal,
+              borderColor: replay.muted ? C.border : C.teal,
+            }}
+          >
+            {replay.muted ? "🔇" : "♪"}
+          </button>
           <button type="button" onClick={replay.skipToEnd} style={pillStyle}>
             ⏭ einde
           </button>
