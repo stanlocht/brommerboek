@@ -12,7 +12,7 @@ import { pointAt } from "./geo"
 import { cubSvgString, flagSvgString, WRENCH_INNER } from "./icons"
 import { cubPoint, isLiveFresh, trailGeoJSON } from "./live"
 import { vintageStyle } from "./mapStyle"
-import { bearingDelta, dampenBearing, INTRO_MS } from "./replayMath"
+import { cubFacing, INTRO_MS } from "./replayMath"
 import { C, FONT_MONO, FONT_SERIF, PIN_ROTS } from "./theme"
 import type {
   LiveLocation,
@@ -26,12 +26,11 @@ const FOLLOW_ZOOM = 6.3
 // Where the "zoom to the Cub" fly-to lands: close enough to name the town,
 // far enough to keep some surrounding country for orientation.
 const LIVE_ZOOM = 9.5
-// Cinematic replay camera: slightly closer than the scrub follow, pitched for
-// depth, and rotated (dampened) toward the travel bearing. Per-frame bearing
-// eases toward the target so leg changes swing gently instead of snapping.
+// Cinematic replay camera: slightly closer than the scrub follow and pitched
+// for depth, but always north-up. Rotating with the route made every bend
+// swing the whole atlas around; holding north keeps the ride readable.
 const CINE_ZOOM = 7
 const CINE_PITCH = 40
-const CINE_BEARING_EASE = 0.06
 
 // CSS transform that points the (right-facing) Cub along the travel bearing
 // while keeping it wheels-down — mirrors horizontally for westbound legs
@@ -45,6 +44,13 @@ function cubTransform(bearing: number): string {
   const phi = Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, raw))
   const mirror = westbound ? " scaleX(-1)" : ""
   return `rotate(${phi.toFixed(1)}deg)${mirror}`
+}
+
+// During a replay the Cub holds one orientation instead of tilting into every
+// wiggle of the ridden road: level, and mirrored only when the route has
+// clearly turned around (see `cubFacing`).
+function cubReplayTransform(facing: 1 | -1): string {
+  return facing < 0 ? "scaleX(-1)" : "none"
 }
 
 // The drawn route line follows the same geometry the cub drives — real
@@ -133,7 +139,9 @@ export default function VintageMap({
   replayReducedRef.current = replayReduced
   const onReplayGestureRef = useRef(onReplayGesture)
   onReplayGestureRef.current = onReplayGesture
-  const camBearingRef = useRef(0)
+  // Which way the Cub faces during a replay; sticky so near-north/south
+  // headings don't flip the art back and forth.
+  const facingRef = useRef<1 | -1>(1)
   // Latest geometry for the init load handler: the real ridden roads can
   // arrive before or after the style loads, so init reads through this ref
   // and the redraw effect below covers every later change.
@@ -472,26 +480,27 @@ export default function VintageMap({
       // own doesn't re-create this callback and drag the camera along.
       const pt = cubPoint(route, t, liveRef.current, lastStopDate)
       cub.setLngLat([pt.lng, pt.lat])
-      if (cubRotRef.current)
-        cubRotRef.current.style.transform = cubTransform(pt.bearing)
+      if (cubRotRef.current) {
+        if (replayingRef.current) {
+          facingRef.current = cubFacing(pt.bearing, facingRef.current)
+          cubRotRef.current.style.transform = cubReplayTransform(
+            facingRef.current,
+          )
+        } else {
+          cubRotRef.current.style.transform = cubTransform(pt.bearing)
+        }
+      }
       if (!follow) return
       if (replayingRef.current) {
         // The user owns the camera after a gesture; the intro flyTo (which
         // keeps the map moving) also finishes undisturbed.
         if (!replayFollowRef.current || map.isMoving()) return
-        if (replayReducedRef.current) {
-          map.jumpTo({ center: [pt.lng, pt.lat], zoom: CINE_ZOOM })
-        } else {
-          const target = dampenBearing(pt.bearing)
-          camBearingRef.current +=
-            bearingDelta(camBearingRef.current, target) * CINE_BEARING_EASE
-          map.jumpTo({
-            center: [pt.lng, pt.lat],
-            zoom: CINE_ZOOM,
-            pitch: CINE_PITCH,
-            bearing: camBearingRef.current,
-          })
-        }
+        map.jumpTo({
+          center: [pt.lng, pt.lat],
+          zoom: CINE_ZOOM,
+          pitch: replayReducedRef.current ? 0 : CINE_PITCH,
+          bearing: 0,
+        })
         return
       }
       if (dragging) {
@@ -529,7 +538,7 @@ export default function VintageMap({
     prevReplayingRef.current = replaying
     if (!map || !readyRef.current || was === replaying) return
     if (replaying) {
-      camBearingRef.current = 0
+      facingRef.current = 1
       const pt = pointAt(route, 0)
       if (replayReduced) {
         map.jumpTo({
