@@ -135,6 +135,17 @@ body:has(.bb-app) {
     bb-stampIn 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both,
     bb-fadeOut 0.4s ease 1.5s forwards;
 }
+/* A stop's pictures during the replay: all stacked, the current one faded up
+   over the others so the slideshow never flashes an empty frame. */
+.bb-replay-photo {
+  position: absolute;
+  inset: 0;
+  transition: opacity 0.45s ease;
+}
+.bb-replay-photo img,
+.bb-replay-photo video {
+  display: block;
+}
 .bb-toast {
   animation: bb-toastIn 0.25s ease both;
 }
@@ -425,5 +436,8 @@ body:has(.bb-app) {
   .bb-cub-bob,
   .bb-cub-hull {
     animation: none;
+  }
+  .bb-replay-photo {
+    transition: none;
   }
 }

@@ -3,9 +3,10 @@
 // border-crossing derivation. No React or MapLibre in here so vitest can
 // exercise everything directly.
 
+import { coverItem } from "./cover"
 import type { RouteGeometry } from "./geo"
 import { haversine, legKm, odometerTrusted, stopFraction } from "./geo"
-import type { Stop } from "./types"
+import type { MediaItem, Stop } from "./types"
 
 export const LEG_MIN_MS = 2500
 export const LEG_MAX_MS = 5000
@@ -13,10 +14,16 @@ export const LEG_MAX_MS = 5000
 const LEG_FULL_METERS = 400_000
 export const STOP_PAUSE_MS = 2500
 export const STOP_PAUSE_STORY_MS = 4000
+// Every picture past the first extends the pause by this much, so a stop with
+// a whole roll of film gets time to show a few instead of flashing one.
+export const PHOTO_DWELL_MS = 1500
+// More than this and the pause outstays its welcome; the rest of the gallery
+// is one tap away in the stop sheet.
+export const MAX_STOP_PHOTOS = 4
 export const INTRO_MS = 1600
-// The camera never rotates more than this far away from north while
-// following — enough to feel the travel direction without spinning the atlas.
-export const MAX_CAM_TURN_DEG = 25
+// A heading this close to due north or south is ambiguous — the cub keeps
+// facing the way it already faced instead of flipping on every wobble.
+export const FACING_DEADBAND_DEG = 20
 
 export function easeInOutCubic(k: number): number {
   return k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2
@@ -29,11 +36,37 @@ export function legDurationMs(meters: number): number {
   return LEG_MIN_MS + (LEG_MAX_MS - LEG_MIN_MS) * t
 }
 
-// Pause length at a stop: longer when there is a story or media to look at.
+// The pictures the replay shows at one stop, cover first (the rider's pick
+// leads the little slideshow) and then the rest in gallery order. Only items
+// that actually carry a file — a colour swatch has nothing to show.
+export function replayPhotos(
+  stop: Pick<Stop, "media">,
+  max = MAX_STOP_PHOTOS,
+): MediaItem[] {
+  const withFile = (stop.media ?? []).filter((m) => !!m.url)
+  const cover = coverItem(withFile)
+  const rest = withFile.filter((m) => m !== cover)
+  return (cover ? [cover, ...rest] : rest).slice(0, Math.max(0, max))
+}
+
+// Pause length at a stop: longer when there is a story or media to look at,
+// and longer still for every extra picture in the slideshow so each one gets
+// a readable turn on screen.
 export function stopPauseMs(stop: Pick<Stop, "story" | "media">): number {
-  return stop.story.trim().length > 0 || stop.media.length > 0
-    ? STOP_PAUSE_STORY_MS
-    : STOP_PAUSE_MS
+  const base =
+    stop.story.trim().length > 0 || stop.media.length > 0
+      ? STOP_PAUSE_STORY_MS
+      : STOP_PAUSE_MS
+  const photos = replayPhotos(stop).length
+  return photos > 1 ? base + (photos - 1) * PHOTO_DWELL_MS : base
+}
+
+// Which picture of `count` is on screen `frac` (0..1) of the way through a
+// stop's pause — each one gets an equal share of it.
+export function photoIndexAt(count: number, frac: number): number {
+  if (count <= 1) return 0
+  const k = Math.max(0, Math.min(1, frac))
+  return Math.min(count - 1, Math.floor(k * count))
 }
 
 export interface TimelineSegment {
@@ -78,6 +111,9 @@ export interface ReplaySample {
   kind: "stop" | "drive"
   stopIndex: number
   progress: number
+  // How far through this segment we are, 0..1 — the stop slideshow reads it
+  // to decide which picture is up.
+  frac: number
   done: boolean
 }
 
@@ -90,31 +126,35 @@ export function sampleTimeline(
 ): ReplaySample {
   const { segments, total } = timeline
   if (segments.length === 0)
-    return { kind: "stop", stopIndex: 0, progress: 0, done: true }
+    return { kind: "stop", stopIndex: 0, progress: 0, frac: 1, done: true }
   const last = segments[segments.length - 1]
   if (tMs >= total)
     return {
       kind: "stop",
       stopIndex: last.index,
       progress: stopFraction(route, last.index),
+      frac: 1,
       done: true,
     }
   // Zero-length segments (reduced-motion drives) never match tMs < end.
   const seg = segments.find((s) => tMs < s.end) ?? last
+  const span = seg.end - seg.start
+  const k = span > 0 ? Math.max(0, (tMs - seg.start) / span) : 1
   if (seg.kind === "stop")
     return {
       kind: "stop",
       stopIndex: seg.index,
       progress: stopFraction(route, seg.index),
+      frac: k,
       done: false,
     }
-  const k = (tMs - seg.start) / (seg.end - seg.start)
   const from = stopFraction(route, seg.index - 1)
   const to = stopFraction(route, seg.index)
   return {
     kind: "drive",
     stopIndex: seg.index,
     progress: from + (to - from) * easeInOutCubic(k),
+    frac: k,
     done: false,
   }
 }
@@ -169,6 +209,21 @@ export function cumulativeKm(stops: Stop[], route?: RouteGeometry): number[] {
   return out
 }
 
+// Rolling km counter value at route fraction t, from a pre-built per-stop
+// odometer table. The replay header calls this every animation frame, so the
+// table is built once by the caller instead of per frame.
+export function kmFromCum(
+  cum: number[],
+  route: RouteGeometry,
+  t: number,
+): number {
+  if (cum.length === 0) return 0
+  const { index, frac } = legAt(route, t)
+  const a = cum[Math.min(index, cum.length - 1)]
+  const b = cum[Math.min(index + 1, cum.length - 1)]
+  return Math.round(a + (b - a) * frac)
+}
+
 // Rolling km counter value at route fraction t.
 export function kmAtProgress(
   stops: Stop[],
@@ -176,11 +231,7 @@ export function kmAtProgress(
   t: number,
 ): number {
   if (stops.length === 0) return 0
-  const cum = cumulativeKm(stops, route)
-  const { index, frac } = legAt(route, t)
-  const a = cum[Math.min(index, cum.length - 1)]
-  const b = cum[Math.min(index + 1, cum.length - 1)]
-  return Math.round(a + (b - a) * frac)
+  return kmFromCum(cumulativeKm(stops, route), route, t)
 }
 
 // Rolling date (ISO YYYY-MM-DD) at route fraction t, interpolated linearly
@@ -227,12 +278,17 @@ export function stampCrossings(stops: Stop[]): BorderCrossing[] {
   return out
 }
 
-// Camera bearing while following: turn toward the travel bearing but never
-// more than MAX_CAM_TURN_DEG away from north.
-export function dampenBearing(travelBearing: number): number {
-  let b = ((travelBearing % 360) + 360) % 360
-  if (b > 180) b -= 360
-  return Math.max(-MAX_CAM_TURN_DEG, Math.min(MAX_CAM_TURN_DEG, b))
+// Which way the cub faces during a replay: 1 = right (eastbound), -1 = left
+// (westbound). Real ridden roads wiggle constantly, and tilting or flipping
+// the art with every wiggle is what made the moped look jumpy — so the replay
+// keeps it level and only mirrors when the route has clearly committed to the
+// other side of the compass. Headings inside the deadband around north/south
+// keep whatever facing the cub already had.
+export function cubFacing(travelBearing: number, prev: 1 | -1): 1 | -1 {
+  const b = ((travelBearing % 360) + 360) % 360
+  if (b > FACING_DEADBAND_DEG && b < 180 - FACING_DEADBAND_DEG) return 1
+  if (b > 180 + FACING_DEADBAND_DEG && b < 360 - FACING_DEADBAND_DEG) return -1
+  return prev
 }
 
 // Shortest signed angular difference a→b in degrees, in [-180, 180).
