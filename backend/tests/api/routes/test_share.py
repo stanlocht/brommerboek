@@ -99,7 +99,43 @@ def test_share_page_image_falls_back_to_url(client: TestClient, db: Session) -> 
             [
                 # A tone-swatch placeholder is not a real file — skipped.
                 {"tone": "#c9a24e", "cap": "", "kind": "image", "url": None},
-                {"tone": "", "cap": "", "kind": "image", "url": f"/media/{stop.id}/b.jpg"},
+                {
+                    "tone": "",
+                    "cap": "",
+                    "kind": "image",
+                    "url": f"/media/{stop.id}/b.jpg",
+                },
+            ],
+        )
+        body = client.get(f"/s/{stop.id}").text
+        assert (
+            f'<meta property="og:image" content="{ORIGIN}/media/{stop.id}/b.jpg">'
+            in body
+        )
+    finally:
+        delete_test_stop(db, stop)
+
+
+def test_share_page_image_uses_flagged_cover(client: TestClient, db: Session) -> None:
+    stop = create_test_stop(db)
+    try:
+        set_media(
+            db,
+            stop,
+            [
+                {
+                    "tone": "",
+                    "cap": "",
+                    "kind": "image",
+                    "url": f"/media/{stop.id}/a.jpg",
+                },
+                {
+                    "tone": "",
+                    "cap": "",
+                    "kind": "image",
+                    "url": f"/media/{stop.id}/b.jpg",
+                    "cover": True,
+                },
             ],
         )
         body = client.get(f"/s/{stop.id}").text
@@ -130,8 +166,7 @@ def test_share_page_absolute_image_url_kept_as_is(
         )
         body = client.get(f"/s/{stop.id}").text
         assert (
-            '<meta property="og:image" content="https://cdn.example.com/a.jpg">'
-            in body
+            '<meta property="og:image" content="https://cdn.example.com/a.jpg">' in body
         )
     finally:
         delete_test_stop(db, stop)
@@ -177,7 +212,7 @@ def test_share_page_escapes_user_content(client: TestClient, db: Session) -> Non
         # The attribute-breaking quote is escaped too.
         assert (
             '<meta property="og:title" content="&quot;&gt;&lt;script&gt;'
-            "alert(1)&lt;/script&gt;\">" in body
+            'alert(1)&lt;/script&gt;">' in body
         )
     finally:
         delete_test_stop(db, stop)

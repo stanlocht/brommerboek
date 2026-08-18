@@ -8,11 +8,13 @@ import {
 import {
   deleteStopMedia,
   mediaSrc,
+  setStopMediaCover,
   suggestWeather,
   UPLOAD_ATTEMPTS,
   updateStopMediaCaption,
   uploadStopMedia,
 } from "./api"
+import { coverIndex } from "./cover"
 import type { PlaceHit } from "./geocode"
 import { WrenchIcon } from "./icons"
 import { prepareUpload, TooLargeError } from "./imagePrep"
@@ -471,6 +473,29 @@ export default function AddFlow({
     if (problems.length > 0) setUploadError(problems.join(" · "))
   }
 
+  // Which tile carries the star. Falls back to the first item, so the badge
+  // always shows what the map card will actually use.
+  const coverIdx = coverIndex(media)
+
+  // Pick the stop's cover picture. For an existing stop the flag is a tiny
+  // POST of its own; for a new one it rides along with the deferred upload of
+  // that same file (BrommerboekApp), which is what makes the choice survive
+  // whatever order the uploads finish in.
+  const onSetCover = async (index: number) => {
+    if (index === coverIdx && media[index]?.cover) return
+    setUploadError(null)
+    if (isEdit && initialStop && media[index]?.url?.startsWith("/media/")) {
+      try {
+        const updated = await setStopMediaCover(initialStop.id, index)
+        syncFromServer(updated)
+      } catch (err) {
+        setUploadError((err as Error).message ?? "Omslag instellen mislukt")
+      }
+      return
+    }
+    setMedia((m) => m.map((item, i) => ({ ...item, cover: i === index })))
+  }
+
   const onRemoveMedia = async (index: number) => {
     setUploadError(null)
     if (isEdit && initialStop && media[index]?.url?.startsWith("/media/")) {
@@ -781,6 +806,12 @@ export default function AddFlow({
               {canShrinkVideo
                 ? ` · video's worden ingekort tot ${MAX_VIDEO_SECONDS} sec`
                 : ""}
+              {media.length > 0 ? (
+                <div style={{ marginTop: 4, lineHeight: 1.5 }}>
+                  tik ☆ omslag om te kiezen welke foto op de kaart en in
+                  gedeelde links komt — de volgorde van uploaden maakt niet uit.
+                </div>
+              ) : null}
             </div>
             {progress && (
               <div style={{ marginBottom: 12 }}>
@@ -901,6 +932,34 @@ export default function AddFlow({
                       }}
                     >
                       ✕
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSetCover(i)}
+                      aria-pressed={i === coverIdx}
+                      aria-label={
+                        i === coverIdx
+                          ? "Dit is de omslagfoto"
+                          : "Maak dit de omslagfoto"
+                      }
+                      style={{
+                        position: "absolute",
+                        left: 4,
+                        right: 4,
+                        bottom: 4,
+                        padding: "3px 6px",
+                        borderRadius: 5,
+                        border: "none",
+                        background:
+                          i === coverIdx ? C.ochre : "rgba(0,0,0,.55)",
+                        color: i === coverIdx ? C.ink : "#fff",
+                        fontFamily: FONT_MONO,
+                        fontSize: 9,
+                        letterSpacing: 1,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {i === coverIdx ? "★ OMSLAG" : "☆ OMSLAG"}
                     </button>
                   </div>
                   <input

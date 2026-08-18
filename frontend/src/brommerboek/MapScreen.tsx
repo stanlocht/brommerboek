@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from "react"
 import { useEffect, useState } from "react"
 import type { UserPublic } from "@/client"
 import { mediaSrc } from "./api"
+import { coverItem } from "./cover"
 import FollowBell from "./FollowBell"
 import type { RouteGeometry } from "./geo"
 import { nearestStop, stopFraction } from "./geo"
@@ -18,6 +19,16 @@ import type {
   Stop,
 } from "./types"
 import VintageMap from "./VintageMap"
+
+// The trip headline. Shared by the plain heading and the admin's edit button
+// so both sit at the same size on the same line.
+const titleStyle = {
+  fontFamily: FONT_SERIF,
+  fontWeight: 700,
+  fontSize: 23,
+  lineHeight: 1,
+  marginTop: 2,
+} as const
 
 function frac(e: ReactPointerEvent<HTMLDivElement>): number {
   const r = e.currentTarget.getBoundingClientRect()
@@ -126,6 +137,8 @@ export default function MapScreen({
   route,
   stats,
   statsUnavailable,
+  title,
+  onEditTitle,
   cur,
   progress,
   dragging,
@@ -154,6 +167,10 @@ export default function MapScreen({
   // True when the stats query failed and `stats` is just the zeroed
   // fallback — show a hint instead of confident zeros.
   statsUnavailable: boolean
+  // The trip's headline (backend-editable); onEditTitle is present for admins
+  // only and turns the heading into a button that opens the title editor.
+  title: string
+  onEditTitle?: () => void
   cur: Stop
   progress: number
   dragging: boolean
@@ -250,17 +267,41 @@ export default function MapScreen({
             >
               BROMMERBOEK · N°1
             </div>
-            <div
-              style={{
-                fontFamily: FONT_SERIF,
-                fontWeight: 700,
-                fontSize: 23,
-                lineHeight: 1,
-                marginTop: 2,
-              }}
-            >
-              Van Mokum naar Marokko
-            </div>
+            {onEditTitle ? (
+              <button
+                type="button"
+                onClick={onEditTitle}
+                aria-label={`Wijzig de titel van de tocht (nu: ${title})`}
+                style={{
+                  ...titleStyle,
+                  display: "inline-flex",
+                  alignItems: "baseline",
+                  gap: 6,
+                  padding: 0,
+                  border: "none",
+                  background: "none",
+                  textAlign: "left",
+                  color: C.ink,
+                  cursor: "pointer",
+                  pointerEvents: "auto",
+                }}
+              >
+                {title}
+                <span
+                  aria-hidden="true"
+                  style={{
+                    fontFamily: FONT_MONO,
+                    fontSize: 11,
+                    color: C.ochreDeep,
+                    flex: "none",
+                  }}
+                >
+                  ✎
+                </span>
+              </button>
+            ) : (
+              <div style={titleStyle}>{title}</div>
+            )}
             <Link
               to="/logboek"
               aria-label="Open logboek met statistieken"
@@ -394,7 +435,7 @@ export default function MapScreen({
             }}
           >
             {(() => {
-              const first = cur.media[0]
+              const first = coverItem(cur.media)
               const src = mediaSrc(first?.url)
               return (
                 <div

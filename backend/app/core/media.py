@@ -8,7 +8,7 @@ the two functions below for an S3 client without touching the domain.
 """
 
 import logging
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
@@ -34,6 +34,63 @@ MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 # files. Served as plain static files through the same /media mount.
 THUMB_MAX_DIM = 640
 THUMB_QUALITY = 80
+
+# What an upload may be, and the extension we store it under. Shared by stop
+# media and comment attachments — a clip a visitor films is the same kind of
+# file as one the rider films.
+ALLOWED_MEDIA_TYPES = {
+    "image/jpeg": ("image", "jpg"),
+    "image/png": ("image", "png"),
+    "image/webp": ("image", "webp"),
+    "image/gif": ("image", "gif"),
+    "image/heic": ("image", "heic"),
+    # Android cameras label the same container either way; without heif the
+    # upload came back 415 and the photo was silently dropped.
+    "image/heif": ("image", "heic"),
+    "video/mp4": ("video", "mp4"),
+    "video/quicktime": ("video", "mov"),
+    "video/webm": ("video", "webm"),
+    # Budget Android phones still record 3GPP by default.
+    "video/3gpp": ("video", "3gp"),
+}
+
+# Content types that say "I don't know", as opposed to naming something we
+# don't accept. Only for these do we look at the filename — a client that
+# declares a real type is taken at its word, so a .png-named shell script
+# still gets turned away.
+UNKNOWN_MEDIA_TYPES = {"", "application/octet-stream", "binary/octet-stream"}
+
+# Last resort when the browser sends no usable content type — some Android
+# pickers hand the page a File with an empty or generic `type`, and the
+# multipart part then carries nothing better.
+EXT_MEDIA_TYPES = {
+    ".jpg": ("image", "jpg"),
+    ".jpeg": ("image", "jpg"),
+    ".png": ("image", "png"),
+    ".webp": ("image", "webp"),
+    ".gif": ("image", "gif"),
+    ".heic": ("image", "heic"),
+    ".heif": ("image", "heic"),
+    ".mp4": ("video", "mp4"),
+    ".m4v": ("video", "mp4"),
+    ".mov": ("video", "mov"),
+    ".webm": ("video", "webm"),
+    ".3gp": ("video", "3gp"),
+}
+
+
+def resolve_media_type(
+    content_type: str | None, filename: str | None
+) -> tuple[str, str] | None:
+    """(kind, extension) for an upload, or None if we don't accept it."""
+    declared = (content_type or "").strip().lower()
+    if declared in ALLOWED_MEDIA_TYPES:
+        return ALLOWED_MEDIA_TYPES[declared]
+    if declared not in UNKNOWN_MEDIA_TYPES:
+        return None
+    if filename:
+        return EXT_MEDIA_TYPES.get(PurePosixPath(filename).suffix.lower())
+    return None
 
 
 def thumb_filename(filename: str) -> str:

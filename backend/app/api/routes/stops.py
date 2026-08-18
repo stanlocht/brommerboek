@@ -1,7 +1,6 @@
 import shutil
 import uuid
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
 from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
@@ -11,7 +10,12 @@ from app import crud
 from app.api.deps import SessionDep, get_current_active_superuser
 from app.core import push
 from app.core.config import settings
-from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
+from app.core.media import (
+    MEDIA_ROOT,
+    MEDIA_URL_PREFIX,
+    generate_thumbnail,
+    resolve_media_type,
+)
 from app.geo import haversine_km, leg_km, polyline_km
 from app.models import (
     Comment,
@@ -25,64 +29,12 @@ from app.models import (
     StopsPublic,
     StopUpdate,
     TripStats,
+    normalize_cover,
 )
 
 router = APIRouter(prefix="/stops", tags=["stops"])
 
-ALLOWED_MEDIA_TYPES = {
-    "image/jpeg": ("image", "jpg"),
-    "image/png": ("image", "png"),
-    "image/webp": ("image", "webp"),
-    "image/gif": ("image", "gif"),
-    "image/heic": ("image", "heic"),
-    # Android cameras label the same container either way; without heif the
-    # upload came back 415 and the photo was silently dropped.
-    "image/heif": ("image", "heic"),
-    "video/mp4": ("video", "mp4"),
-    "video/quicktime": ("video", "mov"),
-    "video/webm": ("video", "webm"),
-    # Budget Android phones still record 3GPP by default.
-    "video/3gpp": ("video", "3gp"),
-}
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MiB — plenty for phone photos/clips
-
-# Content types that say "I don't know", as opposed to naming something we
-# don't accept. Only for these do we look at the filename — a client that
-# declares a real type is taken at its word, so a .png-named shell script
-# still gets turned away.
-UNKNOWN_MEDIA_TYPES = {"", "application/octet-stream", "binary/octet-stream"}
-
-# Last resort when the browser sends no usable content type — some Android
-# pickers hand the page a File with an empty or generic `type`, and the
-# multipart part then carries nothing better.
-EXT_MEDIA_TYPES = {
-    ".jpg": ("image", "jpg"),
-    ".jpeg": ("image", "jpg"),
-    ".png": ("image", "png"),
-    ".webp": ("image", "webp"),
-    ".gif": ("image", "gif"),
-    ".heic": ("image", "heic"),
-    ".heif": ("image", "heic"),
-    ".mp4": ("video", "mp4"),
-    ".m4v": ("video", "mp4"),
-    ".mov": ("video", "mov"),
-    ".webm": ("video", "webm"),
-    ".3gp": ("video", "3gp"),
-}
-
-
-def _resolve_media_type(
-    content_type: str | None, filename: str | None
-) -> tuple[str, str] | None:
-    """(kind, extension) for an upload, or None if we don't accept it."""
-    declared = (content_type or "").strip().lower()
-    if declared in ALLOWED_MEDIA_TYPES:
-        return ALLOWED_MEDIA_TYPES[declared]
-    if declared not in UNKNOWN_MEDIA_TYPES:
-        return None
-    if filename:
-        return EXT_MEDIA_TYPES.get(PurePosixPath(filename).suffix.lower())
-    return None
 
 
 def _ordered_stops(session: SessionDep) -> list[Stop]:
@@ -316,11 +268,17 @@ def upload_stop_media(
     id: uuid.UUID,
     file: UploadFile = File(...),
     caption: str = "",
+    cover: bool = False,
     upload_id: str = "",
 ) -> Any:
     """
     Attach a photo or short video to a stop. Files land on the media volume
     under `/media/{stop_id}/…` and the stop's `media` array grows by one.
+
+    `cover=true` makes the new item the stop's cover picture, taking the flag
+    off whichever item held it — that's how a brand-new stop keeps the cover
+    the rider picked while the files were still local previews, whatever order
+    the uploads happen to land in.
 
     `upload_id` is the client's idempotency key. Mobile uploads drop often
     enough that the client retries them, and a retry after a POST that
@@ -336,7 +294,7 @@ def upload_stop_media(
         for item in db_stop.media or []
     ):
         return db_stop
-    resolved = _resolve_media_type(file.content_type, file.filename)
+    resolved = resolve_media_type(file.content_type, file.filename)
     if resolved is None:
         raise HTTPException(
             status_code=415, detail=f"Unsupported media type: {file.content_type}"
@@ -375,7 +333,10 @@ def upload_stop_media(
         thumb_path = generate_thumbnail(dest)
         if thumb_path is not None:
             thumb_url = f"{MEDIA_URL_PREFIX}/{id}/{thumb_path.name}"
-    media_items = list(db_stop.media or [])
+    media_items = [dict(m) for m in db_stop.media or []]
+    if cover:
+        for item in media_items:
+            item["cover"] = False
     media_items.append(
         {
             "tone": "",
@@ -383,6 +344,7 @@ def upload_stop_media(
             "kind": kind,
             "url": url,
             "thumb": thumb_url,
+            "cover": cover,
             "uid": upload_id[:64] or None,
         }
     )
@@ -419,6 +381,36 @@ def update_stop_media_caption(
         raise HTTPException(status_code=404, detail="Media index out of range")
     media_items[index]["cap"] = caption_in.cap
     db_stop.media = media_items
+    session.add(db_stop)
+    session.commit()
+    session.refresh(db_stop)
+    return db_stop
+
+
+@router.post(
+    "/{id}/media/{index}/cover",
+    response_model=StopPublic,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def set_stop_media_cover(
+    *, session: SessionDep, id: uuid.UUID, index: int, cover: bool = True
+) -> Any:
+    """
+    Make the media item at `index` the stop's cover picture — the one shown on
+    the map card, in the replay and in share unfurls. Any other item loses the
+    flag; `cover=false` clears it, after which the first item stands in again.
+    """
+    db_stop = session.get(Stop, id)
+    if not db_stop:
+        raise HTTPException(status_code=404, detail="Stop not found")
+    # Copy the inner dicts: mutating the loaded JSON in place leaves
+    # SQLAlchemy's change detection comparing the value against itself.
+    media_items = [dict(m) for m in db_stop.media or []]
+    if not 0 <= index < len(media_items):
+        raise HTTPException(status_code=404, detail="Media index out of range")
+    for i, item in enumerate(media_items):
+        item["cover"] = cover and i == index
+    db_stop.media = normalize_cover(media_items)
     session.add(db_stop)
     session.commit()
     session.refresh(db_stop)

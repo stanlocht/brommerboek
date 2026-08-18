@@ -65,11 +65,14 @@ def _upload(
     content_type: str = "image/png",
     caption: str = "",
     filename: str = "foto.png",
+    cover: bool = False,
     upload_id: str = "",
 ) -> httpx.Response:
-    params = {}
+    params: dict[str, object] = {}
     if caption:
         params["caption"] = caption
+    if cover:
+        params["cover"] = True
     if upload_id:
         params["upload_id"] = upload_id
     response: httpx.Response = client.post(
@@ -289,6 +292,29 @@ def test_upload_media_retry_with_same_upload_id_does_not_duplicate(
     assert len(list(stop_dir.glob("*.png"))) == 1
 
 
+def test_upload_media_retry_keeps_the_cover_flag(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    # Retrying and cover-picking meet here: the rider marked this file as the
+    # cover, its upload dropped after the bytes landed, and the retry must
+    # leave the flag it already set rather than short-circuit it away.
+    _upload(client, superuser_token_headers, stop.id, upload_id="plain")
+    first = _upload(
+        client, superuser_token_headers, stop.id, upload_id="star", cover=True
+    )
+    assert [m["cover"] for m in first.json()["media"]] == [False, True]
+
+    retry = _upload(
+        client, superuser_token_headers, stop.id, upload_id="star", cover=True
+    )
+    assert retry.status_code == 200
+    assert [m["cover"] for m in retry.json()["media"]] == [False, True]
+    assert len(list((media_root / str(stop.id)).glob("*.png"))) == 2
+
+
 def test_upload_media_different_upload_ids_both_land(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -501,6 +527,109 @@ def test_patch_media_caption_rejects_overlong_caption(
         json={"cap": "x" * 256},
     )
     assert r.status_code == 422
+
+
+@pytest.mark.usefixtures("media_root")
+def test_set_media_cover_moves_the_flag(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    _upload(client, superuser_token_headers, stop.id, caption="een")
+    uploaded = _upload(client, superuser_token_headers, stop.id, caption="twee").json()
+    # Nothing is flagged until the rider picks; the first item stands in.
+    assert [m["cover"] for m in uploaded["media"]] == [False, False]
+
+    r = client.post(
+        f"{STOPS_URL}{stop.id}/media/1/cover", headers=superuser_token_headers
+    )
+    assert r.status_code == 200
+    assert [m["cover"] for m in r.json()["media"]] == [False, True]
+
+    # Picking another one takes the flag off the previous holder.
+    r = client.post(
+        f"{STOPS_URL}{stop.id}/media/0/cover", headers=superuser_token_headers
+    )
+    assert [m["cover"] for m in r.json()["media"]] == [True, False]
+
+    # And it survived the round trip to the JSON column.
+    refetched = client.get(f"{STOPS_URL}{stop.id}").json()
+    assert [m["cover"] for m in refetched["media"]] == [True, False]
+
+
+@pytest.mark.usefixtures("media_root")
+def test_set_media_cover_can_be_cleared(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    _upload(client, superuser_token_headers, stop.id, cover=True)
+    r = client.post(
+        f"{STOPS_URL}{stop.id}/media/0/cover",
+        headers=superuser_token_headers,
+        params={"cover": False},
+    )
+    assert r.status_code == 200
+    assert [m["cover"] for m in r.json()["media"]] == [False]
+
+
+@pytest.mark.usefixtures("media_root")
+def test_upload_with_cover_takes_over_the_flag(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    first = _upload(client, superuser_token_headers, stop.id, cover=True).json()
+    assert [m["cover"] for m in first["media"]] == [True]
+
+    # A later upload that claims the cover unseats the earlier one — this is
+    # how a new stop's deferred uploads land the rider's pick whatever order
+    # they finish in.
+    second = _upload(client, superuser_token_headers, stop.id, cover=True).json()
+    assert [m["cover"] for m in second["media"]] == [False, True]
+
+    # A plain upload leaves the flag where it is.
+    third = _upload(client, superuser_token_headers, stop.id).json()
+    assert [m["cover"] for m in third["media"]] == [False, True, False]
+
+
+@pytest.mark.usefixtures("media_root")
+def test_set_media_cover_index_out_of_range(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    for bad_index in (0, 5, -1):
+        r = client.post(
+            f"{STOPS_URL}{stop.id}/media/{bad_index}/cover",
+            headers=superuser_token_headers,
+        )
+        assert r.status_code == 404
+        assert r.json()["detail"] == "Media index out of range"
+
+
+@pytest.mark.usefixtures("media_root")
+def test_set_media_cover_stop_not_found(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    r = client.post(
+        f"{STOPS_URL}{uuid.uuid4()}/media/0/cover", headers=superuser_token_headers
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Stop not found"
+
+
+@pytest.mark.usefixtures("media_root")
+def test_set_media_cover_requires_superuser(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    _upload(client, superuser_token_headers, stop.id)
+    url = f"{STOPS_URL}{stop.id}/media/0/cover"
+    assert client.post(url).status_code == 401
+    assert client.post(url, headers=normal_user_token_headers).status_code == 403
 
 
 def test_delete_stop_removes_media_directory(

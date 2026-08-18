@@ -6,7 +6,7 @@
 // Everything here must be inert on failure: reporting an error may never
 // throw, loop, or block the UI.
 
-import { isForeignStack } from "./errorProvenance"
+import { isForeignError } from "./errorProvenance"
 
 const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")
 const TELEMETRY_URL = `${BASE}/api/v1/telemetry/errors`
@@ -71,8 +71,7 @@ export function reportError(error: unknown, context = ""): void {
 // outright that the code came from somewhere other than our bundle, it is not
 // ours to fix and only crowds the tracker.
 function isForeign(error: unknown): boolean {
-  if (!(error instanceof Error) || !error.stack) return false
-  return isForeignStack(error.stack, window.location.origin)
+  return isForeignError(error, window.location.origin)
 }
 
 // Catch what React and TanStack never see: syntax/runtime errors outside

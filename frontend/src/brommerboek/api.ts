@@ -14,6 +14,7 @@ import type {
   Stop,
   StopPatch,
   StopsResponse,
+  TripInfo,
 } from "./types"
 
 const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")
@@ -29,6 +30,7 @@ const commentUrl = (id: string) => `${BASE}/api/v1/comments/${id}`
 const commentHonksUrl = (id: string) => `${BASE}/api/v1/comments/${id}/honks`
 const MAP_FLAGS_URL = `${BASE}/api/v1/map-flags/`
 const mapFlagUrl = (kind: MapFlagKind) => `${BASE}/api/v1/map-flags/${kind}`
+const TRIP_URL = `${BASE}/api/v1/trip/`
 const LIVE_LOCATION_URL = `${BASE}/api/v1/location/live`
 const LIVE_TRAIL_URL = `${BASE}/api/v1/location/trail`
 const RIDDEN_URL = `${BASE}/api/v1/location/ridden`
@@ -64,7 +66,7 @@ export interface HonkState {
 // Prefixes `/media/...` URLs (returned as server-relative) with the API base
 // so <img> / <video> tags fetch from the right origin during dev. Absolute
 // URLs — including blob:/data: local previews — pass through untouched.
-export function mediaSrc(url: string | null): string | undefined {
+export function mediaSrc(url: string | null | undefined): string | undefined {
   if (!url) return undefined
   if (/^(https?|blob|data):/.test(url)) return url
   return `${BASE}${url}`
@@ -253,6 +255,10 @@ export interface UploadOptions {
   // UI can say "poging 2/3" instead of looking frozen.
   onRetry?: (attempt: number, error: Error) => void
   signal?: AbortSignal
+  // Land this file as the stop's cover picture. Used when a new stop's files
+  // are uploaded after the fact: the rider marked one of the local previews,
+  // and the flag has to travel with that file rather than with its position.
+  cover?: boolean
 }
 
 function sendOnce(
@@ -362,10 +368,12 @@ export async function uploadStopMedia(
   caption = "",
   options: UploadOptions = {},
 ): Promise<Stop> {
-  // The backend reads `caption` and `upload_id` as query parameters, not
-  // form fields.
+  // The backend reads `caption`, `cover` and `upload_id` as query
+  // parameters, not form fields. The key is minted once, outside the retry
+  // loop, so every attempt at this file carries the same one.
   const params = new URLSearchParams({ upload_id: newUploadId() })
   if (caption) params.set("caption", caption)
+  if (options.cover) params.set("cover", "true")
   const url = `${mediaUrl(id)}?${params}`
 
   let lastError: Error = new Error("Upload mislukt")
@@ -409,6 +417,21 @@ export async function updateStopMediaCaption(
   return (await res.json()) as Stop
 }
 
+// Mark one media item as the stop's cover (or clear the flag with
+// `cover: false`, after which the first item stands in again).
+export async function setStopMediaCover(
+  id: string,
+  index: number,
+  cover = true,
+): Promise<Stop> {
+  const res = await fetch(
+    `${mediaIndexUrl(id, index)}/cover?cover=${cover ? "true" : "false"}`,
+    { method: "POST", headers: authHeaders() },
+  )
+  if (!res.ok) throw new Error(`Failed to set cover (${res.status})`)
+  return (await res.json()) as Stop
+}
+
 // ----- Comments --------------------------------------------------------------
 
 export interface StopComment {
@@ -418,11 +441,14 @@ export interface StopComment {
   author_name: string
   is_mine: boolean
   body: string
-  // Server-relative URLs of an attached photo and its WebP thumbnail
+  // Server-relative URLs of an attached photo or clip and its WebP thumbnail
   // ("/media/<stop>/comments/<uuid>.jpg"); null when the comment is
-  // text-only, thumb also null when thumbnail generation failed.
+  // text-only, thumb also null for videos (the backend makes no video
+  // thumbnails) and when thumbnail generation failed.
   photo: string | null
   photo_thumb: string | null
+  // Which element renders `photo`; "image" on every text-only comment.
+  media_kind: "image" | "video"
   created_at: string | null
   // Horn-honk tally on the comment itself, embedded in the list so the UI
   // needs no extra request per comment.
@@ -442,15 +468,16 @@ export async function fetchComments(id: string): Promise<CommentsList> {
 }
 
 // Multipart on purpose: the backend takes `body` as a form field so a photo
-// can ride along in the same request. Either part may be omitted, not both.
+// or a short clip can ride along in the same request. Either part may be
+// omitted, not both.
 export async function createComment(
   id: string,
   body: string,
-  photo?: File | null,
+  file?: File | null,
 ): Promise<StopComment> {
   const form = new FormData()
   form.append("body", body)
-  if (photo) form.append("file", photo)
+  if (file) form.append("file", file)
   const res = await fetch(commentsUrl(id), {
     method: "POST",
     headers: authHeaders(),
@@ -530,6 +557,28 @@ export async function updateMapFlag(
   })
   if (!res.ok) throw new Error(`Failed to move flag (${res.status})`)
   return (await res.json()) as MapFlag
+}
+
+// ----- Trip info (the headline above the map) --------------------------------
+
+export async function fetchTripInfo(): Promise<TripInfo> {
+  const res = await fetch(TRIP_URL)
+  if (!res.ok) throw new Error(`Failed to load trip info (${res.status})`)
+  return (await res.json()) as TripInfo
+}
+
+// Superuser-only: rename the trip.
+export async function updateTripTitle(title: string): Promise<TripInfo> {
+  const res = await fetch(TRIP_URL, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ title }),
+  })
+  if (!res.ok) throw new Error(`Failed to rename trip (${res.status})`)
+  return (await res.json()) as TripInfo
 }
 
 // ----- Feedback / bug reports ("storingsdienst") -----------------------------

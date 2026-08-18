@@ -13,9 +13,11 @@ import {
   fetchMapFlags,
   fetchStats,
   fetchStops,
+  fetchTripInfo,
   moveStop,
   updateMapFlag,
   updateStop,
+  updateTripTitle,
   uploadStopMedia,
 } from "./api"
 import FlagEditor from "./FlagEditor"
@@ -26,8 +28,9 @@ import MapScreen from "./MapScreen"
 import ReplayOverlay from "./ReplayOverlay"
 import StopSheet from "./StopSheet"
 import { shareUrl, stopIdFromSearch, withoutStopParam } from "./share"
+import TitleEditor from "./TitleEditor"
 import { C, FONT_MONO } from "./theme"
-import { EMPTY_STATS } from "./trip"
+import { DEFAULT_TRIP_TITLE, EMPTY_STATS } from "./trip"
 import type { MapFlagKind, MapFlagPatch, NewStop, Stop } from "./types"
 import useLiveKm from "./useLiveKm"
 import useReplay from "./useReplay"
@@ -90,6 +93,25 @@ export default function BrommerboekApp() {
     enabled: isLoggedIn(),
   })
   const canEdit = !!me?.is_superuser
+
+  // The headline above the map. Public read; admins rewrite it from the
+  // header. Until it loads (or if it fails) the header shows the default.
+  const { data: tripInfo } = useQuery({
+    queryKey: ["tripInfo"],
+    queryFn: fetchTripInfo,
+  })
+  const tripTitle = tripInfo?.title ?? DEFAULT_TRIP_TITLE
+  const [editTitleOpen, setEditTitleOpen] = useState(false)
+  const titleMut = useMutation({
+    mutationFn: (title: string) => updateTripTitle(title),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["tripInfo"] })
+      setEditTitleOpen(false)
+      flash("✓ titel gewijzigd")
+    },
+    // A failed save keeps the dialog open so the typed title isn't lost.
+    onError: () => flash("kon de titel niet wijzigen"),
+  })
 
   // Start/finish flags — everyone sees them; admins can drag them around.
   // Loads independently of the stops, so a failure just means no flags.
@@ -260,7 +282,11 @@ export default function BrommerboekApp() {
           // a clip takes long enough that a silent "opslaan…" reads as a
           // hang, and a hang is what makes people force-quit mid-upload.
           setSaveStatus(`${label}uploaden 0%`)
+          // The cover flag travels with its own file rather than with a
+          // position, so the rider's pick holds whatever order these
+          // uploads land in (and whichever of them fail).
           await uploadStopMedia(created.id, file, item.cap, {
+            cover: item.cover,
             onProgress: (f) =>
               setSaveStatus(`${label}uploaden ${Math.round(f * 100)}%`),
             onRetry: (attempt) =>
@@ -561,6 +587,15 @@ export default function BrommerboekApp() {
         route={route}
         stats={{ ...stats, km: stats.km + liveKm }}
         statsUnavailable={statsUnavailable}
+        title={tripTitle}
+        onEditTitle={
+          canEdit
+            ? () => {
+                if (replaying) return
+                setEditTitleOpen(true)
+              }
+            : undefined
+        }
         cur={cur}
         progress={progress}
         dragging={dragging}
@@ -672,6 +707,15 @@ export default function BrommerboekApp() {
               patch: { lat: hit.lat, lng: hit.lng, label: hit.place },
             })
           }
+        />
+      )}
+
+      {editTitleOpen && canEdit && (
+        <TitleEditor
+          title={tripTitle}
+          saving={titleMut.isPending}
+          onClose={() => setEditTitleOpen(false)}
+          onSave={(title) => titleMut.mutate(title)}
         />
       )}
 

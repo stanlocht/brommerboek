@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import EmailStr, field_validator
 from sqlalchemy import JSON, DateTime, Text, UniqueConstraint
@@ -102,6 +102,46 @@ class MediaItem(SQLModel):
     # reply got lost from attaching the same clip twice. None on items that
     # predate retrying, and on media written through the stop endpoints.
     uid: str | None = Field(default=None, max_length=64)
+    # Marks this item as the stop's cover — the picture shown on the map card,
+    # in the replay and in share unfurls. At most one item per stop carries it
+    # (see `normalize_cover`); with none flagged the first item stands in, so
+    # every stop that predates this field keeps the cover it always had.
+    cover: bool = False
+
+
+def normalize_cover(media: list[dict]) -> list[dict]:
+    """Return `media` with at most one item flagged as the cover.
+
+    The first flagged item wins; every other flag is dropped. Callers hand
+    us whatever the client sent, so this is the single place that keeps the
+    "one cover per stop" invariant.
+    """
+    out: list[dict] = []
+    seen = False
+    for item in media:
+        item = dict(item)
+        if item.get("cover"):
+            if seen:
+                item["cover"] = False
+            seen = True
+        out.append(item)
+    return out
+
+
+def pick_cover(media: list[dict]) -> dict | None:
+    """The stop's cover item: the flagged one, else the first with a file.
+
+    Falls back to the first item of any kind so a stop whose media is still
+    tone swatches keeps its placeholder colour.
+    """
+    items = [m for m in media or [] if isinstance(m, dict)]
+    for item in items:
+        if item.get("cover"):
+            return item
+    for item in items:
+        if item.get("url"):
+            return item
+    return items[0] if items else None
 
 
 # Short-code weather conditions the picker offers. Kept as a plain str field
@@ -387,6 +427,46 @@ class MapFlagsPublic(SQLModel):
 
 
 # ----------------------------------------------------------------------------
+# Trip info (the headline above the map).
+#
+# One row, one field for now: the title everyone reads on the home screen.
+# Reads are public; only a superuser can rewrite it. Like the map flags the
+# row is created lazily, so a fresh database serves the default below.
+# ----------------------------------------------------------------------------
+
+TRIP_INFO_ID = "trip"
+DEFAULT_TRIP_TITLE = "Van Mokum naar Marokko"
+# The header renders the title on one line at 23px; longer than this and it
+# starts wrapping over the logbook card.
+TRIP_TITLE_MAX_LENGTH = 60
+
+
+class TripInfoBase(SQLModel):
+    title: str = Field(
+        default=DEFAULT_TRIP_TITLE, min_length=1, max_length=TRIP_TITLE_MAX_LENGTH
+    )
+
+
+class TripInfo(TripInfoBase, table=True):
+    id: str = Field(default=TRIP_INFO_ID, primary_key=True, max_length=16)
+
+
+class TripInfoUpdate(SQLModel):
+    title: str = Field(min_length=1, max_length=TRIP_TITLE_MAX_LENGTH)
+
+    # Runs before the length checks so surrounding whitespace never counts
+    # against the limit — and a title of only spaces is rejected as empty.
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, v: Any) -> Any:
+        return v.strip() if isinstance(v, str) else v
+
+
+class TripInfoPublic(TripInfoBase):
+    pass
+
+
+# ----------------------------------------------------------------------------
 # Comments + horn honks (public reactions on stops).
 #
 # Anyone can read; only authenticated users can post a comment or honk. A user
@@ -403,11 +483,15 @@ class Comment(SQLModel, table=True):
         foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
     )
     body: str = Field(sa_type=Text)
-    # Optional photo attached to the comment. Server-relative URLs into the
-    # media volume ("/media/<stop_id>/comments/<uuid>.jpg"), same convention
-    # as stop media. Thumb is None when thumbnail generation failed.
+    # Optional photo or short video attached to the comment. Server-relative
+    # URLs into the media volume ("/media/<stop_id>/comments/<uuid>.jpg"),
+    # same convention as stop media. Thumb is None for videos (no ffmpeg on
+    # board, same as stop media) and when thumbnail generation failed.
     photo: str | None = Field(default=None, max_length=512)
     photo_thumb: str | None = Field(default=None, max_length=512)
+    # "image" or "video" — which element the client renders for `photo`.
+    # Every attachment that predates video comments is a photo.
+    media_kind: str = Field(default="image", max_length=16)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -425,6 +509,8 @@ class CommentPublic(SQLModel):
     body: str
     photo: str | None = None
     photo_thumb: str | None = None
+    # "image" or "video"; meaningless when `photo` is None.
+    media_kind: Literal["image", "video"] = "image"
     created_at: datetime | None = None
     # Horn-honk tally for the comment itself, so the list renders honk
     # buttons without a request per comment.

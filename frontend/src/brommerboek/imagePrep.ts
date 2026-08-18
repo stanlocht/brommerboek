@@ -33,8 +33,16 @@ const SKIP_BELOW_BYTES = 512 * 1024
 // clip this browser couldn't shrink at all.
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
-// Files whose name says "video" even when the picker declared no type.
-const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|3gp|3gpp|mkv|avi)$/i
+// Extensions the phone pickers hand back for clips. Only consulted when the
+// File carries no `type` at all — the same fallback the upload endpoints
+// apply server-side.
+const VIDEO_EXT = /\.(mp4|mov|m4v|webm|3gp)$/i
+
+/** Whether a picked file is a clip rather than a picture. */
+export function isVideoFile(file: File): boolean {
+  if (file.type) return file.type.startsWith("video/")
+  return VIDEO_EXT.test(file.name)
+}
 
 export class TooLargeError extends Error {
   constructor(file: File) {
@@ -119,10 +127,7 @@ export async function prepareUpload(
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<File> {
-  const isVideo =
-    file.type.startsWith("video/") ||
-    (!file.type && VIDEO_EXT_RE.test(file.name))
-  if (isVideo) {
+  if (isVideoFile(file)) {
     // Shrink first, *then* apply the ceiling. A 60 MB clip used to be
     // refused on the spot; now it goes up as a few MB of short clip, which
     // is what "it's fine if they're short" asks for.
@@ -137,9 +142,9 @@ export async function prepareUpload(
 
   const isImage =
     file.type.startsWith("image/") ||
-    // Android pickers sometimes report no type at all; a file that doesn't
-    // look like a video is treated as an image and the decode decides.
-    !file.type
+    // Android pickers sometimes report no type at all; treat a
+    // not-obviously-video file as an image and let the decode decide.
+    (!file.type && !VIDEO_EXT.test(file.name))
   if (!isImage || file.size <= SKIP_BELOW_BYTES) {
     if (file.size > MAX_UPLOAD_BYTES) throw new TooLargeError(file)
     return file
