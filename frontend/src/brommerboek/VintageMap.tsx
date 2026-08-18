@@ -7,7 +7,14 @@
 import maplibregl from "maplibre-gl"
 import "maplibre-gl/dist/maplibre-gl.css"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ferryAt, ferryLegs, routeGeoJSON, routeSegments } from "./ferry"
+import type { WaterSplits } from "./ferry"
+import {
+  ferryAt,
+  ferryLegs,
+  legKey,
+  routeGeoJSON,
+  routeSegments,
+} from "./ferry"
 import type { RouteGeometry } from "./geo"
 import { pointAt } from "./geo"
 import {
@@ -28,6 +35,8 @@ import type {
   MapFlagKind,
   Stop,
 } from "./types"
+import type { Polygon } from "./water"
+import { polygonsFromFeatures, splitByWater, waterProbe } from "./water"
 
 const FOLLOW_ZOOM = 6.3
 // Where the "zoom to the Cub" fly-to lands: close enough to name the town,
@@ -54,6 +63,22 @@ function cubTransform(bearing: number, sailing = false): string {
   const phi = sailing ? 0 : Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, raw))
   const mirror = westbound ? " scaleX(-1)" : ""
   return `rotate(${phi.toFixed(1)}deg)${mirror}`
+}
+
+// The water polygons of every tile the map currently holds, in [lng, lat]
+// rings. They come back clipped per tile and often duplicated — harmless,
+// since all we ever ask is whether a point sits inside one of them.
+function waterPolygons(map: maplibregl.Map): Polygon[] {
+  try {
+    return polygonsFromFeatures(
+      map.querySourceFeatures("openmaptiles", {
+        sourceLayer: "water",
+      }) as GeoJSON.Feature[],
+    )
+  } catch {
+    // No such source (a restyled map, or one still loading) — no answer yet.
+    return []
+  }
 }
 
 interface Props {
@@ -125,16 +150,28 @@ export default function VintageMap({
   const onReplayGestureRef = useRef(onReplayGesture)
   onReplayGestureRef.current = onReplayGesture
   const camBearingRef = useRef(0)
+  // Where each flagged leg leaves the land, read off the map's own water
+  // polygons once the tiles under it have loaded (see the effect below).
+  // Until then a crossing is drawn as sea from pin to pin.
+  const [waterSplits, setWaterSplits] = useState<WaterSplits>(() => new Map())
   // The route split into ridden and sailed stretches, and the crossings
   // themselves (for the boat markers and for "is the Cub on a boat now").
   // Mirrored into refs for the handlers that must read the latest geometry
   // without re-subscribing: the map's init `load` and the Cub sync.
-  const segments = useMemo(() => routeSegments(stops, route), [stops, route])
-  const ferries = useMemo(() => ferryLegs(stops, route), [stops, route])
+  const segments = useMemo(
+    () => routeSegments(stops, route, waterSplits),
+    [stops, route, waterSplits],
+  )
+  const ferries = useMemo(
+    () => ferryLegs(stops, route, waterSplits),
+    [stops, route, waterSplits],
+  )
   const segmentsRef = useRef(segments)
   segmentsRef.current = segments
   const ferriesRef = useRef(ferries)
   ferriesRef.current = ferries
+  const splitsRef = useRef(waterSplits)
+  splitsRef.current = waterSplits
   // The live fix and the current scrub position, read by handlers that must
   // not re-subscribe when either changes (the map init load handler, and the
   // fresh-fix sync that moves the Cub without touching the camera).
@@ -383,6 +420,56 @@ export default function VintageMap({
       | undefined
     source?.setData(routeGeoJSON(segments))
   }, [segments])
+
+  // --- cut the crossings at the coastline ------------------------------------
+  // A flagged leg is drawn as sea end to end until we can do better. Better
+  // is the map's own data: once the tiles under a leg are loaded, sample the
+  // `water` polygons along it and remember where the land stops, so the ride
+  // to the port keeps its red road dashes. The answer never changes for a
+  // given leg, so it is computed once and kept.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || ferries.length === 0) return
+    const attempt = () => {
+      if (mapRef.current !== map || !map.style || !readyRef.current) return
+      const pending = stops.flatMap((stop, i) => {
+        if (i === 0 || !stop.ferry) return []
+        const leg = ferriesRef.current.find((l) => l.index === i)
+        if (!leg) return []
+        const key = legKey(stops[i - 1], stop, leg.points)
+        return splitsRef.current.has(key) ? [] : [{ key, points: leg.points }]
+      })
+      if (pending.length === 0) return
+      // Only legs the map is actually holding tiles for: off-screen water is
+      // water we can't see, and guessing "land" there would paint a road
+      // across the sea.
+      const view = map.getBounds()
+      const covered = pending.filter((leg) =>
+        leg.points.every((p) => view.contains(p)),
+      )
+      if (covered.length === 0 || !map.areTilesLoaded()) return
+      const polys = waterPolygons(map)
+      if (polys.length === 0) return
+      const probe = waterProbe(polys)
+      const found = new Map(splitsRef.current)
+      let added = false
+      for (const leg of covered) {
+        const runs = splitByWater(leg.points, probe)
+        // No water under a leg the rider flagged as a crossing means the
+        // tiles are too coarse (or the pins sit inland): keep trusting the
+        // rider and leave the leg drawn as sea.
+        if (!runs.some((r) => r.water)) continue
+        found.set(leg.key, runs)
+        added = true
+      }
+      if (added) setWaterSplits(found)
+    }
+    map.on("idle", attempt)
+    attempt()
+    return () => {
+      map.off("idle", attempt)
+    }
+  }, [ferries, stops])
 
   // --- ferry markers ---------------------------------------------------------
   // A little boat halfway across every crossing. DOM overlays like the flags,
