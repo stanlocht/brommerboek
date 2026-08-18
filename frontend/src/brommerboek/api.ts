@@ -230,11 +230,16 @@ class UploadError extends Error {
 /**
  * Whether an HTTP status is worth another attempt.
  *
- * 408/429 and every 5xx are "the server is having a moment"; a 4xx about
- * the file itself is a verdict, and retrying it just wastes the uplink.
+ * 408 and every 5xx are "the server is having a moment"; a 4xx about the
+ * request itself is a verdict, and retrying it just wastes the uplink.
+ *
+ * 429 counts as a verdict here on purpose. The only rate limit in the app
+ * (comments, 10 per minute) measures in minutes while this backoff maxes
+ * out around six seconds, so a retry cannot clear it — it would only burn
+ * two more of the poster's ten.
  */
 export function isRetryableStatus(status: number): boolean {
-  return status === 0 || status === 408 || status === 429 || status >= 500
+  return status === 0 || status === 408 || status >= 500
 }
 
 // Idempotency key for one logical upload, held constant across retries.
@@ -261,18 +266,17 @@ export interface UploadOptions {
   cover?: boolean
 }
 
-function sendOnce(
+// One POST of a multipart body. The form is re-sent as-is on a retry —
+// XHR re-reads the File each time, so it needs no rebuilding.
+function sendOnce<T>(
   url: string,
-  file: File,
+  form: FormData,
   { onProgress, signal }: UploadOptions,
-): Promise<Stop> {
-  const form = new FormData()
-  form.append("file", file)
-
+): Promise<T> {
   // XHR rather than fetch: it is the only way to observe upload progress,
   // which we need both to show a percentage and to tell a slow upload
   // apart from a dead one.
-  return new Promise<Stop>((resolve, reject) => {
+  return new Promise<T>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     let watchdog: ReturnType<typeof setTimeout> | undefined
     let settled = false
@@ -316,7 +320,7 @@ function sendOnce(
           return
         }
         try {
-          resolve(JSON.parse(xhr.responseText) as Stop)
+          resolve(JSON.parse(xhr.responseText) as T)
         } catch {
           reject(
             new UploadError("Failed to upload media (bad response)", false),
@@ -362,24 +366,22 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
-export async function uploadStopMedia(
-  id: string,
-  file: File,
-  caption = "",
-  options: UploadOptions = {},
-): Promise<Stop> {
-  // The backend reads `caption`, `cover` and `upload_id` as query
-  // parameters, not form fields. The key is minted once, outside the retry
-  // loop, so every attempt at this file carries the same one.
-  const params = new URLSearchParams({ upload_id: newUploadId() })
-  if (caption) params.set("caption", caption)
-  if (options.cover) params.set("cover", "true")
-  const url = `${mediaUrl(id)}?${params}`
-
+/**
+ * POST a multipart body, re-sending it when the failure was about the
+ * moment rather than the request. Shared by stop media and comments — both
+ * are "a file off a phone on a bad connection", so both get the same
+ * treatment. Callers are responsible for an idempotency key, without which
+ * a retry can duplicate whatever the lost response already created.
+ */
+async function uploadWithRetry<T>(
+  url: string,
+  form: FormData,
+  options: UploadOptions,
+): Promise<T> {
   let lastError: Error = new Error("Upload mislukt")
   for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt++) {
     try {
-      return await sendOnce(url, file, options)
+      return await sendOnce<T>(url, form, options)
     } catch (err) {
       lastError = err as Error
       const retryable = err instanceof UploadError && err.retryable
@@ -398,6 +400,23 @@ export async function uploadStopMedia(
     }
   }
   throw lastError
+}
+
+export async function uploadStopMedia(
+  id: string,
+  file: File,
+  caption = "",
+  options: UploadOptions = {},
+): Promise<Stop> {
+  // The backend reads `caption`, `cover` and `upload_id` as query
+  // parameters, not form fields. The key is minted once, outside the retry
+  // loop, so every attempt at this file carries the same one.
+  const params = new URLSearchParams({ upload_id: newUploadId() })
+  if (caption) params.set("caption", caption)
+  if (options.cover) params.set("cover", "true")
+  const form = new FormData()
+  form.append("file", file)
+  return uploadWithRetry<Stop>(`${mediaUrl(id)}?${params}`, form, options)
 }
 
 export async function updateStopMediaCaption(
@@ -470,21 +489,22 @@ export async function fetchComments(id: string): Promise<CommentsList> {
 // Multipart on purpose: the backend takes `body` as a form field so a photo
 // or a short clip can ride along in the same request. Either part may be
 // omitted, not both.
+//
+// Goes up the same road as stop media — progress, stall watchdog, retries
+// and an idempotency key — because it is the same job: a file off a phone
+// on whatever signal the sofa gets. The key is what makes retrying safe;
+// without it a post whose reply was lost would appear twice.
 export async function createComment(
   id: string,
   body: string,
   file?: File | null,
+  options: UploadOptions = {},
 ): Promise<StopComment> {
   const form = new FormData()
   form.append("body", body)
+  form.append("upload_id", newUploadId())
   if (file) form.append("file", file)
-  const res = await fetch(commentsUrl(id), {
-    method: "POST",
-    headers: authHeaders(),
-    body: form,
-  })
-  if (!res.ok) throw new Error(`Failed to post comment (${res.status})`)
-  return (await res.json()) as StopComment
+  return uploadWithRetry<StopComment>(commentsUrl(id), form, options)
 }
 
 export async function deleteComment(id: string): Promise<void> {

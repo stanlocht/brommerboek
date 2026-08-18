@@ -17,8 +17,9 @@ import {
   type StopComment,
   toggleCommentHonk as toggleCommentHonkApi,
   toggleHonk as toggleHonkApi,
+  UPLOAD_ATTEMPTS,
 } from "./api"
-import { isVideoFile } from "./imagePrep"
+import { isVideoFile, prepareUpload, TooLargeError } from "./imagePrep"
 import Lightbox from "./Lightbox"
 import LoginPrompt from "./LoginPrompt"
 import { C, dateLabelNL, FONT_MONO } from "./theme"
@@ -50,6 +51,15 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   // until posted.
   const [attachment, setAttachment] = useState<File | null>(null)
   const [attachmentPreview, setAttachmentPreview] = useState("")
+  // Shrink progress (0..1) while a pick is being re-encoded, null when idle.
+  // A clip re-encodes in real time, so without this the form looks frozen
+  // for the length of the clip.
+  const [preparing, setPreparing] = useState<number | null>(null)
+  // Upload progress (0..1) and retry count for the post itself.
+  const [posting, setPosting] = useState<{
+    fraction: number
+    attempt: number
+  } | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   // Comment photo/clip shown full-screen; null = lightbox closed.
   const [lightboxComment, setLightboxComment] = useState<StopComment | null>(
@@ -87,9 +97,19 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   })
 
   const addComment = useMutation({
-    mutationFn: ({ body, file }: { body: string; file: File | null }) =>
-      createComment(stopId, body, file),
+    mutationFn: ({ body, file }: { body: string; file: File | null }) => {
+      let attempt = 1
+      setPosting({ fraction: 0, attempt })
+      return createComment(stopId, body, file, {
+        onProgress: (fraction) => setPosting({ fraction, attempt }),
+        onRetry: (failed) => {
+          attempt = failed + 1
+          setPosting({ fraction: 0, attempt })
+        },
+      })
+    },
     onMutate: () => setActionError(""),
+    onSettled: () => setPosting(null),
     onSuccess: () => {
       setDraft("")
       setAttachment(null)
@@ -123,12 +143,35 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     onError: () => setActionError("toeteren lukte niet — probeer het opnieuw"),
   })
 
-  const pickAttachment = (files: FileList | null) => {
-    const file = files?.[0]
+  // Takes the File itself rather than the input's FileList: clearing the
+  // input to allow re-picking empties that list, and this now awaits a
+  // shrink, so holding the list across the await would be reading a
+  // reference the caller has already reset.
+  const pickAttachment = async (file: File | undefined) => {
     if (!file) return
-    const video = isVideoFile(file)
+    setActionError("")
+    // Shrink before anything else, exactly as the rider's own uploads do: a
+    // camera photo becomes a few hundred KB and a clip becomes a short
+    // 720p one. Only then is the cap worth applying — measuring the camera
+    // original turned away clips that would have fit comfortably once
+    // re-encoded.
+    setPreparing(0)
+    let prepared: File
+    try {
+      prepared = await prepareUpload(file, setPreparing)
+    } catch (err) {
+      setActionError(
+        err instanceof TooLargeError
+          ? err.message
+          : "dit bestand kon niet worden verwerkt",
+      )
+      return
+    } finally {
+      setPreparing(null)
+    }
+    const video = isVideoFile(prepared)
     const max = video ? VIDEO_MAX_BYTES : PHOTO_MAX_BYTES
-    if (file.size > max) {
+    if (prepared.size > max) {
       setActionError(
         video
           ? `video is te groot (max ${VIDEO_MAX_BYTES / (1024 * 1024)} MB)`
@@ -136,14 +179,17 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
       )
       return
     }
-    setActionError("")
-    setAttachment(file)
+    setAttachment(prepared)
   }
+
+  // Either stage of the round trip is in flight: shrinking a pick, or
+  // posting (including its retries). Both close the form's controls.
+  const busy = preparing !== null || addComment.isPending
 
   const submitComment = (e: React.FormEvent) => {
     e.preventDefault()
     const body = draft.trim()
-    if ((!body && !attachment) || addComment.isPending) return
+    if ((!body && !attachment) || busy) return
     if (!isLoggedIn()) {
       setPending("comment")
       return
@@ -452,6 +498,45 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
             </button>
           </div>
         )}
+        {/* A bar that actually moves is the difference between "this is
+            slow" and "this is broken" — the same reasoning as the rider's
+            own upload flow, and the same two stages. */}
+        {(preparing !== null || posting) && (
+          <div>
+            <div
+              style={{
+                fontFamily: FONT_MONO,
+                fontSize: 11,
+                color: C.sepia,
+                marginBottom: 4,
+              }}
+            >
+              {preparing !== null
+                ? `verkleinen ${Math.round(preparing * 100)}%`
+                : `versturen ${Math.round((posting?.fraction ?? 0) * 100)}%`}
+              {posting && posting.attempt > 1
+                ? ` · poging ${posting.attempt}/${UPLOAD_ATTEMPTS}`
+                : ""}
+            </div>
+            <div
+              style={{
+                height: 3,
+                borderRadius: 2,
+                background: C.borderSoft,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.round((preparing ?? posting?.fraction ?? 0) * 100)}%`,
+                  background: preparing !== null ? C.sepia : C.ochreDeep,
+                  transition: "width .2s linear",
+                }}
+              />
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input
             ref={fileInputRef}
@@ -459,14 +544,19 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
             accept="image/*,video/*"
             style={{ display: "none" }}
             onChange={(e) => {
-              pickAttachment(e.target.files)
-              // Allow re-picking the same file after removing it.
+              const picked = e.target.files?.[0]
+              // Allow re-picking the same file after removing it. Safe to
+              // clear right away now that the File itself is in hand.
               e.target.value = ""
+              void pickAttachment(picked)
             }}
           />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
+            // Closed while a pick is still being re-encoded: a second pick
+            // would race the first and the loser would post silently.
+            disabled={busy}
             style={{
               fontFamily: FONT_MONO,
               fontSize: 12,
@@ -475,14 +565,15 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
               border: `1.5px solid ${C.ochre}`,
               background: C.paperLight,
               color: C.ink,
-              cursor: "pointer",
+              cursor: busy ? "wait" : "pointer",
+              opacity: busy ? 0.55 : 1,
             }}
           >
             📷 {attachment ? "iets anders kiezen" : "foto of video erbij"}
           </button>
           <button
             type="submit"
-            disabled={(!draft.trim() && !attachment) || addComment.isPending}
+            disabled={(!draft.trim() && !attachment) || busy}
             style={{
               marginLeft: "auto",
               fontFamily: FONT_MONO,
@@ -492,14 +583,11 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
               border: `1.5px solid ${C.ochreDeep}`,
               background: C.ochreDeep,
               color: C.cream,
-              cursor: "pointer",
-              opacity:
-                (!draft.trim() && !attachment) || addComment.isPending
-                  ? 0.55
-                  : 1,
+              cursor: busy ? "wait" : "pointer",
+              opacity: (!draft.trim() && !attachment) || busy ? 0.55 : 1,
             }}
           >
-            {addComment.isPending ? "…" : "plaats"}
+            {busy ? "…" : "plaats"}
           </button>
         </div>
       </form>

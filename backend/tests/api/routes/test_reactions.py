@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tempfile import SpooledTemporaryFile
 from typing import Any, cast
 
 import pytest
@@ -667,3 +668,108 @@ def test_delete_comment_removes_video_file(
     )
     assert r.status_code == 200
     assert not clip.exists()
+
+
+# ----- Retried posts ----------------------------------------------------------
+
+
+def _post_with_upload_id(
+    client: TestClient,
+    headers: dict[str, str],
+    stop_id: object,
+    upload_id: str,
+    *,
+    body: str = "Toet!",
+    with_file: bool = False,
+) -> Any:
+    data: dict[str, str] = {"body": body, "upload_id": upload_id}
+    files = (
+        {"file": ("clip.mp4", io.BytesIO(MP4_STUB), "video/mp4")} if with_file else None
+    )
+    return client.post(comments_url(stop_id), headers=headers, data=data, files=files)
+
+
+def test_comment_retry_with_same_upload_id_does_not_duplicate(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    # The poster's connection dropped after the comment landed but before
+    # the reply arrived, so the client re-sends it. The retry must hand back
+    # the comment that already exists rather than post it twice.
+    first = _post_with_upload_id(client, normal_user_token_headers, stop.id, "abc")
+    assert first.status_code == 200
+
+    retry = _post_with_upload_id(client, normal_user_token_headers, stop.id, "abc")
+    assert retry.status_code == 200
+    assert retry.json()["id"] == first.json()["id"]
+    assert client.get(comments_url(stop.id)).json()["count"] == 1
+
+
+def test_comment_retry_with_a_file_writes_it_once(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    # The expensive half: a retry must not write a second copy of the clip
+    # onto the media volume, orphaning the first.
+    first = _post_with_upload_id(
+        client, normal_user_token_headers, stop.id, "clip-1", with_file=True
+    )
+    assert first.status_code == 200
+    retry = _post_with_upload_id(
+        client, normal_user_token_headers, stop.id, "clip-1", with_file=True
+    )
+    assert retry.status_code == 200
+    assert retry.json()["photo"] == first.json()["photo"]
+    comments_dir = media_root / str(stop.id) / "comments"
+    assert len(list(comments_dir.glob("*.mp4"))) == 1
+
+
+def test_comment_upload_id_is_scoped_to_its_author(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    # Keys are minted client-side, so two people can pick the same one. One
+    # poster's key must never swallow another's comment.
+    _post_with_upload_id(client, normal_user_token_headers, stop.id, "same", body="een")
+    r = _post_with_upload_id(
+        client, superuser_token_headers, stop.id, "same", body="twee"
+    )
+    assert r.status_code == 200
+    assert r.json()["body"] == "twee"
+    assert client.get(comments_url(stop.id)).json()["count"] == 2
+
+
+def test_comment_without_upload_id_still_posts_twice(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    # Old clients send no key; two identical comments from them are two
+    # comments, not one deduplicated away behind their back.
+    _post_comment(client, normal_user_token_headers, stop.id, body="dubbel")
+    _post_comment(client, normal_user_token_headers, stop.id, body="dubbel")
+    assert client.get(comments_url(stop.id)).json()["count"] == 2
+
+
+def test_comment_media_cleans_up_after_a_failed_write(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Same contract as stop media: a client that hangs up mid-body leaves a
+    # partial file nothing references, and it must not survive the request.
+    def boom(_self: object, *_args: object, **_kwargs: object) -> bytes:
+        raise ConnectionResetError("client went away")
+
+    monkeypatch.setattr(SpooledTemporaryFile, "read", boom)
+    with pytest.raises(ConnectionResetError):
+        _post_photo_comment(client, normal_user_token_headers, stop.id)
+    comments_dir = media_root / str(stop.id) / "comments"
+    assert not comments_dir.exists() or not any(comments_dir.iterdir())
