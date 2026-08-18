@@ -174,6 +174,9 @@ export default function BrommerboekApp() {
   const [editStop, setEditStop] = useState<Stop | null>(null)
   const [loginOpen, setLoginOpen] = useState(false)
   const [toast, setToast] = useState("")
+  // Live "what is the save doing" line for AddFlow while a new stop's media
+  // uploads against the id it only just got. Null when nothing is in flight.
+  const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const jumpLast = useRef(false)
   const progressRef = useRef(progress)
@@ -266,32 +269,43 @@ export default function BrommerboekApp() {
       // second full copy of every picture and survives the preview URL
       // being revoked underneath us.
       const created = await createStop({ ...s, media: [] })
+      const pending = s.media.filter((m) => m.url?.startsWith("blob:"))
       let failed = 0
-      for (const item of s.media) {
-        if (item.url?.startsWith("blob:")) {
-          const file = files.get(item.url)
-          try {
-            if (!file) throw new Error("file missing")
-            // The cover flag travels with its own file rather than with a
-            // position, so the rider's pick holds whatever order these
-            // uploads land in (and whichever of them fail).
-            await uploadStopMedia(created.id, file, item.cap, {
-              cover: item.cover,
-            })
-          } catch {
-            // Individual upload failures don't roll back the stop — the
-            // user can retry the file from the edit flow.
-            failed += 1
-          } finally {
-            // AddFlow made this blob: URL for the preview; it's ours to
-            // release once the upload has settled either way.
-            URL.revokeObjectURL(item.url)
-            files.delete(item.url)
-          }
+      for (const [i, item] of pending.entries()) {
+        const url = item.url as string
+        const file = files.get(url)
+        const label =
+          pending.length > 1 ? `bestand ${i + 1}/${pending.length} · ` : ""
+        try {
+          if (!file) throw new Error("file missing")
+          // Same progress reporting as the edit flow: a deferred upload of
+          // a clip takes long enough that a silent "opslaan…" reads as a
+          // hang, and a hang is what makes people force-quit mid-upload.
+          setSaveStatus(`${label}uploaden 0%`)
+          // The cover flag travels with its own file rather than with a
+          // position, so the rider's pick holds whatever order these
+          // uploads land in (and whichever of them fail).
+          await uploadStopMedia(created.id, file, item.cap, {
+            cover: item.cover,
+            onProgress: (f) =>
+              setSaveStatus(`${label}uploaden ${Math.round(f * 100)}%`),
+            onRetry: (attempt) =>
+              setSaveStatus(`${label}opnieuw proberen (${attempt + 1})…`),
+          })
+        } catch {
+          // Individual upload failures don't roll back the stop — the
+          // user can retry the file from the edit flow.
+          failed += 1
+        } finally {
+          // AddFlow made this blob: URL for the preview; it's ours to
+          // release once the upload has settled either way.
+          URL.revokeObjectURL(url)
+          files.delete(url)
         }
       }
       return { created, failed }
     },
+    onSettled: () => setSaveStatus(null),
     onSuccess: async ({ failed }) => {
       jumpLast.current = true
       // The backend syncs the new leg's ridden road in the background right
@@ -483,6 +497,7 @@ export default function BrommerboekApp() {
           <AddFlow
             suggestedKm={stats.suggested_km}
             saving={createMut.isPending}
+            savingStatus={saveStatus}
             onClose={() => setAddOpen(false)}
             onCreate={(s, files) => createMut.mutate({ stop: s, files })}
           />
@@ -657,6 +672,7 @@ export default function BrommerboekApp() {
         <AddFlow
           suggestedKm={stats.suggested_km}
           saving={createMut.isPending}
+          savingStatus={saveStatus}
           onClose={() => setAddOpen(false)}
           onCreate={(s, files) => createMut.mutate({ stop: s, files })}
         />

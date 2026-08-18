@@ -3,6 +3,7 @@ import io
 import uuid
 from collections.abc import Generator
 from pathlib import Path
+from tempfile import SpooledTemporaryFile
 
 import httpx
 import pytest
@@ -65,12 +66,15 @@ def _upload(
     caption: str = "",
     filename: str = "foto.png",
     cover: bool = False,
+    upload_id: str = "",
 ) -> httpx.Response:
     params: dict[str, object] = {}
     if caption:
         params["caption"] = caption
     if cover:
         params["cover"] = True
+    if upload_id:
+        params["upload_id"] = upload_id
     response: httpx.Response = client.post(
         f"{STOPS_URL}{stop_id}/media",
         headers=headers,
@@ -265,6 +269,120 @@ def test_upload_media_rejects_oversized_file(
     # The partial file was cleaned up.
     stop_dir = media_root / str(stop.id)
     assert not stop_dir.exists() or not any(stop_dir.iterdir())
+
+
+def test_upload_media_retry_with_same_upload_id_does_not_duplicate(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    # The client retries an upload whose connection dropped. If the bytes
+    # actually landed and only the reply was lost, the retry must be a no-op
+    # instead of attaching the same clip a second time.
+    first = _upload(client, superuser_token_headers, stop.id, upload_id="abc-123")
+    assert first.status_code == 200
+    assert len(first.json()["media"]) == 1
+
+    retry = _upload(client, superuser_token_headers, stop.id, upload_id="abc-123")
+    assert retry.status_code == 200
+    assert retry.json()["media"] == first.json()["media"]
+    # No second file on disk either — the retry never got as far as writing.
+    stop_dir = media_root / str(stop.id)
+    assert len(list(stop_dir.glob("*.png"))) == 1
+
+
+def test_upload_media_retry_keeps_the_cover_flag(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    # Retrying and cover-picking meet here: the rider marked this file as the
+    # cover, its upload dropped after the bytes landed, and the retry must
+    # leave the flag it already set rather than short-circuit it away.
+    _upload(client, superuser_token_headers, stop.id, upload_id="plain")
+    first = _upload(
+        client, superuser_token_headers, stop.id, upload_id="star", cover=True
+    )
+    assert [m["cover"] for m in first.json()["media"]] == [False, True]
+
+    retry = _upload(
+        client, superuser_token_headers, stop.id, upload_id="star", cover=True
+    )
+    assert retry.status_code == 200
+    assert [m["cover"] for m in retry.json()["media"]] == [False, True]
+    assert len(list((media_root / str(stop.id)).glob("*.png"))) == 2
+
+
+def test_upload_media_different_upload_ids_both_land(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+) -> None:
+    _upload(client, superuser_token_headers, stop.id, upload_id="one")
+    r = _upload(client, superuser_token_headers, stop.id, upload_id="two")
+    assert r.status_code == 200
+    assert len(r.json()["media"]) == 2
+    assert len(list((media_root / str(stop.id)).glob("*.png"))) == 2
+
+
+@pytest.mark.usefixtures("media_root")
+def test_upload_media_without_upload_id_still_works(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    # Old clients (and the seeder) send no key; nothing may be deduplicated
+    # away on their behalf.
+    _upload(client, superuser_token_headers, stop.id)
+    r = _upload(client, superuser_token_headers, stop.id)
+    assert r.status_code == 200
+    assert len(r.json()["media"]) == 2
+
+
+def test_upload_media_cleans_up_after_a_failed_write(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A client that hangs up mid-body raises out of the read loop, as does a
+    # full disk. Whatever made it to disk is unreferenced from that moment
+    # on, so it must not be left behind to fill the media volume — this is
+    # the same partial file the 413 path cleans up, arriving by a route that
+    # isn't an HTTPException.
+    def boom(_self: object, *_args: object, **_kwargs: object) -> bytes:
+        raise ConnectionResetError("client went away")
+
+    monkeypatch.setattr(SpooledTemporaryFile, "read", boom)
+    with pytest.raises(ConnectionResetError):
+        _upload(client, superuser_token_headers, stop.id)
+    stop_dir = media_root / str(stop.id)
+    assert not stop_dir.exists() or not list(stop_dir.iterdir())
+
+
+@pytest.mark.usefixtures("media_root")
+def test_upload_media_accepts_3gpp(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    stop: Stop,
+) -> None:
+    # Budget Android phones still record 3GPP; it used to 415 and drop the clip.
+    r = _upload(
+        client,
+        superuser_token_headers,
+        stop.id,
+        content=b"\x00\x00\x00\x14ftyp3gp4",
+        content_type="video/3gpp",
+        filename="VID_0001.3gp",
+    )
+    assert r.status_code == 200
+    item = r.json()["media"][0]
+    assert item["kind"] == "video"
+    assert item["url"].endswith(".3gp")
 
 
 @pytest.mark.usefixtures("media_root")

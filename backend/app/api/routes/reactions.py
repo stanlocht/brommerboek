@@ -179,13 +179,18 @@ def _save_comment_media(
             while chunk := file.file.read(1024 * 1024):
                 size += len(chunk)
                 if size > max_bytes:
-                    out.close()
-                    dest.unlink(missing_ok=True)
                     raise HTTPException(
                         status_code=413,
                         detail=f"File too large (max {max_bytes // (1024 * 1024)} MiB)",
                     )
                 out.write(chunk)
+    except BaseException:
+        # Same contract as stop media: anything that stops the write — the
+        # size check above, but also the client hanging up mid-body — leaves
+        # a partial file nothing will ever reference. Bin it rather than let
+        # the media volume silently fill with dead bytes.
+        dest.unlink(missing_ok=True)
+        raise
     finally:
         file.file.close()
     photo_url = f"{MEDIA_URL_PREFIX}/{stop_id}/comments/{filename}"
@@ -224,17 +229,50 @@ def create_comment(
     stop_id: uuid.UUID,
     body: str = Form(default="", max_length=2000),
     file: UploadFile | None = File(default=None),
+    upload_id: str = Form(default="", max_length=64),
     background_tasks: BackgroundTasks,
 ) -> Any:
     """
     Leave a comment on a stop, optionally with a photo or short video
-    attached. Any active user may comment. Multipart form: `body` (text) and
-    `file` (image or video) — at least one of the two is required.
+    attached. Any active user may comment. Multipart form: `body` (text),
+    `file` (image or video) and `upload_id` — at least one of body and file
+    is required.
+
+    `upload_id` is the client's idempotency key, the same one stop media
+    uses. A comment posted from a phone drops often enough that the client
+    retries it, and a retry after a POST that landed but whose reply never
+    made it back would otherwise leave the comment twice. Scoped to the
+    author, so two people's keys can never collide.
     """
     stop = _ensure_stop(session, stop_id)
     body = body.strip()
     if not body and file is None:
         raise HTTPException(status_code=422, detail="Comment cannot be empty")
+    if upload_id:
+        already = session.exec(
+            select(Comment).where(
+                Comment.stop_id == stop_id,
+                Comment.user_id == me.id,
+                Comment.upload_id == upload_id,
+            )
+        ).first()
+        if already is not None:
+            # The earlier attempt got through; hand back what it created
+            # rather than posting a duplicate (and without re-reading the
+            # file, which the client is re-sending for nothing). No second
+            # push either — that attempt already woke the admin.
+            return CommentPublic(
+                id=already.id,
+                stop_id=already.stop_id,
+                user_id=already.user_id,
+                author_name=_display_name(me),
+                is_mine=True,
+                body=already.body,
+                photo=already.photo,
+                photo_thumb=already.photo_thumb,
+                media_kind=already.media_kind,
+                created_at=already.created_at,
+            )
     photo_url: str | None = None
     photo_thumb: str | None = None
     media_kind = "image"
@@ -247,6 +285,7 @@ def create_comment(
         photo=photo_url,
         photo_thumb=photo_thumb,
         media_kind=media_kind,
+        upload_id=upload_id or None,
     )
     session.add(comment)
     session.commit()

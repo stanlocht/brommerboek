@@ -50,6 +50,8 @@ ALLOWED_MEDIA_TYPES = {
     "video/mp4": ("video", "mp4"),
     "video/quicktime": ("video", "mov"),
     "video/webm": ("video", "webm"),
+    # Budget Android phones still record 3GPP by default.
+    "video/3gpp": ("video", "3gp"),
 }
 
 # Content types that say "I don't know", as opposed to naming something we
@@ -73,6 +75,7 @@ EXT_MEDIA_TYPES = {
     ".m4v": ("video", "mp4"),
     ".mov": ("video", "mov"),
     ".webm": ("video", "webm"),
+    ".3gp": ("video", "3gp"),
 }
 
 

@@ -269,6 +269,7 @@ def upload_stop_media(
     file: UploadFile = File(...),
     caption: str = "",
     cover: bool = False,
+    upload_id: str = "",
 ) -> Any:
     """
     Attach a photo or short video to a stop. Files land on the media volume
@@ -278,10 +279,21 @@ def upload_stop_media(
     off whichever item held it — that's how a brand-new stop keeps the cover
     the rider picked while the files were still local previews, whatever order
     the uploads happen to land in.
+
+    `upload_id` is the client's idempotency key. Mobile uploads drop often
+    enough that the client retries them, and a retry after a POST that
+    landed but whose reply never made it back would otherwise attach the
+    same file twice — so a key we have already stored short-circuits to the
+    stop as it stands.
     """
     db_stop = session.get(Stop, id)
     if not db_stop:
         raise HTTPException(status_code=404, detail="Stop not found")
+    if upload_id and any(
+        isinstance(item, dict) and item.get("uid") == upload_id
+        for item in db_stop.media or []
+    ):
+        return db_stop
     resolved = resolve_media_type(file.content_type, file.filename)
     if resolved is None:
         raise HTTPException(
@@ -299,13 +311,18 @@ def upload_stop_media(
             while chunk := file.file.read(1024 * 1024):
                 size += len(chunk)
                 if size > MAX_UPLOAD_BYTES:
-                    out.close()
-                    dest.unlink(missing_ok=True)
                     raise HTTPException(
                         status_code=413,
                         detail=f"File too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB)",
                     )
                 out.write(chunk)
+    except BaseException:
+        # Anything that stops the write — the size check above, but also the
+        # client hanging up mid-body, which is the common one on a mobile
+        # uplink — leaves a partial file nothing will ever reference. Bin it
+        # rather than let the media volume silently fill with dead bytes.
+        dest.unlink(missing_ok=True)
+        raise
     finally:
         file.file.close()
     url = f"{MEDIA_URL_PREFIX}/{id}/{filename}"
@@ -328,6 +345,7 @@ def upload_stop_media(
             "url": url,
             "thumb": thumb_url,
             "cover": cover,
+            "uid": upload_id[:64] or None,
         }
     )
     db_stop.media = media_items

@@ -97,6 +97,11 @@ class MediaItem(SQLModel):
     # Pre-generated WebP thumbnail next to the original (`thumb_<name>.webp`);
     # None for videos and for uploads that predate thumbnails.
     thumb: str | None = Field(default=None, max_length=512)
+    # Idempotency key the uploader sent with this file. The client retries a
+    # dropped upload with the same key, so this is what stops a POST whose
+    # reply got lost from attaching the same clip twice. None on items that
+    # predate retrying, and on media written through the stop endpoints.
+    uid: str | None = Field(default=None, max_length=64)
     # Marks this item as the stop's cover — the picture shown on the map card,
     # in the replay and in share unfurls. At most one item per stop carries it
     # (see `normalize_cover`); with none flagged the first item stands in, so
@@ -487,6 +492,11 @@ class Comment(SQLModel, table=True):
     # "image" or "video" — which element the client renders for `photo`.
     # Every attachment that predates video comments is a photo.
     media_kind: str = Field(default="image", max_length=16)
+    # Idempotency key the poster sent with this comment, scoped to its
+    # author. The client retries a dropped post with the same key, so this
+    # is what stops a POST whose reply got lost from leaving the comment
+    # twice. None on comments that predate retrying.
+    upload_id: str | None = Field(default=None, max_length=64, index=True)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
