@@ -122,6 +122,16 @@ const LOOKAHEAD_S = 0.3
 const TICK_MS = 60
 const VOLUME = 0.16
 
+// resume/suspend/close hand back promises that reject when the platform
+// refuses the audio device — no output device, one already held by something
+// else, a driver that won't start. `void` alone discards the value but not the
+// rejection, so it surfaced as an unhandled rejection and filed an issue
+// (#130). The tune is decoration: if it can't play, the replay carries on in
+// silence and nobody needs to hear about it.
+function ignoreAudioFailure(pending: Promise<void> | undefined): void {
+  void pending?.catch(() => {})
+}
+
 export class ReplayMusic {
   private ctx: AudioContext | null = null
   private master: GainNode | null = null
@@ -158,7 +168,7 @@ export class ReplayMusic {
     this.master = master
     this.startTime = ctx.currentTime + 0.12
     this.cursor = 0
-    void ctx.resume?.()
+    ignoreAudioFailure(ctx.resume?.())
     this.pump()
     this.timer = setInterval(() => this.pump(), TICK_MS)
   }
@@ -175,7 +185,7 @@ export class ReplayMusic {
       muted ? 0 : VOLUME,
       ctx.currentTime + 0.25,
     )
-    if (!muted) void ctx.resume?.()
+    if (!muted) ignoreAudioFailure(ctx.resume?.())
   }
 
   // Silence without tearing down — used while the replay is paused or the tab
@@ -184,10 +194,10 @@ export class ReplayMusic {
     const ctx = this.ctx
     if (!ctx || this.stopped) return
     if (playing) {
-      void ctx.resume?.()
+      ignoreAudioFailure(ctx.resume?.())
       if (!this.timer) this.timer = setInterval(() => this.pump(), TICK_MS)
     } else {
-      void ctx.suspend?.()
+      ignoreAudioFailure(ctx.suspend?.())
     }
   }
 
@@ -204,14 +214,14 @@ export class ReplayMusic {
     if (!ctx || !master) return
     // Fade out, then close — closing mid-note pops.
     try {
-      void ctx.resume?.()
+      ignoreAudioFailure(ctx.resume?.())
       master.gain.cancelScheduledValues(ctx.currentTime)
       master.gain.setValueAtTime(master.gain.value, ctx.currentTime)
       master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.35)
     } catch {
       // a context already torn down by the browser — nothing to fade
     }
-    setTimeout(() => void ctx.close?.().catch(() => {}), 500)
+    setTimeout(() => ignoreAudioFailure(ctx.close?.()), 500)
   }
 
   private pump(): void {
