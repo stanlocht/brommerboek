@@ -6,10 +6,24 @@
 
 import maplibregl from "maplibre-gl"
 import "maplibre-gl/dist/maplibre-gl.css"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import type { WaterSplits } from "./ferry"
+import {
+  ferryAt,
+  ferryLegs,
+  legKey,
+  routeGeoJSON,
+  routeSegments,
+} from "./ferry"
 import type { RouteGeometry } from "./geo"
 import { pointAt } from "./geo"
-import { cubSvgString, flagSvgString, WRENCH_INNER } from "./icons"
+import {
+  boatSvgString,
+  cubSvgString,
+  ferryHullSvgString,
+  flagSvgString,
+  WRENCH_INNER,
+} from "./icons"
 import { cubPoint, isLiveFresh, trailGeoJSON } from "./live"
 import { vintageStyle } from "./mapStyle"
 import { cubFacing, INTRO_MS } from "./replayMath"
@@ -21,6 +35,8 @@ import type {
   MapFlagKind,
   Stop,
 } from "./types"
+import type { Polygon } from "./water"
+import { polygonsFromFeatures, splitByWater, waterProbe } from "./water"
 
 const FOLLOW_ZOOM = 6.3
 // Where the "zoom to the Cub" fly-to lands: close enough to name the town,
@@ -37,13 +53,31 @@ const CINE_PITCH = 40
 // instead of flipping upside down. Tilt is capped so the Cub always reads as
 // mostly horizontal even for near-north/south headings.
 const MAX_TILT_DEG = 22
-function cubTransform(bearing: number): string {
+function cubTransform(bearing: number, sailing = false): string {
   const westbound = bearing > 180
   const anchor = westbound ? 270 : 90
   const raw = bearing - anchor
-  const phi = Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, raw))
+  // On the boat deck the Cub stands level whatever course the ferry holds;
+  // it still faces the way it is travelling.
+  const phi = sailing ? 0 : Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, raw))
   const mirror = westbound ? " scaleX(-1)" : ""
   return `rotate(${phi.toFixed(1)}deg)${mirror}`
+}
+
+// The water polygons of every tile the map currently holds, in [lng, lat]
+// rings. They come back clipped per tile and often duplicated — harmless,
+// since all we ever ask is whether a point sits inside one of them.
+function waterPolygons(map: maplibregl.Map): Polygon[] {
+  try {
+    return polygonsFromFeatures(
+      map.querySourceFeatures("openmaptiles", {
+        sourceLayer: "water",
+      }) as GeoJSON.Feature[],
+    )
+  } catch {
+    // No such source (a restyled map, or one still loading) — no answer yet.
+    return []
+  }
 }
 
 // During a replay the Cub holds one orientation instead of tilting into every
@@ -51,24 +85,6 @@ function cubTransform(bearing: number): string {
 // clearly turned around (see `cubFacing`).
 function cubReplayTransform(facing: 1 | -1): string {
   return facing < 0 ? "scaleX(-1)" : "none"
-}
-
-// The drawn route line follows the same geometry the cub drives — real
-// ridden roads where leg tracks exist, straight pin-to-pin lines elsewhere.
-function routeGeoJSON(points: RouteGeometry["points"]) {
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        geometry: {
-          type: "LineString",
-          coordinates: points,
-        },
-        properties: {},
-      },
-    ],
-  } as GeoJSON.FeatureCollection
 }
 
 interface Props {
@@ -142,11 +158,28 @@ export default function VintageMap({
   // Which way the Cub faces during a replay; sticky so near-north/south
   // headings don't flip the art back and forth.
   const facingRef = useRef<1 | -1>(1)
-  // Latest geometry for the init load handler: the real ridden roads can
-  // arrive before or after the style loads, so init reads through this ref
-  // and the redraw effect below covers every later change.
-  const routeRef = useRef(route)
-  routeRef.current = route
+  // Where each flagged leg leaves the land, read off the map's own water
+  // polygons once the tiles under it have loaded (see the effect below).
+  // Until then a crossing is drawn as sea from pin to pin.
+  const [waterSplits, setWaterSplits] = useState<WaterSplits>(() => new Map())
+  // The route split into ridden and sailed stretches, and the crossings
+  // themselves (for the boat markers and for "is the Cub on a boat now").
+  // Mirrored into refs for the handlers that must read the latest geometry
+  // without re-subscribing: the map's init `load` and the Cub sync.
+  const segments = useMemo(
+    () => routeSegments(stops, route, waterSplits),
+    [stops, route, waterSplits],
+  )
+  const ferries = useMemo(
+    () => ferryLegs(stops, route, waterSplits),
+    [stops, route, waterSplits],
+  )
+  const segmentsRef = useRef(segments)
+  segmentsRef.current = segments
+  const ferriesRef = useRef(ferries)
+  ferriesRef.current = ferries
+  const splitsRef = useRef(waterSplits)
+  splitsRef.current = waterSplits
   // The live fix and the current scrub position, read by handlers that must
   // not re-subscribe when either changes (the map init load handler, and the
   // fresh-fix sync that moves the Cub without touching the camera).
@@ -218,7 +251,7 @@ export default function VintageMap({
       // route line: cream casing + red dashed line
       map.addSource("route", {
         type: "geojson",
-        data: routeGeoJSON(routeRef.current.points),
+        data: routeGeoJSON(segmentsRef.current),
       })
       map.addLayer({
         id: "route-casing",
@@ -231,12 +264,29 @@ export default function VintageMap({
         id: "route-line",
         type: "line",
         source: "route",
+        filter: ["!=", ["get", "ferry"], true],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": C.routeRed,
           "line-width": 3.2,
           "line-dasharray": [0.2, 1.6],
           "line-opacity": 1,
+        },
+      })
+      // Crossings get their own line: sea-teal, in longer strokes than the
+      // red road dashes — a shipping lane on the atlas rather than a road.
+      // (Dash patterns can't be data-driven, hence the second layer.)
+      map.addLayer({
+        id: "route-ferry-line",
+        type: "line",
+        source: "route",
+        filter: ["==", ["get", "ferry"], true],
+        layout: { "line-cap": "butt", "line-join": "round" },
+        paint: {
+          "line-color": C.teal,
+          "line-width": 2.6,
+          "line-dasharray": [2.4, 1.8],
+          "line-opacity": 0.95,
         },
       })
 
@@ -282,6 +332,12 @@ export default function VintageMap({
       bob.className = "bb-cub-bob"
       bob.innerHTML = cubSvgString(60, 81)
       rot.appendChild(bob)
+      // The ferry deck, hidden until the scrubber sails onto a crossing.
+      // First child, so the Cub's wheels sit on top of the hull, not behind.
+      const hull = document.createElement("div")
+      hull.className = "bb-cub-hull"
+      hull.innerHTML = ferryHullSvgString(74)
+      cubEl.appendChild(hull)
       cubEl.appendChild(rot)
       cubRotRef.current = rot
       const last = stops[stops.length - 1]
@@ -357,8 +413,10 @@ export default function VintageMap({
   }, [flags, flagsClickable, stops])
 
   // --- route line redraw -----------------------------------------------------
-  // The route source is created at init from routeRef; this keeps it in sync
-  // when the geometry changes afterwards (leg tracks loading in).
+  // The route source is created at init from segmentsRef — the real ridden
+  // roads can arrive before or after the style loads, so init reads the
+  // latest geometry through that ref and this keeps the source in sync with
+  // every later change (leg tracks loading in, a leg flagged as a ferry).
   useEffect(() => {
     const map = mapRef.current
     // The style re-check catches the webglcontextlost window (#68): the
@@ -368,8 +426,78 @@ export default function VintageMap({
     const source = map.getSource("route") as
       | maplibregl.GeoJSONSource
       | undefined
-    source?.setData(routeGeoJSON(route.points))
-  }, [route])
+    source?.setData(routeGeoJSON(segments))
+  }, [segments])
+
+  // --- cut the crossings at the coastline ------------------------------------
+  // A flagged leg is drawn as sea end to end until we can do better. Better
+  // is the map's own data: once the tiles under a leg are loaded, sample the
+  // `water` polygons along it and remember where the land stops, so the ride
+  // to the port keeps its red road dashes. The answer never changes for a
+  // given leg, so it is computed once and kept.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || ferries.length === 0) return
+    const attempt = () => {
+      if (mapRef.current !== map || !map.style || !readyRef.current) return
+      const pending = stops.flatMap((stop, i) => {
+        if (i === 0 || !stop.ferry) return []
+        const leg = ferriesRef.current.find((l) => l.index === i)
+        if (!leg) return []
+        const key = legKey(stops[i - 1], stop, leg.points)
+        return splitsRef.current.has(key) ? [] : [{ key, points: leg.points }]
+      })
+      if (pending.length === 0) return
+      // Only legs the map is actually holding tiles for: off-screen water is
+      // water we can't see, and guessing "land" there would paint a road
+      // across the sea.
+      const view = map.getBounds()
+      const covered = pending.filter((leg) =>
+        leg.points.every((p) => view.contains(p)),
+      )
+      if (covered.length === 0 || !map.areTilesLoaded()) return
+      const polys = waterPolygons(map)
+      if (polys.length === 0) return
+      const probe = waterProbe(polys)
+      const found = new Map(splitsRef.current)
+      let added = false
+      for (const leg of covered) {
+        const runs = splitByWater(leg.points, probe)
+        // No water under a leg the rider flagged as a crossing means the
+        // tiles are too coarse (or the pins sit inland): keep trusting the
+        // rider and leave the leg drawn as sea.
+        if (!runs.some((r) => r.water)) continue
+        found.set(leg.key, runs)
+        added = true
+      }
+      if (added) setWaterSplits(found)
+    }
+    map.on("idle", attempt)
+    attempt()
+    return () => {
+      map.off("idle", attempt)
+    }
+  }, [ferries, stops])
+
+  // --- ferry markers ---------------------------------------------------------
+  // A little boat halfway across every crossing. DOM overlays like the flags,
+  // so they attach without waiting for the style and survive a map rebuild.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const markers = ferries.map((leg) => {
+      const el = document.createElement("div")
+      el.className = "bb-boat"
+      el.innerHTML = boatSvgString(26)
+      el.title = `per veerboot naar ${stops[leg.index]?.place ?? ""}`
+      return new maplibregl.Marker({ element: el, anchor: "center" })
+        .setLngLat(leg.mid)
+        .addTo(map)
+    })
+    return () => {
+      for (const m of markers) m.remove()
+    }
+  }, [ferries, stops])
 
   // --- breadcrumb trail ------------------------------------------------------
   // A dotted teal line of the tracker's recent positions, slotted beneath the
@@ -480,6 +608,10 @@ export default function VintageMap({
       // own doesn't re-create this callback and drag the camera along.
       const pt = cubPoint(route, t, liveRef.current, lastStopDate)
       cub.setLngLat([pt.lng, pt.lat])
+      // Inside a crossing the Cub rides the deck instead of the road: the
+      // hull appears under it and it stops tilting into the leg.
+      const sailing = ferryAt(ferriesRef.current, t) !== null
+      cub.getElement().classList.toggle("bb-cub-sailing", sailing)
       if (cubRotRef.current) {
         if (replayingRef.current) {
           facingRef.current = cubFacing(pt.bearing, facingRef.current)
@@ -487,7 +619,7 @@ export default function VintageMap({
             facingRef.current,
           )
         } else {
-          cubRotRef.current.style.transform = cubTransform(pt.bearing)
+          cubRotRef.current.style.transform = cubTransform(pt.bearing, sailing)
         }
       }
       if (!follow) return

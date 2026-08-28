@@ -28,6 +28,15 @@ with five screens plus overlays:
 - **Stop-detail** — photo/video gallery, journal story, place/date/km/weather.
   Repair stops get a teal `REPARATIE` badge and a "what broke / what I fixed"
   logbook.
+- **Veerboot-legs (Ferry legs)** — tick "per veerboot hierheen" on a stop and
+  the leg into it is cut at the coastline: the ride to the port keeps the red
+  road dashes, only the water turns into a dashed teal sea line with a little
+  boat halfway across. The cut is read off the map's own `water` polygons
+  (`water.ts`), so no extra data is needed; until the tiles under a leg have
+  loaded it is drawn as sea end to end. Scrub onto the water and the Cub
+  crosses standing on a ferry deck. A crossing isn't ridden, so it counts as
+  0 km unless the odometer says otherwise (that difference is the road to and
+  from the port).
 - **Reparatie-laag (Repair layer)** — the wrench toggle fades the route and
   shows only repair pins, turning the map into a record of the cub's wear.
 - **Live locatie** — with a Traccar GPS server configured (`TRACCAR_*` in

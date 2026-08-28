@@ -192,6 +192,12 @@ class StopBase(SQLModel):
     weather_temp: int | None = Field(default=None)
     weather_condition: str = Field(default="", max_length=16)
     type: str = Field(default="stop", max_length=16)  # one of STOP_TYPES
+    # Marks the leg *into* this stop as a boat crossing: the rider and the Cub
+    # came here by ferry instead of riding. It hangs off the arrival stop
+    # because that is the post the rider writes after stepping off the boat,
+    # and it keeps the flag on a single row when stops are reordered. The map
+    # draws that leg as a dashed sea line with a little boat on it.
+    ferry: bool = Field(default=False)
     story: str = Field(default="", sa_type=Text)
     broke: str | None = Field(default=None, sa_type=Text)  # repair: what broke
     fixed: str | None = Field(default=None, sa_type=Text)  # repair: what fixed
@@ -227,6 +233,7 @@ class StopUpdate(SQLModel):
     weather_temp: int | None = None
     weather_condition: str | None = Field(default=None, max_length=16)
     type: str | None = Field(default=None, max_length=16)
+    ferry: bool | None = None
     story: str | None = None
     broke: str | None = None
     fixed: str | None = None
@@ -363,7 +370,8 @@ class RiddenSince(SQLModel):
 
 # Aggregate trip statistics for the "Wrapped" recap screen. `km` measures
 # each leg by geo.leg_km: a believable odometer delta first, then the leg's
-# GPS-measured road, then the great-circle line. `suggested_km` is the last
+# GPS-measured road, then the great-circle line — except on a ferry leg,
+# where only a reading of the rider's own counts. `suggested_km` is the last
 # known odometer reading — shown to the rider as a hint next to the km field,
 # never pre-filled into it (a copied reading makes a leg measure 0 km).
 class TripStats(SQLModel):

@@ -201,6 +201,8 @@ export function cumulativeKm(stops: Stop[], route?: RouteGeometry): number[] {
         crowKm,
         null,
         tracked ? (route.stopCum[i] - route.stopCum[i - 1]) / 1000 : null,
+        // The dial stands still on the boat deck.
+        b.ferry,
       )
     out.push(running)
   }

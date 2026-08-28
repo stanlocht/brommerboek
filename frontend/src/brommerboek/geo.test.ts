@@ -68,6 +68,18 @@ describe("legKm", () => {
   it("falls back to the straight line when nothing else is usable", () => {
     expect(legKm(62, 0, null)).toBe(62)
   })
+
+  it("counts no kilometres for a crossing", () => {
+    // Neither the sea miles between the ports nor the boat's own course
+    // were ridden by the Cub.
+    expect(legKm(62, null, null, true)).toBe(0)
+    expect(legKm(62, null, 86, true)).toBe(0)
+    expect(legKm(62, 0, 86, true)).toBe(0)
+  })
+
+  it("keeps the ride to the port when the dial moved", () => {
+    expect(legKm(62, 40, 86, true)).toBe(40)
+  })
 })
 
 describe("haversine", () => {

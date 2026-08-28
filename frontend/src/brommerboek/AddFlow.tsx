@@ -15,7 +15,7 @@ import {
 } from "./api"
 import { coverIndex } from "./cover"
 import type { PlaceHit } from "./geocode"
-import { WrenchIcon } from "./icons"
+import { BoatIcon, WrenchIcon } from "./icons"
 import { prepareUpload, TooLargeError } from "./imagePrep"
 import { notedKm } from "./odometer"
 import PlaceSearch from "./PlaceSearch"
@@ -156,6 +156,11 @@ export default function AddFlow({
   const isEdit = !!initialStop
   const [step, setStep] = useState(0)
   const [type, setType] = useState<StopType>(initialStop?.type ?? "stop")
+  // "I came here by boat": flags the leg from the previous stop to this one
+  // as a ferry crossing. Deliberately the rider's call rather than something
+  // guessed from the geometry — a line over water is just as often a bridge
+  // or a tunnel, and the pins alone can't tell the difference.
+  const [ferry, setFerry] = useState(initialStop?.ferry ?? false)
   const [picked, setPicked] = useState<PlaceHit | null>(
     initialStop
       ? {
@@ -316,6 +321,9 @@ export default function AddFlow({
         parsedTemp !== null && Number.isFinite(parsedTemp) ? parsedTemp : null,
       weather_condition: weatherCondition,
       type,
+      // A preparation post sits outside the route, so there is no leg into
+      // it to have crossed by boat.
+      ferry: type === "preparation" ? false : ferry,
       story: story.trim(),
       broke: type === "repair" ? broke.trim() : null,
       fixed: type === "repair" ? fixed.trim() : null,
@@ -1391,6 +1399,75 @@ export default function AddFlow({
                       style={{ ...fieldStyle, marginTop: 4, fontSize: 15 }}
                     />
                   </Field>
+                </div>
+              )}
+              {type !== "preparation" && (
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ ...labelStyle, color: C.ochreDeep }}>
+                    HOE KWAM JE HIER?
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={ferry}
+                    onClick={() => setFerry((on) => !on)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      width: "100%",
+                      marginTop: 4,
+                      padding: "9px 12px",
+                      border: `1.5px ${ferry ? "solid" : "dashed"} ${
+                        ferry ? C.teal : C.borderSoft
+                      }`,
+                      borderRadius: 8,
+                      background: ferry ? "#eaf1f2" : "none",
+                      fontFamily: FONT_MONO,
+                      fontSize: 12,
+                      color: ferry ? C.ink : C.sepia,
+                      textAlign: "left",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        flex: "0 0 auto",
+                        width: 16,
+                        height: 16,
+                        borderRadius: 4,
+                        border: `1.5px solid ${ferry ? C.teal : C.borderSoft}`,
+                        background: ferry ? C.teal : "transparent",
+                        color: C.paperCard,
+                        fontSize: 11,
+                        lineHeight: "13px",
+                        textAlign: "center",
+                      }}
+                    >
+                      {ferry ? "✓" : ""}
+                    </span>
+                    <BoatIcon size={15} color={ferry ? C.teal : C.sepia} />
+                    <span>
+                      {ferry
+                        ? "per veerboot hierheen"
+                        : "met de boot gekomen? tik voor een veerboot"}
+                    </span>
+                  </button>
+                  {ferry && (
+                    <div
+                      className="bb-fadein"
+                      style={{
+                        marginTop: 6,
+                        fontFamily: FONT_MONO,
+                        fontSize: 10,
+                        color: C.sepia,
+                      }}
+                    >
+                      de vorige stop → hier wordt een gestippelde zeelijn met
+                      een bootje, en de overtocht telt niet als gereden km
+                    </div>
+                  )}
                 </div>
               )}
             </div>

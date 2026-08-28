@@ -81,6 +81,7 @@ function derive(
       haversine([a.lng, a.lat], [b.lng, b.lat]) / 1000,
       a.km != null && b.km != null ? b.km - a.km : null,
       gpsKm.get(`${a.id}→${b.id}`) ?? null,
+      b.ferry,
     )
     if (!longest || km > longest.km) longest = { from: a, to: b, km }
   }

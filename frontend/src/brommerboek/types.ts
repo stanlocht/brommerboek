@@ -52,6 +52,10 @@ export interface Stop {
   weather_temp: number | null
   weather_condition: WeatherCondition
   type: StopType
+  // The leg *into* this stop was a boat crossing: the map draws it as a
+  // dashed sea line with a little ferry on it, and its sea miles count as
+  // sailed rather than ridden.
+  ferry: boolean
   story: string
   broke: string | null
   fixed: string | null
@@ -81,6 +85,7 @@ export interface NewStop {
   weather_temp: number | null
   weather_condition: WeatherCondition
   type: StopType
+  ferry: boolean
   story: string
   broke: string | null
   fixed: string | null

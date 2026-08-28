@@ -11,6 +11,10 @@ export const WRENCH_INNER = `<path d="M15.5 5.5a3.6 3.6 0 0 0-4.7 4.4L4 16.7 7.3
 
 const SHARE_INNER = `<circle cx="18" cy="5.5" r="2.6" fill="currentColor"></circle><circle cx="6" cy="12" r="2.6" fill="currentColor"></circle><circle cx="18" cy="18.5" r="2.6" fill="currentColor"></circle><path d="m8.3 10.7 7.4-4M8.3 13.3l7.4 4" stroke="currentColor" stroke-width="1.8"></path>`
 
+// Side-profile ferry: hull, deckhouse and funnel. Drawn in one colour so it
+// works as a badge glyph, on a paper disc on the map and beside the cub.
+export const BOAT_INNER = `<path d="M2.6 14.4h18.8l-2 4.1a2.4 2.4 0 0 1-2.2 1.3H6.8a2.4 2.4 0 0 1-2.2-1.3l-2-4.1Z" fill="currentColor"></path><path d="M7.2 13V8.2h6.2l2.6 4.8H7.2Z" fill="currentColor"></path><path d="M17.5 13V5.8h2.1V13h-2.1Z" fill="currentColor"></path>`
+
 // HTML string for the start/finish flag markers (imperative markers). The
 // pole base sits at x=4, y=36 in the 30×38 viewBox — VintageMap anchors the
 // marker so that point lands on the flag's coordinate. Start is a teal
@@ -31,6 +35,26 @@ export function flagSvgString(kind: "start" | "finish"): string {
     <ellipse cx="4" cy="36" rx="3.4" ry="1.4" fill="rgba(58,51,42,.28)"/>
     <path d="M4 36 V3" stroke="${C.ink}" stroke-width="2.4" stroke-linecap="round"/>
     ${cloth}
+  </svg>`
+}
+
+// HTML string for the ferry marker that sits halfway across a crossing: the
+// boat on a paper disc, ringed in the sea-route teal so it reads as part of
+// the dashed sea line rather than as another stop pin.
+export function boatSvgString(size = 26): string {
+  return `<svg width="${size}" height="${size}" viewBox="-14 -14 28 28" aria-hidden="true">
+    <circle cx="0" cy="0" r="11.5" fill="${C.cream}" stroke="${C.teal}" stroke-width="2.2"></circle>
+    <g transform="translate(-9,-9)" style="color:${C.teal}"><svg width="18" height="18" viewBox="0 0 24 24">${BOAT_INNER}</svg></g>
+  </svg>`
+}
+
+// The deck the Cub stands on while the scrubber is inside a crossing — a
+// plain hull under its wheels, wide enough to carry it.
+export function ferryHullSvgString(width = 74): string {
+  const height = Math.round(width * 0.3)
+  return `<svg width="${width}" height="${height}" viewBox="0 0 74 22" aria-hidden="true">
+    <path d="M1.5 5h71l-7.5 13.2a5 5 0 0 1-4.3 2.5H13.3a5 5 0 0 1-4.3-2.5L1.5 5Z" fill="${C.cream}" stroke="${C.teal}" stroke-width="2.4" stroke-linejoin="round"></path>
+    <path d="M9 11.5h56" stroke="${C.teal}" stroke-width="1.6" stroke-dasharray="3 3.4" opacity="0.7"></path>
   </svg>`
 }
 
@@ -78,6 +102,28 @@ export function ShareIcon({
       aria-hidden="true"
       // biome-ignore lint/security/noDangerouslySetInnerHtml: static local art
       dangerouslySetInnerHTML={{ __html: SHARE_INNER }}
+    />
+  )
+}
+
+export function BoatIcon({
+  size = 16,
+  color = "currentColor",
+  style,
+}: {
+  size?: number
+  color?: string
+  style?: CSSProperties
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      style={{ color, ...style }}
+      aria-hidden="true"
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: static local art
+      dangerouslySetInnerHTML={{ __html: BOAT_INNER }}
     />
   )
 }

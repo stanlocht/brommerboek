@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { mediaSrc } from "./api"
-import { ShareIcon, WrenchIcon } from "./icons"
+import { BoatIcon, ShareIcon, WrenchIcon } from "./icons"
 import Lightbox from "./Lightbox"
 import StopReactions from "./StopReactions"
 import { C, dateLabelNL, FONT_MONO, GALLERY_ROTS } from "./theme"
@@ -343,6 +343,24 @@ export default function StopSheet({
               }}
             >
               VOORBEREIDING
+            </span>
+          )}
+          {cur.ferry && (
+            <span
+              // The leg into this stop was crossed by boat — the map draws it
+              // as a dashed sea line, this says so in the post itself.
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                color: C.teal,
+                border: `1px solid ${C.teal}`,
+                padding: "1px 7px",
+                borderRadius: 10,
+              }}
+            >
+              <BoatIcon size={11} color={C.teal} />
+              PER VEERBOOT
             </span>
           )}
         </div>
