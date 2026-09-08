@@ -40,14 +40,21 @@ export function isForeignStack(stack: string, origin: string): boolean {
 
 // Errors that name a WebExtension API. These reach us because an extension's
 // content script shares the page, and the strings cannot occur in anything
-// this app throws — nothing here talks to `runtime`, and no URL we handle
-// carries an extension scheme.
+// this app throws — nothing here talks to `runtime`, no URL we handle carries
+// an extension scheme, and the app opens no named message ports at all (no
+// MessagePort, no SharedWorker, no runtime.connect).
 const EXTENSION_MESSAGES = [
   "runtime.sendmessage",
   "extension context invalidated",
   "chrome-extension://",
   "moz-extension://",
   "safari-web-extension://",
+  // #134: "Port 'content <uuid>' not found. ports: " — an extension's
+  // messaging layer failing to reach a content-script port it had registered,
+  // then listing the ports it does know about. The trailing listing is what
+  // makes the needle safe: our own "not found" messages are about routes and
+  // records, and none of them go on to enumerate ports.
+  "not found. ports:",
 ]
 
 export function isExtensionError(error: unknown): boolean {

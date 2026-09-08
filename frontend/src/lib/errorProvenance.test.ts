@@ -103,11 +103,28 @@ describe("isExtensionError", () => {
     )
   })
 
+  it("catches an extension's port bookkeeping", () => {
+    // #134 verbatim. The app opens no named ports of any kind, so only an
+    // extension's messaging layer can produce this.
+    expect(
+      isExtensionError(
+        new Error(
+          "Port 'content 95e41261-4118-44d1-9fd6-3cb09624555b' not found. ports: ",
+        ),
+      ),
+    ).toBe(true)
+  })
+
   it("leaves our own errors alone", () => {
     expect(isExtensionError(new Error("Failed to load stops (502)"))).toBe(
       false,
     )
     expect(isExtensionError("runtime.sendMessage")).toBe(false)
+    // "not found" on its own is ours to fix — the port listing is the tell.
+    expect(isExtensionError(new Error("Route not found"))).toBe(false)
+    expect(
+      isExtensionError(new Error("Stop not found. ports of call: Hoorn")),
+    ).toBe(false)
   })
 })
 
@@ -137,6 +154,29 @@ describe("isForeignError", () => {
       "sortedTrackListForMenu@[native code]\n_canPickAudioTracks@\nsyncControl@\nhandleEvent@",
     )
     expect(isForeignError(error, ORIGIN)).toBe(true)
+  })
+
+  it("skips the port error whatever its stack looks like", () => {
+    // #134 arrived through unhandledrejection on a release that already had
+    // the stack rule, so its stack cannot have given it away — an extension
+    // that rejects across a messaging boundary loses its frames. Matching on
+    // the message keeps this independent of the stack entirely.
+    const message =
+      "Port 'content 95e41261-4118-44d1-9fd6-3cb09624555b' not found. ports: "
+    const bare = new Error(message)
+    bare.stack = ""
+    expect(isForeignError(bare, ORIGIN)).toBe(true)
+    // Even reconstructed inside our own bundle by an injected script.
+    expect(
+      isForeignError(
+        withStack(
+          "Error",
+          message,
+          "at f (https://brommerboek.nl/assets/index-abc.js:2:1)",
+        ),
+        ORIGIN,
+      ),
+    ).toBe(true)
   })
 
   it("skips a WebExtension error even without a stack", () => {
