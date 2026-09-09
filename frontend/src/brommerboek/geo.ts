@@ -45,12 +45,19 @@ export function odometerTrusted(
 // when they don't, and the straight line between the pins is the last resort.
 // A track measuring less than that straight line never spanned the leg, so it
 // is passed over too.
+//
+// A ferry leg was crossed, not ridden: the dial stands still on the boat, so
+// without a reading of its own the crossing adds nothing — neither the sea
+// miles between the two ports nor the GPS track, which recorded the boat's
+// course rather than a road.
 export function legKm(
   crowKm: number,
   odometerKm: number | null,
   gpsKm: number | null,
+  ferry = false,
 ): number {
   if (odometerTrusted(crowKm, odometerKm)) return odometerKm
+  if (ferry) return 0
   if (gpsKm !== null && gpsKm >= crowKm) return gpsKm
   return crowKm
 }
@@ -75,6 +82,9 @@ export interface RouteGeometry {
   // stop and this equals `cum`; with real ridden roads the stops sit sparsely
   // among the track vertices and everything stop-indexed reads this instead.
   stopCum: number[]
+  // Vertex index of each stop in `points`, for anything that needs a leg's
+  // own geometry rather than just its length (see ferry.ts).
+  stopVertex: number[]
 }
 
 // Route through the stops. `legs[i]`, when given, is the real ridden road
@@ -98,7 +108,13 @@ export function buildRoute(
     total += haversine(points[i - 1], points[i])
     cum.push(total)
   }
-  return { points, cum, total, stopCum: stopVertex.map((v) => cum[v]) }
+  return {
+    points,
+    cum,
+    total,
+    stopCum: stopVertex.map((v) => cum[v]),
+    stopVertex,
+  }
 }
 
 export interface RoutePoint {

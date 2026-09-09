@@ -52,6 +52,10 @@ export interface Stop {
   weather_temp: number | null
   weather_condition: WeatherCondition
   type: StopType
+  // The leg *into* this stop was a boat crossing: the map draws it as a
+  // dashed sea line with a little ferry on it, and its sea miles count as
+  // sailed rather than ridden.
+  ferry: boolean
   story: string
   broke: string | null
   fixed: string | null
@@ -81,6 +85,7 @@ export interface NewStop {
   weather_temp: number | null
   weather_condition: WeatherCondition
   type: StopType
+  ferry: boolean
   story: string
   broke: string | null
   fixed: string | null
@@ -104,6 +109,12 @@ export interface MapFlag {
 }
 
 export type MapFlagPatch = Partial<Omit<MapFlag, "kind">>
+
+// The trip's headline above the map — mirror of the backend `TripInfoPublic`.
+// Everyone reads the same one; superusers can rewrite it from the header.
+export interface TripInfo {
+  title: string
+}
 
 // Last known GPS fix of the Cub — mirror of the backend `LiveLocation`,
 // which proxies the Traccar tracker. `fix_time` is an ISO timestamp; the

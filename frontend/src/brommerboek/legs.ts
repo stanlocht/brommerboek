@@ -11,6 +11,8 @@ export interface LegInfo {
   to: Stop
   km: number
   days: number
+  // This hop was a boat crossing (the arrival stop carries the flag).
+  ferry: boolean
 }
 
 const MS_PER_DAY = 86_400_000
@@ -36,19 +38,26 @@ export function legInfo(
       haversine([from.lng, from.lat], [to.lng, to.lat]) / 1000,
       from.km !== null && to.km !== null ? to.km - from.km : null,
       (route.stopCum[i] - route.stopCum[i - 1]) / 1000,
+      to.ferry,
     ),
   )
   const days = Math.max(
     0,
     Math.round((Date.parse(to.date) - Date.parse(from.date)) / MS_PER_DAY),
   )
-  return { from, to, km, days }
+  return { from, to, km, days, ferry: to.ferry }
 }
 
 // "Utrecht → Parijs · 430 km · 3 dagen" — the scrubber readout. Days are
-// omitted for same-day hops.
+// omitted for same-day hops. A crossing reads "· per veerboot" in place of
+// the kilometres it didn't ride; one with a reading of its own keeps both,
+// since that reading is the road to and from the port.
 export function legLabel(leg: LegInfo): string {
-  const base = `${leg.from.place} → ${leg.to.place} · ${leg.km.toLocaleString("nl-NL")} km`
+  const measure =
+    leg.ferry && leg.km <= 0
+      ? "per veerboot"
+      : `${leg.km.toLocaleString("nl-NL")} km${leg.ferry ? " · per veerboot" : ""}`
+  const base = `${leg.from.place} → ${leg.to.place} · ${measure}`
   if (leg.days <= 0) return base
   return `${base} · ${leg.days} ${leg.days === 1 ? "dag" : "dagen"}`
 }

@@ -1,7 +1,6 @@
 import shutil
 import uuid
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
 from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
@@ -11,7 +10,12 @@ from app import crud
 from app.api.deps import SessionDep, get_current_active_superuser
 from app.core import push
 from app.core.config import settings
-from app.core.media import MEDIA_ROOT, MEDIA_URL_PREFIX, generate_thumbnail
+from app.core.media import (
+    MEDIA_ROOT,
+    MEDIA_URL_PREFIX,
+    generate_thumbnail,
+    resolve_media_type,
+)
 from app.geo import haversine_km, leg_km, polyline_km
 from app.models import (
     Comment,
@@ -30,57 +34,7 @@ from app.models import (
 
 router = APIRouter(prefix="/stops", tags=["stops"])
 
-ALLOWED_MEDIA_TYPES = {
-    "image/jpeg": ("image", "jpg"),
-    "image/png": ("image", "png"),
-    "image/webp": ("image", "webp"),
-    "image/gif": ("image", "gif"),
-    "image/heic": ("image", "heic"),
-    # Android cameras label the same container either way; without heif the
-    # upload came back 415 and the photo was silently dropped.
-    "image/heif": ("image", "heic"),
-    "video/mp4": ("video", "mp4"),
-    "video/quicktime": ("video", "mov"),
-    "video/webm": ("video", "webm"),
-}
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MiB — plenty for phone photos/clips
-
-# Content types that say "I don't know", as opposed to naming something we
-# don't accept. Only for these do we look at the filename — a client that
-# declares a real type is taken at its word, so a .png-named shell script
-# still gets turned away.
-UNKNOWN_MEDIA_TYPES = {"", "application/octet-stream", "binary/octet-stream"}
-
-# Last resort when the browser sends no usable content type — some Android
-# pickers hand the page a File with an empty or generic `type`, and the
-# multipart part then carries nothing better.
-EXT_MEDIA_TYPES = {
-    ".jpg": ("image", "jpg"),
-    ".jpeg": ("image", "jpg"),
-    ".png": ("image", "png"),
-    ".webp": ("image", "webp"),
-    ".gif": ("image", "gif"),
-    ".heic": ("image", "heic"),
-    ".heif": ("image", "heic"),
-    ".mp4": ("video", "mp4"),
-    ".m4v": ("video", "mp4"),
-    ".mov": ("video", "mov"),
-    ".webm": ("video", "webm"),
-}
-
-
-def _resolve_media_type(
-    content_type: str | None, filename: str | None
-) -> tuple[str, str] | None:
-    """(kind, extension) for an upload, or None if we don't accept it."""
-    declared = (content_type or "").strip().lower()
-    if declared in ALLOWED_MEDIA_TYPES:
-        return ALLOWED_MEDIA_TYPES[declared]
-    if declared not in UNKNOWN_MEDIA_TYPES:
-        return None
-    if filename:
-        return EXT_MEDIA_TYPES.get(PurePosixPath(filename).suffix.lower())
-    return None
 
 
 def _ordered_stops(session: SessionDep) -> list[Stop]:
@@ -155,6 +109,9 @@ def read_stats(session: SessionDep) -> Any:
             haversine_km((prev.lat, prev.lng), (cur.lat, cur.lng)),
             odometer_km=odometer,
             gps_km=gps_km.get((prev.id, cur.id)),
+            # The stop the rider stepped off the boat at carries the flag, so
+            # the crossing counts as sailed, not ridden.
+            ferry=cur.ferry,
         )
     # Suggested km = the most recent stop's odometer reading (whatever order
     # we happened to add them in — falls back to earlier stops if the latest
@@ -328,7 +285,7 @@ def upload_stop_media(
     db_stop = session.get(Stop, id)
     if not db_stop:
         raise HTTPException(status_code=404, detail="Stop not found")
-    resolved = _resolve_media_type(file.content_type, file.filename)
+    resolved = resolve_media_type(file.content_type, file.filename)
     if resolved is None:
         raise HTTPException(
             status_code=415, detail=f"Unsupported media type: {file.content_type}"

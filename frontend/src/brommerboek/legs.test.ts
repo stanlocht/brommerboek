@@ -21,6 +21,7 @@ function makeStop(overrides: Partial<Stop>): Stop {
     weather_temp: null,
     weather_condition: "",
     type: "stop",
+    ferry: false,
     story: "",
     broke: null,
     fixed: null,
@@ -175,6 +176,48 @@ describe("legLabel", () => {
     ]
     const leg = legInfo(stops, routeFor(stops), 0.5)
     expect(leg && legLabel(leg)).toBe("A → B · 42 km")
+  })
+
+  it("says how the rider crossed instead of km they didn't ride", () => {
+    const stops = [
+      makeStop({
+        place: "Hoek van Holland",
+        lat: 52,
+        lng: 4,
+        date: "2024-05-04",
+      }),
+      makeStop({
+        place: "Harwich",
+        lat: 51.95,
+        lng: 1.28,
+        date: "2024-05-05",
+        ferry: true,
+      }),
+    ]
+    const leg = legInfo(stops, routeFor(stops), 0.5)
+    expect(leg?.ferry).toBe(true)
+    expect(leg?.km).toBe(0)
+    expect(leg && legLabel(leg)).toBe(
+      "Hoek van Holland → Harwich · per veerboot · 1 dag",
+    )
+  })
+
+  it("keeps the km a ferry leg's own reading covers", () => {
+    // Readings on both sides of the crossing: that difference is the road to
+    // the port and away from it, and it was ridden.
+    const stops = [
+      makeStop({ place: "A", lat: 52, lng: 4, date: "2024-05-04", km: 100 }),
+      makeStop({
+        place: "B",
+        lat: 51.95,
+        lng: 1.28,
+        date: "2024-05-04",
+        km: 140,
+        ferry: true,
+      }),
+    ]
+    const leg = legInfo(stops, routeFor(stops), 0.5)
+    expect(leg && legLabel(leg)).toBe("A → B · 40 km · per veerboot")
   })
 
   it("formats km in Dutch notation", () => {

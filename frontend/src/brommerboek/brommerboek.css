@@ -10,6 +10,26 @@
     transform: translateY(-2.2px);
   }
 }
+/* Rocking on the swell while the Cub is aboard a ferry — the hull keeps its
+   offset from the Cub's centre, so both rock as one. */
+@keyframes bb-sailing {
+  0%,
+  100% {
+    transform: rotate(-1.6deg) translateY(0);
+  }
+  50% {
+    transform: rotate(1.6deg) translateY(-1.6px);
+  }
+}
+@keyframes bb-sailing-hull {
+  0%,
+  100% {
+    transform: translate(-50%, 27px) rotate(-1.6deg);
+  }
+  50% {
+    transform: translate(-50%, 25.4px) rotate(1.6deg);
+  }
+}
 @keyframes bb-spin {
   to {
     transform: rotate(360deg);
@@ -114,6 +134,17 @@ body:has(.bb-app) {
   animation:
     bb-stampIn 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both,
     bb-fadeOut 0.4s ease 1.5s forwards;
+}
+/* A stop's pictures during the replay: all stacked, the current one faded up
+   over the others so the slideshow never flashes an empty frame. */
+.bb-replay-photo {
+  position: absolute;
+  inset: 0;
+  transition: opacity 0.45s ease;
+}
+.bb-replay-photo img,
+.bb-replay-photo video {
+  display: block;
 }
 .bb-toast {
   animation: bb-toastIn 0.25s ease both;
@@ -227,6 +258,36 @@ body:has(.bb-app) {
 .bb-cub-marker img {
   display: block;
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.28));
+}
+/* Ferry deck under the Cub, shown only while the scrubber is mid-crossing.
+   The Cub art is 60×81 anchored at its centre, so the hull hangs just under
+   its wheels. */
+.bb-cub-hull {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, 27px);
+  line-height: 0;
+  display: none;
+  pointer-events: none;
+}
+.bb-cub-sailing .bb-cub-hull {
+  display: block;
+  animation: bb-sailing-hull 3.4s ease-in-out infinite;
+}
+/* On the boat the wheels aren't doing the work: Cub and hull rock together
+   with the swell instead of the Cub bobbing on its suspension. The rocking
+   sits on .bb-cub-bob because .bb-cub-rot carries the JS-set heading
+   transform, which an animation on the same element would overwrite. */
+.bb-cub-sailing .bb-cub-bob {
+  animation: bb-sailing 3.4s ease-in-out infinite;
+}
+
+/* The little boat halfway across a crossing. */
+.bb-boat {
+  line-height: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.22));
 }
 
 /* Live GPS marker: teal dot with a pulsing ring while the fix is fresh;
@@ -372,7 +433,11 @@ body:has(.bb-app) {
 
 @media (prefers-reduced-motion: reduce) {
   .bb-app *,
-  .bb-cub-bob {
+  .bb-cub-bob,
+  .bb-cub-hull {
     animation: none;
+  }
+  .bb-replay-photo {
+    transition: none;
   }
 }

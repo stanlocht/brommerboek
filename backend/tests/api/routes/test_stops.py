@@ -313,6 +313,52 @@ def test_stats_exclude_preparation_stops(client: TestClient, db: Session) -> Non
         delete_test_stop(db, stop)
 
 
+def test_stats_do_not_count_a_ferry_crossing_as_ridden(
+    client: TestClient, db: Session
+) -> None:
+    # Corsica by boat: ~230 km of sea from Cinque Terre, none of it ridden.
+    # Without the flag that leg would land in the total as a straight line.
+    baseline = client.get(f"{STOPS_URL}stats").json()["km"]
+    stop = create_test_stop(
+        db,
+        place="Bastia",
+        country="Frankrijk",
+        code="FR",
+        lat=42.7028,
+        lng=9.4508,
+        date="2024-05-21",
+        ferry=True,
+    )
+    try:
+        stats = client.get(f"{STOPS_URL}stats").json()
+        assert stats["km"] == baseline
+        assert stats["stops"] == 11  # the stop itself still counts
+    finally:
+        delete_test_stop(db, stop)
+
+
+def test_stats_count_the_ride_to_the_port_on_a_ferry_leg(
+    client: TestClient, db: Session
+) -> None:
+    # The rider read the dial on both sides of the crossing: the difference is
+    # the road they rode to the port and away from it, and it counts.
+    stop = create_test_stop(
+        db,
+        place="Bastia",
+        country="Frankrijk",
+        code="FR",
+        lat=42.7028,
+        lng=9.4508,
+        date="2024-05-21",
+        ferry=True,
+        km=1060,  # Cinque Terre stood at 1024
+    )
+    try:
+        assert client.get(f"{STOPS_URL}stats").json()["km"] == 1060
+    finally:
+        delete_test_stop(db, stop)
+
+
 def test_stats_preparation_km_reading_still_suggested(
     client: TestClient, db: Session
 ) -> None:
@@ -361,6 +407,34 @@ def test_create_and_delete_stop_as_superuser(
     assert r.status_code == 200
     assert r.json()["message"] == "Stop deleted"
     assert client.get(f"{STOPS_URL}{created['id']}").status_code == 404
+
+
+def test_ferry_flag_round_trips(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    # Legs are ridden unless the rider says otherwise, and the flag can be
+    # set (or taken back) afterwards from the edit flow.
+    r = client.post(STOPS_URL, headers=superuser_token_headers, json=stop_payload())
+    assert r.status_code == 200
+    created = r.json()
+    try:
+        assert created["ferry"] is False
+        r = client.patch(
+            f"{STOPS_URL}{created['id']}",
+            headers=superuser_token_headers,
+            json={"ferry": True},
+        )
+        assert r.status_code == 200
+        assert r.json()["ferry"] is True
+        assert client.get(f"{STOPS_URL}{created['id']}").json()["ferry"] is True
+        r = client.patch(
+            f"{STOPS_URL}{created['id']}",
+            headers=superuser_token_headers,
+            json={"ferry": False},
+        )
+        assert r.json()["ferry"] is False
+    finally:
+        client.delete(f"{STOPS_URL}{created['id']}", headers=superuser_token_headers)
 
 
 def test_create_backdated_stop_slots_into_route_by_date(

@@ -18,13 +18,16 @@ import {
   toggleCommentHonk as toggleCommentHonkApi,
   toggleHonk as toggleHonkApi,
 } from "./api"
+import { isVideoFile } from "./imagePrep"
 import Lightbox from "./Lightbox"
 import LoginPrompt from "./LoginPrompt"
 import { C, dateLabelNL, FONT_MONO } from "./theme"
 
-// Mirror of the backend cap — caught here so an oversized pick fails with a
+// Mirrors of the backend caps (COMMENT_PHOTO_MAX_BYTES /
+// COMMENT_VIDEO_MAX_BYTES) — caught here so an oversized pick fails with a
 // friendly message before uploading megabytes that will be rejected anyway.
 const PHOTO_MAX_BYTES = 10 * 1024 * 1024
+const VIDEO_MAX_BYTES = 25 * 1024 * 1024
 
 interface StopReactionsProps {
   stopId: string
@@ -43,25 +46,27 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
   const [showAllHonkers, setShowAllHonkers] = useState(false)
   // Inline error line for failed writes; cleared when a new attempt starts.
   const [actionError, setActionError] = useState("")
-  // Photo picked for the next comment, shown as a small preview until posted.
-  const [photo, setPhoto] = useState<File | null>(null)
-  const [photoPreview, setPhotoPreview] = useState("")
+  // Photo or clip picked for the next comment, shown as a small preview
+  // until posted.
+  const [attachment, setAttachment] = useState<File | null>(null)
+  const [attachmentPreview, setAttachmentPreview] = useState("")
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  // Comment photo shown full-screen; null = lightbox closed.
+  // Comment photo/clip shown full-screen; null = lightbox closed.
   const [lightboxComment, setLightboxComment] = useState<StopComment | null>(
     null,
   )
+  const attachmentIsVideo = attachment ? isVideoFile(attachment) : false
 
-  // Object URL for the preview <img>; revoked when replaced or on unmount.
+  // Object URL for the preview element; revoked when replaced or on unmount.
   useEffect(() => {
-    if (!photo) {
-      setPhotoPreview("")
+    if (!attachment) {
+      setAttachmentPreview("")
       return
     }
-    const url = URL.createObjectURL(photo)
-    setPhotoPreview(url)
+    const url = URL.createObjectURL(attachment)
+    setAttachmentPreview(url)
     return () => URL.revokeObjectURL(url)
-  }, [photo])
+  }, [attachment])
 
   const commentsQ = useQuery({
     queryKey: ["stops", stopId, "comments"],
@@ -87,7 +92,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     onMutate: () => setActionError(""),
     onSuccess: () => {
       setDraft("")
-      setPhoto(null)
+      setAttachment(null)
       qc.invalidateQueries({ queryKey: ["stops", stopId, "comments"] })
     },
     onError: () =>
@@ -118,26 +123,32 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     onError: () => setActionError("toeteren lukte niet — probeer het opnieuw"),
   })
 
-  const pickPhoto = (files: FileList | null) => {
+  const pickAttachment = (files: FileList | null) => {
     const file = files?.[0]
     if (!file) return
-    if (file.size > PHOTO_MAX_BYTES) {
-      setActionError("foto is te groot (max 10 MB)")
+    const video = isVideoFile(file)
+    const max = video ? VIDEO_MAX_BYTES : PHOTO_MAX_BYTES
+    if (file.size > max) {
+      setActionError(
+        video
+          ? `video is te groot (max ${VIDEO_MAX_BYTES / (1024 * 1024)} MB)`
+          : `foto is te groot (max ${PHOTO_MAX_BYTES / (1024 * 1024)} MB)`,
+      )
       return
     }
     setActionError("")
-    setPhoto(file)
+    setAttachment(file)
   }
 
   const submitComment = (e: React.FormEvent) => {
     e.preventDefault()
     const body = draft.trim()
-    if ((!body && !photo) || addComment.isPending) return
+    if ((!body && !attachment) || addComment.isPending) return
     if (!isLoggedIn()) {
       setPending("comment")
       return
     }
-    addComment.mutate({ body, file: photo })
+    addComment.mutate({ body, file: attachment })
   }
 
   const onHonk = () => {
@@ -164,7 +175,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
     if (action === "toeteren") toggleHonk.mutate()
     if (action === "comment") {
       const body = draft.trim()
-      if (body || photo) addComment.mutate({ body, file: photo })
+      if (body || attachment) addComment.mutate({ body, file: attachment })
     }
     if (action && typeof action === "object") {
       toggleCommentHonk.mutate(action.commentHonkId)
@@ -383,7 +394,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
             boxSizing: "border-box",
           }}
         />
-        {photoPreview && (
+        {attachmentPreview && (
           <div
             style={{
               display: "flex",
@@ -391,21 +402,42 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
               gap: 8,
             }}
           >
-            <img
-              src={photoPreview}
-              alt="gekozen foto"
-              style={{
-                maxWidth: 120,
-                maxHeight: 120,
-                borderRadius: 6,
-                border: `1px solid ${C.borderSoft}`,
-                display: "block",
-              }}
-            />
+            {attachmentIsVideo ? (
+              // biome-ignore lint/a11y/useMediaCaption: a preview of the file the user just picked
+              <video
+                src={attachmentPreview}
+                controls
+                playsInline
+                preload="metadata"
+                aria-label="gekozen video"
+                style={{
+                  maxWidth: 160,
+                  maxHeight: 120,
+                  borderRadius: 6,
+                  border: `1px solid ${C.borderSoft}`,
+                  background: "#000",
+                  display: "block",
+                }}
+              />
+            ) : (
+              <img
+                src={attachmentPreview}
+                alt="gekozen foto"
+                style={{
+                  maxWidth: 120,
+                  maxHeight: 120,
+                  borderRadius: 6,
+                  border: `1px solid ${C.borderSoft}`,
+                  display: "block",
+                }}
+              />
+            )}
             <button
               type="button"
-              onClick={() => setPhoto(null)}
-              aria-label="foto verwijderen"
+              onClick={() => setAttachment(null)}
+              aria-label={
+                attachmentIsVideo ? "video verwijderen" : "foto verwijderen"
+              }
               style={{
                 fontFamily: FONT_MONO,
                 fontSize: 11,
@@ -424,10 +456,10 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             style={{ display: "none" }}
             onChange={(e) => {
-              pickPhoto(e.target.files)
+              pickAttachment(e.target.files)
               // Allow re-picking the same file after removing it.
               e.target.value = ""
             }}
@@ -446,11 +478,11 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
               cursor: "pointer",
             }}
           >
-            📷 {photo ? "andere foto" : "foto erbij"}
+            📷 {attachment ? "iets anders kiezen" : "foto of video erbij"}
           </button>
           <button
             type="submit"
-            disabled={(!draft.trim() && !photo) || addComment.isPending}
+            disabled={(!draft.trim() && !attachment) || addComment.isPending}
             style={{
               marginLeft: "auto",
               fontFamily: FONT_MONO,
@@ -462,7 +494,9 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
               color: C.cream,
               cursor: "pointer",
               opacity:
-                (!draft.trim() && !photo) || addComment.isPending ? 0.55 : 1,
+                (!draft.trim() && !attachment) || addComment.isPending
+                  ? 0.55
+                  : 1,
             }}
           >
             {addComment.isPending ? "…" : "plaats"}
@@ -528,7 +562,58 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
                 {c.body}
               </div>
             )}
-            {c.photo && (
+            {c.photo && c.media_kind === "video" && (
+              // A clip plays right where it sits — its own controls rule out
+              // wrapping it in a button, so the corner glyph is what opens
+              // the full-screen player (same shape as the stop gallery).
+              <div
+                style={{
+                  position: "relative",
+                  display: "inline-block",
+                  marginTop: c.body ? 8 : 0,
+                  lineHeight: 0,
+                }}
+              >
+                {/* biome-ignore lint/a11y/useMediaCaption: comments carry no caption track */}
+                <video
+                  src={mediaSrc(c.photo)}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  aria-label={`video bij reactie van ${c.author_name}`}
+                  style={{
+                    maxWidth: "min(240px, 100%)",
+                    maxHeight: 240,
+                    border: `1px solid ${C.borderSoft}`,
+                    borderRadius: 6,
+                    background: "#000",
+                    display: "block",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setLightboxComment(c)}
+                  aria-label="video groter bekijken"
+                  style={{
+                    position: "absolute",
+                    top: 6,
+                    right: 6,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    border: "none",
+                    background: "rgba(0,0,0,.55)",
+                    color: "#fff",
+                    fontSize: 14,
+                    lineHeight: 1,
+                    cursor: "pointer",
+                  }}
+                >
+                  ⤢
+                </button>
+              </div>
+            )}
+            {c.photo && c.media_kind !== "video" && (
               <button
                 type="button"
                 onClick={() => setLightboxComment(c)}
@@ -609,7 +694,7 @@ export default function StopReactions({ stopId }: StopReactionsProps) {
             {
               tone: "",
               cap: "",
-              kind: "image",
+              kind: lightboxComment.media_kind,
               url: lightboxComment.photo,
               thumb: lightboxComment.photo_thumb,
             },

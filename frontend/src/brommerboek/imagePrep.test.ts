@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { MAX_UPLOAD_BYTES, prepareUpload, TooLargeError } from "./imagePrep"
+import {
+  isVideoFile,
+  MAX_UPLOAD_BYTES,
+  prepareUpload,
+  TooLargeError,
+} from "./imagePrep"
 
 // The canvas re-encode itself needs a browser, so it's covered by the
 // Playwright specs. What's checked here are the decisions taken around it:
@@ -31,5 +36,26 @@ describe("prepareUpload", () => {
     // a silent 415.
     const clip = fakeFile("VID_20260731.mp4", "", 30 * 1024)
     expect(await prepareUpload(clip)).toBe(clip)
+  })
+})
+
+describe("isVideoFile", () => {
+  it("goes by the declared type when there is one", () => {
+    expect(isVideoFile(fakeFile("ride.mp4", "video/mp4", 10))).toBe(true)
+    expect(isVideoFile(fakeFile("pin.png", "image/png", 10))).toBe(false)
+  })
+
+  it("falls back to the extension for a typeless pick", () => {
+    expect(isVideoFile(fakeFile("VID_20260731.mov", "", 10))).toBe(true)
+    expect(isVideoFile(fakeFile("IMG_0042.heic", "", 10))).toBe(false)
+  })
+
+  it("trusts the type over a misleading name", () => {
+    // A clip saved as "clip.mp4.jpg" is still a clip; a picture named
+    // ".mov" by some gallery app is still a picture.
+    expect(isVideoFile(fakeFile("clip.mp4.jpg", "video/quicktime", 10))).toBe(
+      true,
+    )
+    expect(isVideoFile(fakeFile("still.mov", "image/jpeg", 10))).toBe(false)
   })
 })

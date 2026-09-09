@@ -19,6 +19,7 @@ from app.models import (
     MapFlag,
     PushSubscription,
     Stop,
+    TripInfo,
     UsageStat,
     User,
 )
@@ -50,6 +51,7 @@ def db() -> Generator[Session]:
             MapFlag,
             PushSubscription,
             Stop,
+            TripInfo,
             UsageStat,
             User,
         ):

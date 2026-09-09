@@ -134,3 +134,19 @@ def test_leg_km_keeps_the_straight_line_when_the_track_is_shorter() -> None:
 def test_leg_km_falls_back_to_the_straight_line() -> None:
     assert leg_km(CROW) == CROW
     assert leg_km(CROW, odometer_km=0.0, gps_km=None) == CROW
+
+
+def test_leg_km_counts_no_kilometres_for_a_crossing() -> None:
+    # The Cub stood on the boat deck: neither the sea miles between the two
+    # ports nor the boat's GPS course were ridden.
+    assert leg_km(CROW, ferry=True) == 0.0
+    assert leg_km(CROW, gps_km=ROAD, ferry=True) == 0.0
+    # A dial that stood still across the crossing is the truth here, not a
+    # stale reading — and it says the same thing.
+    assert leg_km(CROW, odometer_km=0.0, gps_km=ROAD, ferry=True) == 0.0
+
+
+def test_leg_km_keeps_the_ride_to_the_port_on_a_ferry_leg() -> None:
+    # Ports are rarely the pin: a reading that moved covers the road either
+    # side of the crossing, and the rider's own dial is believed as ever.
+    assert leg_km(CROW, odometer_km=40.0, gps_km=ROAD, ferry=True) == 40.0

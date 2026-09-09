@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import EmailStr, field_validator
 from sqlalchemy import JSON, DateTime, Text, UniqueConstraint
@@ -192,6 +192,12 @@ class StopBase(SQLModel):
     weather_temp: int | None = Field(default=None)
     weather_condition: str = Field(default="", max_length=16)
     type: str = Field(default="stop", max_length=16)  # one of STOP_TYPES
+    # Marks the leg *into* this stop as a boat crossing: the rider and the Cub
+    # came here by ferry instead of riding. It hangs off the arrival stop
+    # because that is the post the rider writes after stepping off the boat,
+    # and it keeps the flag on a single row when stops are reordered. The map
+    # draws that leg as a dashed sea line with a little boat on it.
+    ferry: bool = Field(default=False)
     story: str = Field(default="", sa_type=Text)
     broke: str | None = Field(default=None, sa_type=Text)  # repair: what broke
     fixed: str | None = Field(default=None, sa_type=Text)  # repair: what fixed
@@ -227,6 +233,7 @@ class StopUpdate(SQLModel):
     weather_temp: int | None = None
     weather_condition: str | None = Field(default=None, max_length=16)
     type: str | None = Field(default=None, max_length=16)
+    ferry: bool | None = None
     story: str | None = None
     broke: str | None = None
     fixed: str | None = None
@@ -363,7 +370,8 @@ class RiddenSince(SQLModel):
 
 # Aggregate trip statistics for the "Wrapped" recap screen. `km` measures
 # each leg by geo.leg_km: a believable odometer delta first, then the leg's
-# GPS-measured road, then the great-circle line. `suggested_km` is the last
+# GPS-measured road, then the great-circle line — except on a ferry leg,
+# where only a reading of the rider's own counts. `suggested_km` is the last
 # known odometer reading — shown to the rider as a hint next to the km field,
 # never pre-filled into it (a copied reading makes a leg measure 0 km).
 class TripStats(SQLModel):
@@ -422,6 +430,46 @@ class MapFlagsPublic(SQLModel):
 
 
 # ----------------------------------------------------------------------------
+# Trip info (the headline above the map).
+#
+# One row, one field for now: the title everyone reads on the home screen.
+# Reads are public; only a superuser can rewrite it. Like the map flags the
+# row is created lazily, so a fresh database serves the default below.
+# ----------------------------------------------------------------------------
+
+TRIP_INFO_ID = "trip"
+DEFAULT_TRIP_TITLE = "Van Mokum naar Marokko"
+# The header renders the title on one line at 23px; longer than this and it
+# starts wrapping over the logbook card.
+TRIP_TITLE_MAX_LENGTH = 60
+
+
+class TripInfoBase(SQLModel):
+    title: str = Field(
+        default=DEFAULT_TRIP_TITLE, min_length=1, max_length=TRIP_TITLE_MAX_LENGTH
+    )
+
+
+class TripInfo(TripInfoBase, table=True):
+    id: str = Field(default=TRIP_INFO_ID, primary_key=True, max_length=16)
+
+
+class TripInfoUpdate(SQLModel):
+    title: str = Field(min_length=1, max_length=TRIP_TITLE_MAX_LENGTH)
+
+    # Runs before the length checks so surrounding whitespace never counts
+    # against the limit — and a title of only spaces is rejected as empty.
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, v: Any) -> Any:
+        return v.strip() if isinstance(v, str) else v
+
+
+class TripInfoPublic(TripInfoBase):
+    pass
+
+
+# ----------------------------------------------------------------------------
 # Comments + horn honks (public reactions on stops).
 #
 # Anyone can read; only authenticated users can post a comment or honk. A user
@@ -438,11 +486,15 @@ class Comment(SQLModel, table=True):
         foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
     )
     body: str = Field(sa_type=Text)
-    # Optional photo attached to the comment. Server-relative URLs into the
-    # media volume ("/media/<stop_id>/comments/<uuid>.jpg"), same convention
-    # as stop media. Thumb is None when thumbnail generation failed.
+    # Optional photo or short video attached to the comment. Server-relative
+    # URLs into the media volume ("/media/<stop_id>/comments/<uuid>.jpg"),
+    # same convention as stop media. Thumb is None for videos (no ffmpeg on
+    # board, same as stop media) and when thumbnail generation failed.
     photo: str | None = Field(default=None, max_length=512)
     photo_thumb: str | None = Field(default=None, max_length=512)
+    # "image" or "video" — which element the client renders for `photo`.
+    # Every attachment that predates video comments is a photo.
+    media_kind: str = Field(default="image", max_length=16)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -460,6 +512,8 @@ class CommentPublic(SQLModel):
     body: str
     photo: str | None = None
     photo_thumb: str | None = None
+    # "image" or "video"; meaningless when `photo` is None.
+    media_kind: Literal["image", "video"] = "image"
     created_at: datetime | None = None
     # Horn-honk tally for the comment itself, so the list renders honk
     # buttons without a request per comment.
