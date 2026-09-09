@@ -6,6 +6,7 @@
 // noise or hides them completely.
 
 import { ApiError } from "@/client"
+import { isAbortError } from "./errorProvenance"
 
 export type QueryErrorDecision =
   | { kind: "logout" }
@@ -81,9 +82,9 @@ export function classifyQueryError(
   if (code && NETWORK_CODES.includes(code)) {
     return { kind: "ignore", reason: `network (${code})` }
   }
-  // A request dropped because the page moved on. The wording differs per
-  // engine, so go by the name the spec fixes.
-  if (error instanceof Error && error.name === "AbortError") {
+  // A request dropped because the page moved on. Shared with the global
+  // handlers so the two paths can't drift apart.
+  if (isAbortError(error)) {
     return { kind: "ignore", reason: "aborted" }
   }
   if (error instanceof TypeError) {
