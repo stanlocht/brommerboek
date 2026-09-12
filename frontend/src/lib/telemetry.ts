@@ -6,6 +6,7 @@
 // Everything here must be inert on failure: reporting an error may never
 // throw, loop, or block the UI.
 
+import { isBrowserNotice } from "./browserNoise"
 import { isForeignError } from "./errorProvenance"
 
 const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")
@@ -78,11 +79,9 @@ function isForeign(error: unknown): boolean {
 // components and promise rejections nobody awaited.
 export function installGlobalErrorReporting(): void {
   window.addEventListener("error", (event) => {
-    // Errors from cross-origin scripts (browser extensions, injected code —
-    // we bundle everything same-origin) are masked by the browser to a bare
-    // "Script error." with no stack or location. Nothing to act on, so
-    // don't let them fill the error tracker.
-    if (event.error == null && /^Script error\.?$/.test(event.message)) return
+    // Housekeeping notices the browser routes through this handler with no
+    // Error attached — nothing to act on, so don't let them fill the tracker.
+    if (isBrowserNotice(event.error, event.message)) return
     if (isForeign(event.error)) return
     reportError(event.error ?? event.message, "window.onerror")
   })
